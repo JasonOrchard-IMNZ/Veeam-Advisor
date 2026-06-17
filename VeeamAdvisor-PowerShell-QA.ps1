@@ -277,7 +277,7 @@ function Test-GuidFilter {
 # ══════════════════════════════════════════════════════════════════════════════
 if (-not $SkipModuleA) {
 
-    Write-Head "MODULE A — URL VALIDATION (65 URLs — v1.2 fixed)"
+    Write-Head "MODULE A — URL VALIDATION (72 URLs — v1.3)"
 
     # Browser User-Agent that bypasses basic bot detection
     $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -297,6 +297,8 @@ if (-not $SkipModuleA) {
         'BP: StoreOnce repo'               = 'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_repositories/storeonce.html'
         'BP: Repo introduction'            = 'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_repositories/'
         'BP: Enterprise design >5000 VMs'  = 'https://bp.veeam.com/vbr/2_Design_Structures/D_enterprise_design/enterprise_design.html'
+        'BP: Design structures (overview)' = 'https://bp.veeam.com/vbr/2_Design_Structures/'
+        'BP: Tape sizing & GFS media pools' = 'https://bp.veeam.com/vbr/3_Build_structures/B_Veeam_Components/tape.html'
 
         # ── helpcenter.veeam.com — main sections ─────────────────────────────
         'HC: vSphere home'                 = 'https://helpcenter.veeam.com/docs/backup/vsphere/'
@@ -305,8 +307,11 @@ if (-not $SkipModuleA) {
         'HC: Enterprise Manager home'      = 'https://helpcenter.veeam.com/docs/backup/em/'
         'HC: VeeamONE deployment'          = 'https://helpcenter.veeam.com/docs/one/deployment/'
         'HC: System requirements v13'      = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements.html?ver=13'
-        'HC: VBR Licensing'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/licensing.html'
+        'HC: VBR Licensing'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/licensing.html?ver=13'
         'HC: Veeam Backup for Azure'       = 'https://helpcenter.veeam.com/docs/vba/userguide/'
+        'HC: Agent management (quickstart)' = 'https://helpcenter.veeam.com/docs/backup/agents/quickstart.html'
+        'HC: Backup repo system requirements' = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_repo.html'
+        'Veeam Licensing Policy (Capacity Pack)' = 'https://www.veeam.com/legal/licensing-policy.html'
 
         # ── helpcenter.veeam.com — vSphere feature pages ─────────────────────
         'HC: Backup copy'                  = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
