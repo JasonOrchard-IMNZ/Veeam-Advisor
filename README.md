@@ -130,8 +130,8 @@ the v13 Identity Service port (443) so they work against both v12 and v13
 .\VeeamAdvisor-PowerShell.ps1 -VBRServer vbr01.lab.local -Credential (Get-Credential)
 ```
 
-`VeeamAdvisor-PowerShell-QA.ps1` is the developer QA harness (Module A: 67 doc
-URLs; Module B: 11 VBR cmdlets; Module C: 39 BP-logic scenarios, 160+
+`VeeamAdvisor-PowerShell-QA.ps1` is the developer QA harness (Module A: 72 doc
+URLs; Module B: 13 VBR cmdlets; Module C: 39 BP-logic scenarios, 160+
 assertions). `VeeamAdvisor-PowerShell.ps1` is the customer-facing tool — it
 pulls and publishes the same data the app consumes (including a live coverage /
 orphaned-job analysis). Both write timestamped results to a log file.
