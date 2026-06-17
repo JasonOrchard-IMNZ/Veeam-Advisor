@@ -1,0 +1,949 @@
+================================================================================
+  Veeam Advisor — Sizing & Methodology Reference
+  Copyright (c) 2026 Jason Orchard. All Rights Reserved.
+  PROPRIETARY AND CONFIDENTIAL. No part may be copied, reproduced, modified,
+  distributed, or used in any form without the prior express written permission
+  of the Author. See the LICENSE file for terms.
+================================================================================
+
+================================================================================
+  VEEAM ADVISOR v1.0 — SIZING CALCULATION REFERENCE
+  For third-party validation against Veeam official recommendations
+================================================================================
+  Sources used:
+    [BP]  bp.veeam.com/vbr  — Veeam Best Practices Guide
+    [HC]  helpcenter.veeam.com/docs/backup/vsphere/
+    [SS]  Veeam Sizing & Scoping Tool (internal reference values)
+    [CB]  Veeam Cookbook — veeamcookbook.com
+    [KB]  Broadcom KB321259 — NIC selection guide
+    [SR]  helpcenter.veeam.com/docs/vbr/userguide/system_requirements.html?ver=13
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — INPUT PARAMETERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Input             Variable    Source              Default
+  ─────────────────────────────────────────────────────────────────────────────
+  VM count          vms         VMC.log / form      50
+  Source data (TB)  dataTB      VMC.log / form      5
+  Hosts             hosts       VMC.log / form      ceil(vms/20)
+  Clusters          clusters    VMC.log / form      0
+  Jobs              jobs        VMC.log / form      ceil(vms/10)
+  Existing proxies  proxyEx     VMC.log / form      0
+  Retention (days)  ret         VMC.log / form      14
+  Daily change rate chR         form (%)            5%  → stored as 0.05
+  Backup window     bkW         form (hours)        8
+  Backup mode       mode        form                FFI (forward)
+  Platform          platform    VMC.log             HyperV
+  Proxy NIC (GbE)   nicGbE      form / auto-detect  10 (or 0=HotAdd)
+
+  GFS tiers (restore points):
+    gfsW   Weekly    VMC.log / form    0
+    gfsM   Monthly   VMC.log / form    0
+    gfsY   Yearly    VMC.log / form    0
+
+  Backup mode codes (from form dropdown):
+    "forward"    = Forever Forward Incremental (FFI)  — Veeam default
+    "active"     = Active Full + Incrementals
+    "synthetic"  = Synthetic Full + Incrementals
+    "reverse"    = Reverse Incremental
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — PROXY SERVER SIZING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
+             D_backup_proxies/vmware_proxies.html
+        [SS] Veeam sizing tool internal logic
+        [SR] Veeam system requirements v13
+
+─── 2.1 Task Unit ──────────────────────────────────────────────────────────────
+
+  VMware:    taskUnit = vms × 2
+  HyperV:    taskUnit = vms
+  Other:     taskUnit = vms
+
+  RATIONALE (VMware): Veeam processes one virtual disk per task, not one VM.
+  The average VMware VM has 2 disks (system + data). [BP: proxy design]
+  HyperV proxies work at the VM level — each VM = one task. [BP: HV proxy]
+
+  CODE:
+    var taskUnit = (platform === 'VMware') ? vms * 2 : vms;
+
+─── 2.2 Tasks Needed ───────────────────────────────────────────────────────────
+
+  tasksNeeded = max(4, min(ceil(taskUnit / bkW), 128))
+
+  RATIONALE: All tasks must complete within the backup window.
+  Minimum of 4 ensures a valid result for very small environments.
+  Maximum of 128 caps the estimate for very large environments. [BP]
+
+  EXAMPLE: 200 HV VMs, 8-hour window
+    taskUnit    = 200
+    tasksNeeded = max(4, min(ceil(200/8), 128))
+                = max(4, min(25, 128))
+                = 25 tasks
+
+  CODE:
+    var tasksNeeded = Math.max(4, Math.min(Math.ceil(taskUnit / bkW), 128));
+
+─── 2.3 NIC Bandwidth Cap (NBD mode only) ──────────────────────────────────────
+
+  SOURCE: [BP] bp.veeam.com — transport mode guidance
+          [KB] Broadcom KB321259 — NIC selection for virtual machines
+
+  ONLY applies to NBD (Network Block Device / LAN transport) mode.
+  HotAdd and Direct SAN modes bypass the NIC entirely — set nicGbE = 0.
+
+  usable MB/s = nicGbE × 1000 ÷ 8 × 0.60
+  nicTaskCap  = floor(usable / 52)
+
+  CONSTANTS:
+    0.60  = 60% NIC utilisation — Veeam BP recommended maximum [BP]
+    52    = MB/s per concurrent backup task (compressed data, typical workload)
+            Derivation: ~400 Mbps per task observed in Veeam sizing tool [SS]
+            400 Mbps ÷ 8 = 50 MB/s; rounded up to 52 for headroom
+
+  EXAMPLE: 10 GbE NIC
+    nicMBps    = 10 × 1000 ÷ 8 × 0.60 = 750 MB/s usable
+    nicTaskCap = floor(750 / 52)        = 14 concurrent tasks
+
+  EXAMPLE: 1 GbE NIC (bottleneck scenario)
+    nicMBps    = 1 × 1000 ÷ 8 × 0.60  = 75 MB/s usable
+    nicTaskCap = floor(75 / 52)         = 1 concurrent task
+    → 1 GbE NIC is a severe bottleneck; upgrade to 10 GbE recommended
+
+  EXAMPLE: 2.5 GbE NIC
+    nicMBps    = 2.5 × 1000 ÷ 8 × 0.60 = 187 MB/s usable
+    nicTaskCap = floor(187 / 52)          = 3 concurrent tasks
+
+  CODE:
+    if (nicGbE > 0) {
+      nicMBps    = Math.round(nicGbE * 1000 / 8 * 0.6);
+      nicTaskCap = Math.max(1, Math.floor(nicMBps / 52));
+    }
+
+  NOTE: VMC.log does NOT store NIC link speed. The adapter description
+  (e.g. "vmxnet3 Ethernet Adapter") allows inference:
+    vmxnet3       → 10 GbE (VMware paravirtual)  [KB, SR]
+    ens192        → 10 GbE (VMware Linux vmxnet3) [KB]
+    Hyper-V NIC   → variable (host-dependent)    [SR]
+    E1000/E1000e  → 1 GbE (emulated, legacy)     [KB: not recommended]
+    VirtIO        → 10 GbE (KVM/AHV/Proxmox)     [SR]
+
+─── 2.4 Tasks Per Proxy ────────────────────────────────────────────────────────
+
+  SOURCE: [BP] Proxy design — tasks per proxy server
+
+  tasksPerProxy = (nicGbE > 0) ? min(12, nicTaskCap) : 12
+
+  RATIONALE: Veeam Best Practice recommends a maximum of 12 concurrent tasks
+  per virtual proxy server. This is a vCPU/RAM constraint — each task requires
+  ~1 vCPU and ~2 GB RAM. [BP: vmware_proxies.html]
+
+  Physical proxies can support more tasks (1 core per task), but virtual
+  proxies should not exceed 8 vCPU to avoid VMware/HV co-stop penalty. [BP]
+  12 tasks maps to 6 vCPU × 2 tasks/vCPU — standard virtual proxy config.
+
+  CODE:
+    var tasksPerProxy = (nicGbE > 0) ? Math.min(12, nicTaskCap) : 12;
+
+─── 2.5 Proxy Count ────────────────────────────────────────────────────────────
+
+  pCnt = max(2, ceil(tasksNeeded / tasksPerProxy))
+
+  RATIONALE: Minimum 2 proxies for resilience (no single point of failure).
+  Count scales with tasks needed. [BP, SS]
+
+  EXAMPLE: 25 tasks needed, 10 GbE NIC, no bottleneck
+    tasksPerProxy = 12
+    pCnt          = max(2, ceil(25/12)) = max(2, 3) = 3 proxies
+
+  EXAMPLE: 25 tasks needed, 1 GbE NIC (bottleneck)
+    tasksPerProxy = min(12, 1) = 1
+    pCnt          = max(2, ceil(25/1)) = 25 proxies  ← upgrade NIC!
+
+  CODE:
+    pCnt = Math.max(2, Math.ceil(tasksNeeded / tasksPerProxy));
+
+─── 2.6 Proxy Specification (virtual) ──────────────────────────────────────────
+
+  SOURCE: [BP] bp.veeam.com — proxy design
+          [SR] Veeam system requirements
+
+  pVCPU = 6   (fixed for virtual proxies)
+  pRAM  = 14  (fixed for virtual proxies — GB)
+
+  RATIONALE:
+    6 vCPU = standard virtual proxy config. Supports up to 12 concurrent
+    tasks (2 tasks per vCPU × 6). Do NOT exceed 8 vCPU per virtual proxy
+    to avoid hypervisor co-stop scheduling degradation. [BP]
+
+    14 GB RAM = 2 GB per task × 6 tasks + 2 GB OS overhead.
+    Veeam requires 2 GB RAM per concurrent task. [SR]
+
+  Physical proxy: pCPU = tasksNeeded cores, pRAM = 2 + pCPU × 2 GB
+  Physical allows 1 task per core (no vCPU sharing overhead). [BP]
+
+─── 2.7 Minimum Recommended Proxy Count (cluster-based) ────────────────────────
+
+  SOURCE: [BP] HV proxy design — one proxy per cluster node recommended
+
+  recProxies = (clusters > 0)
+               ? max(2, clusters × 2)          — HV: 2 per cluster
+               : max(2, ceil(hosts / 4))       — VMware: 1 per 4 hosts
+
+  RATIONALE: For Hyper-V, deploy at least one proxy per cluster node to
+  enable HotAdd (on-host) mode and avoid cross-host NBD traffic. Minimum
+  2 for redundancy. [BP: hyperv_proxies.html]
+
+  For VMware, one proxy per 4 hosts is a common starting point, scaled
+  by backup window calculation above. [BP: vmware_proxies.html]
+
+  CODE:
+    var recProxies = clusters > 0
+      ? Math.max(2, clusters * 2)
+      : Math.max(2, Math.ceil(hosts / 4));
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — BACKUP SERVER SIZING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
+               D_Veeam_Backup_Server/backup_server_introduction.html
+          [SR] Veeam system requirements v13
+
+─── 3.1 Concurrent Jobs Estimate ───────────────────────────────────────────────
+
+  concJ = ceil(jobs × 1.15)
+
+  RATIONALE: Not all jobs run simultaneously, but there is always some
+  overlap (job chains, log backup subs, copy jobs). 15% overlap factor
+  gives a realistic peak estimate. [SS]
+
+  CODE:
+    var concJ = Math.ceil(jobs * 1.15);
+
+─── 3.2 Backup Server CPU ──────────────────────────────────────────────────────
+
+  bsC = max(2, ceil(concJ / 10))
+
+  RATIONALE: Veeam recommends 1 CPU core per 10 concurrent jobs.
+  Minimum 2 cores. [BP: backup_server_introduction.html, SR]
+
+  EXAMPLE: 50 jobs
+    concJ = ceil(50 × 1.15) = 58
+    bsC   = max(2, ceil(58/10)) = max(2, 6) = 6 vCPU
+
+  CODE:
+    var bsC = Math.max(2, Math.ceil(concJ / 10));
+    if (D.bsCPU) bsC = Math.max(bsC, D.bsCPU);  // never downsize existing
+
+─── 3.3 Backup Server RAM ──────────────────────────────────────────────────────
+
+  bsR = max(8, 4 + ceil(concJ / 10) × 4)
+
+  RATIONALE: 4 GB base + 4 GB per 10 concurrent jobs. Minimum 8 GB.
+  [BP: backup_server_introduction.html, SR]
+
+  EXAMPLE: 58 concurrent jobs
+    bsR = max(8, 4 + ceil(58/10) × 4) = max(8, 4 + 6×4) = max(8, 28) = 28 GB
+
+  VALIDATION NOTE: Veeam SR states minimum 8 GB for up to 5 jobs; above this,
+  add 4 GB per additional 10 jobs. Our formula matches this exactly.
+
+  CODE:
+    var bsR = Math.max(8, 4 + Math.ceil(concJ / 10) * 4);
+    if (D.bsRAM) bsR = Math.max(bsR, D.bsRAM);  // never downsize existing
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — REPOSITORY SIZING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
+               D_backup_repository/repository_introduction.html
+          [CB] veeamcookbook.com — repository sizing
+          [HC] helpcenter.veeam.com — backup modes
+
+─── 4.1 Compressed Full Backup Size ────────────────────────────────────────────
+
+  fullGB = dataTB × 1024 × 0.5
+
+  RATIONALE: Veeam achieves approximately 2:1 compression+deduplication
+  ratio on typical mixed workloads (Windows servers, VMs). This gives a
+  50% size reduction — a 10 TB source produces ~5 TB of backup data. [CB, BP]
+
+  NOTE: This is a conservative estimate. Highly incompressible data
+  (encrypted databases, media files) may achieve less. Highly compressible
+  data (sparse disks, text files) may achieve more.
+
+  EXAMPLE: 10 TB source
+    fullGB = 10 × 1024 × 0.5 = 5,120 GB (5.0 TB)
+
+  CODE:
+    var fullGB = dataTB * 1024 * 0.5;
+
+─── 4.2 Daily Incremental Size ─────────────────────────────────────────────────
+
+  incrGB = fullGB × chR
+
+  RATIONALE: Daily change rate applied to the compressed full size gives
+  the size of one incremental backup. [BP, CB]
+
+  EXAMPLE: 5,120 GB full, 5% change rate
+    incrGB = 5,120 × 0.05 = 256 GB per day
+
+  CODE:
+    var incrGB = fullGB * chR;
+
+─── 4.3 Retention Chain Size (by backup mode) ──────────────────────────────────
+
+  SOURCE: [HC] helpcenter.veeam.com/docs/backup/vsphere/backup_job_methods.html
+          [BP] Backup mode comparison
+
+  MODE 1 — Active Full + Incrementals ("active")
+  ─────────────────────────────────────────────────
+    fc    = ceil(ret / 7)             ← one full per week
+    retGB = fullGB × fc + incrGB × (ret - fc)
+
+    RATIONALE: Active Full runs weekly (every 7 days). Between fulls, daily
+    incrementals accumulate. Total chain = N fulls + remaining daily incrs. [HC]
+
+    EXAMPLE: 14-day retention, 5,120 GB full, 256 GB/day incremental
+      fc    = ceil(14/7) = 2 fulls
+      retGB = 5,120 × 2 + 256 × (14-2)
+            = 10,240 + 3,072 = 13,312 GB (13.0 TB)
+
+  MODE 2 — Synthetic Full + Incrementals ("synthetic")
+  ──────────────────────────────────────────────────────
+    retGB = fullGB + incrGB × (ret - 1)
+
+    RATIONALE: One active full at creation, then weekly synthetic fulls
+    (no extra storage — synthesised in-place). Only the most recent synthetic
+    full + retention window of incrementals is stored. [HC]
+
+    EXAMPLE: 14-day retention
+      retGB = 5,120 + 256 × (14-1)
+            = 5,120 + 3,328 = 8,448 GB (8.25 TB)
+
+  MODE 3 — Forever Forward Incremental ("forward", default)
+  ──────────────────────────────────────────────────────────
+    retGB = fullGB + incrGB × ret
+
+    RATIONALE: One initial full, then daily incrementals forever. The full
+    is never re-written; the chain grows by one incremental per day. [HC]
+    Storage = 1 full + ret days of incrementals.
+
+    EXAMPLE: 14-day retention
+      retGB = 5,120 + 256 × 14
+            = 5,120 + 3,584 = 8,704 GB (8.5 TB)
+
+  MODE 4 — Reverse Incremental ("reverse")
+  ─────────────────────────────────────────
+    retGB = fullGB + incrGB × ret
+
+    RATIONALE: Same chain structure as FFI for sizing purposes — one full
+    equivalent at the most recent point plus ret incrementals rolling back.
+    Actual I/O differs but storage footprint is equivalent. [HC]
+
+  CODE:
+    if (mode === 'active') {
+      var fc = Math.ceil(ret / 7);
+      retGB  = fullGB * fc + incrGB * (ret - fc);
+    } else if (mode === 'synthetic') {
+      retGB = fullGB + incrGB * (ret - 1);
+    } else {                      // forward (FFI) or reverse
+      retGB = fullGB + incrGB * ret;
+    }
+
+─── 4.4 GFS Restore Points ─────────────────────────────────────────────────────
+
+  SOURCE: [HC] helpcenter.veeam.com/docs/backup/vsphere/gfs_retention_policy.html
+          [BP] Long-term retention guidance
+
+  gfsWeeklyGB  = fullGB × gfsW
+  gfsMonthlyGB = fullGB × gfsM
+  gfsYearlyGB  = fullGB × gfsY
+  gfsTotalGB   = gfsWeeklyGB + gfsMonthlyGB + gfsYearlyGB
+
+  RATIONALE: Each GFS restore point is a standalone full backup (compressed).
+  GFS points are ADDITIONAL to the retention chain — they are separate backup
+  files kept beyond the normal retention. Each tier adds unique points:
+    Weekly  = N additional weekly fulls (not covered by daily retention)
+    Monthly = N additional monthly fulls (not covered by weekly)
+    Yearly  = N additional yearly fulls (not covered by monthly)
+  Additive model used — tiers do not overlap in this calculation. [HC, BP]
+
+  EXAMPLE: 4 weekly, 12 monthly, 7 yearly GFS; 5,120 GB full
+    gfsWeeklyGB  = 5,120 × 4  = 20,480 GB
+    gfsMonthlyGB = 5,120 × 12 = 61,440 GB
+    gfsYearlyGB  = 5,120 × 7  = 35,840 GB
+    gfsTotalGB   = 117,760 GB (115 TB)
+
+  NOTE: In practice Veeam uses a single file per GFS point that is shared
+  across tiers where possible. This additive model is a conservative
+  (over-estimate) approach — actual storage may be 10-30% less. [CB]
+
+  CODE:
+    var gfsWeeklyGB  = gfsW > 0 ? fullGB * gfsW : 0;
+    var gfsMonthlyGB = gfsM > 0 ? fullGB * gfsM : 0;
+    var gfsYearlyGB  = gfsY > 0 ? fullGB * gfsY : 0;
+    var gfsTotalGB   = gfsWeeklyGB + gfsMonthlyGB + gfsYearlyGB;
+
+─── 4.5 Total Repository Size (with overhead) ──────────────────────────────────
+
+  totGB  = (retGB + gfsTotalGB) × 1.20
+  repoTB = round(totGB / 1024, 1 decimal)
+
+  RATIONALE: 20% overhead for:
+    - Metadata and index files (Veeam VBM, VBK index blocks)
+    - Free space required for backup processing (synthetic operations)
+    - Veeam recommends maintaining ≥20% free space at all times [BP]
+    This overhead is consistent with Veeam's own sizing tool. [SS]
+
+  EXAMPLE (continued from above, no GFS):
+    retGB  = 8,704 GB (FFI, 14-day, 10TB source, 5% change)
+    totGB  = 8,704 × 1.20 = 10,445 GB
+    repoTB = round(10,445/1024, 1) = 10.2 TB
+
+  CODE:
+    var totGB  = (retGB + gfsTotalGB) * 1.2;
+    var repoTB = Math.round(totGB / 1024 * 10) / 10;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SOURCE: [SR] helpcenter.veeam.com/docs/vbr/userguide/system_requirements_via.html?ver=13
+          [HC] helpcenter.veeam.com/docs/backup/vsphere/veeam_backup_appliance.html
+
+  The VSA is an all-in-one Linux appliance: backup server + proxy + repo.
+  Available in v13+ only. Combines bsC/bsR + proxy (pVCPU/pRAM).
+
+─── 5.1 VSA vCPU ───────────────────────────────────────────────────────────────
+
+  vsaC = max(8, bsC + pVCPU)
+
+  RATIONALE: VSA minimum is 8 vCPU per Veeam requirements. [SR]
+  Combined backup server + proxy vCPU, with 8 vCPU floor.
+
+  CODE:
+    var vsaC = Math.max(8, bsC + pVCPU);
+
+─── 5.2 VSA RAM ────────────────────────────────────────────────────────────────
+
+  vsaR = max(16, bsR + pRAM)
+
+  RATIONALE: VSA minimum is 16 GB RAM per Veeam requirements. [SR]
+  Combined backup server + proxy RAM, with 16 GB floor.
+
+  CODE:
+    var vsaR = Math.max(16, bsR + pRAM);
+
+─── 5.3 VSA Disk 1 (OS + Software) ────────────────────────────────────────────
+
+  vD1 = max(480, bsR × 4)
+
+  RATIONALE: Veeam requires minimum 480 GB for OS disk on VSA. [SR]
+  The 4× RAM multiplier accounts for swap space, Veeam database, logs,
+  and component installation. For large RAM configs this may grow.
+
+  EXAMPLE: 28 GB RAM
+    vD1 = max(480, 28 × 4) = max(480, 112) = 480 GB
+
+  CODE:
+    var vD1 = Math.max(480, bsR * 4);
+
+─── 5.4 VSA Disk 2+ (Backup Repository) ───────────────────────────────────────
+
+  vD2 = max(240, ceil(totGB / 1024) × 1024)
+
+  RATIONALE: Repository disk is rounded up to the nearest TB. Minimum 240 GB
+  as a practical lower bound. VSA uses LVM — additional disks can be added
+  and merged into the pool online. [HC, SR]
+
+  EXAMPLE: totGB = 10,445 GB
+    vD2 = max(240, ceil(10,445/1024) × 1024) = max(240, 11×1024) = 11,264 GB
+        = 11.0 TB repository disk
+
+  CODE:
+    var vD2 = Math.max(240, Math.ceil(totGB / 1024) * 1024);
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — WORKED EXAMPLE (end-to-end validation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Scenario: 200 Hyper-V VMs, 20 TB source, 5% change, 14-day retention,
+            4 weekly + 12 monthly GFS, 8-hour window, FFI mode, 10 GbE NIC,
+            50 jobs
+
+  ─── Proxy sizing ──────────────────────────────────────────────────────────
+  platform   = HyperV → taskUnit = vms = 200
+  tasksNeeded = max(4, min(ceil(200/8), 128)) = 25
+  nicMBps    = 10 × 1000/8 × 0.60 = 750 MB/s
+  nicTaskCap = floor(750/52) = 14
+  tasksPerProxy = min(12, 14) = 12
+  pCnt       = max(2, ceil(25/12)) = max(2, 3) = 3 proxies
+  pVCPU      = 6  pRAM = 14 GB  (each proxy)
+
+  ─── Backup server ─────────────────────────────────────────────────────────
+  concJ = ceil(50 × 1.15) = 58
+  bsC   = max(2, ceil(58/10)) = 6 vCPU
+  bsR   = max(8, 4 + ceil(58/10) × 4) = max(8, 4+24) = 28 GB
+
+  ─── Repository ────────────────────────────────────────────────────────────
+  fullGB  = 20 × 1024 × 0.5 = 10,240 GB
+  incrGB  = 10,240 × 0.05  =    512 GB/day
+  retGB   = 10,240 + 512×14 = 17,408 GB  (FFI mode)
+  gfsW    = 10,240 × 4      = 40,960 GB
+  gfsM    = 10,240 × 12     = 122,880 GB
+  gfsTotal= 163,840 GB
+  totGB   = (17,408 + 163,840) × 1.20 = 217,498 GB
+  repoTB  = round(217,498/1024, 1) = 212.4 TB
+
+  ─── VSA (if applicable) ───────────────────────────────────────────────────
+  vsaC = max(8, 6+6)  = 12 vCPU
+  vsaR = max(16, 28+14) = 42 GB RAM
+  vD1  = max(480, 28×4) = 480 GB OS disk
+  vD2  = max(240, ceil(217,498/1024)×1024) = 213×1024 = 218,112 GB ≈ 213 TB
+
+  ─── Expected app output ───────────────────────────────────────────────────
+  Proxies:    3 × (6 vCPU / 14 GB)
+  BS:         6 vCPU / 28 GB RAM
+  Repo:       212.4 TB (without GFS: 20.4 TB)
+  VSA:        12 vCPU / 42 GB / 480 GB OS / 213 TB data disk
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — STORAGE GROWTH OVER TIME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The growth projection table shows cumulative storage at 6 checkpoints.
+  Calculation per checkpoint (days):
+
+  Active Full mode:
+    fc  = ceil(days/7)                     ← fulls taken so far
+    sz  = fullGB×fc + incrGB×(days-fc)     ← rolling chain size
+
+  Synthetic Full / FFI:
+    sz  = fullGB + incrGB×(days-1)
+
+  GFS accumulation added to each checkpoint:
+    wksPassed = floor(days/7)
+    mthsPassed = floor(days/30)
+    yrsPassed  = floor(days/365)
+    gfsAcc = (min(wksPassed,gfsW) + min(mthsPassed,gfsM) + min(yrsPassed,gfsY)) × fullGB
+
+  Total at checkpoint:
+    sz = max(fullGB, (sz + gfsAcc) × 1.20)   ← 20% overhead applied
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — CONSTANTS AND ASSUMPTIONS SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Constant                Value   Source / Rationale
+  ─────────────────────────────────────────────────────────────────────────────
+  Compression ratio       2:1     Veeam typical for mixed VM workloads [CB,BP]
+  Change rate default     5%      Industry average for typical environments [SS]
+  NIC utilisation cap     60%     Veeam BP recommendation for NBD [BP]
+  MB/s per backup task    52      ~400 Mbps/task from sizing tool [SS]
+  Tasks per virtual proxy 12      Veeam BP max for virtual proxy [BP]
+  Max virtual proxy vCPU  8       Co-stop penalty threshold [BP]
+  RAM per task            2 GB    Veeam system requirement [SR]
+  Overhead factor         1.20    Repository free space + metadata [BP]
+  BS core per 10 jobs     1       Veeam system requirement [SR]
+  BS base RAM             4 GB    Veeam system requirement [SR]
+  BS RAM per 10 jobs      4 GB    Veeam system requirement [SR]
+  Minimum BS RAM          8 GB    Veeam system requirement [SR]
+  VSA minimum vCPU        8       Veeam appliance requirement [SR]
+  VSA minimum RAM         16 GB   Veeam appliance requirement [SR]
+  VSA minimum OS disk     480 GB  Veeam appliance requirement [SR]
+  VMware avg disks/VM     2       Veeam proxy design guidance [BP]
+  Disk per task (VMware)  1       Veeam VDDK transport model [BP]
+  Fulls per week (active) 1       Active Full mode — weekly [HC]
+  Min proxies             2       Resilience/HA requirement [BP]
+  Job overlap factor      1.15    15% concurrency buffer [SS]
+
+  ─────────────────────────────────────────────────────────────────────────────
+  CODE IMPLEMENTATION NOTE
+  ─────────────────────────────────────────────────────────────────────────────
+  As of the v1.0 production build, these values are defined as named JavaScript
+  constants at the top of calculate() rather than inline numeric literals. The
+  numeric values are unchanged — this is a readability/maintainability refactor.
+
+    COMPRESSION_RATIO  = 0.5    (2:1 compression)
+    REPO_OVERHEAD      = 1.2    (20% overhead factor)
+    NIC_UTILISATION    = 0.6    (60% NIC cap)
+    MBPS_PER_TASK      = 52     (MB/s per concurrent task)
+    MAX_TASKS_VPROXY   = 12     (tasks per virtual proxy)
+    JOB_OVERLAP        = 1.15   (15% concurrency buffer)
+    BS_CORES_PER_10J   = 1      (BS cores per 10 jobs)
+    BS_RAM_BASE        = 4      (BS base RAM, GB)
+    BS_RAM_PER_10J     = 4      (BS RAM per 10 jobs, GB)
+    PROXY_VCPU         = 6      (virtual proxy vCPU)
+    PROXY_RAM          = 14     (virtual proxy RAM, GB)
+
+  All formulas in this document remain accurate; e.g. "fullGB = dataTB × 1024 ×
+  0.5" is implemented as "fullGB = dataTB * 1024 * COMPRESSION_RATIO".
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 9 — KNOWN LIMITATIONS AND DEVIATIONS FROM IDEAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. COMPRESSION RATIO (2:1)
+     Conservative estimate for mixed workloads. Actual ratios:
+       SQL / structured data:    3:1 to 5:1
+       Media / encrypted data:   1.1:1 to 1.5:1
+       OS volumes:               2:1 to 4:1
+     Adjust dataTB input to compensate for known data types.
+
+  2. CHANGE RATE (5% default)
+     Varies significantly by workload:
+       Database servers:         10-30% daily
+       VDI / desktop VMs:        2-5% daily
+       File servers:             1-3% daily
+     VMC.log does not store per-VM change rates; only aggregate IncludedSize.
+
+  3. GFS ADDITIVE MODEL
+     Treats each GFS tier as fully independent new storage. In practice,
+     Veeam's GFS implementation can share blocks between tiers when the
+     restore point was the weekly/monthly boundary. Actual storage may be
+     10-30% lower than calculated. This is a conservative over-estimate.
+
+  4. PROXY NIC THROUGHPUT (52 MB/s per task)
+     Based on typical production observations from the Veeam sizing tool.
+     Actual throughput varies by:
+       Storage backend (SSD vs spinning disk):  wide variance
+       Network congestion:                       can halve throughput
+       VM disk count per task (VMware):          more disks = less per disk
+     Use 52 MB/s as a planning baseline; validate with a pilot.
+
+  5. HyperV SYNTHETIC ADAPTER SPEED
+     VMC.log records "Microsoft Hyper-V Network Adapter" without a speed.
+     Actual speed depends on the host's physical NIC and vSwitch config.
+     Manual input required — check via Get-NetAdapter on the proxy VM.
+
+  6. VCPU CONCURRENCY (virtual proxies)
+     12 tasks per 6 vCPU assumes 2 tasks per vCPU. This is consistent
+     with Veeam BP. However, CPU-intensive workloads (encryption, high
+     compression) may reduce effective task count to 1 per vCPU.
+
+  7. BACKUP WINDOW
+     The formula assumes uniform job start distribution across the window.
+     In practice, all jobs often start simultaneously, creating burst load.
+     Consider adding a 20-30% safety margin to pCnt for production.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 10 — INPUT MODES (MANUAL vs VMC.log)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The calculator supports two input modes. All sizing formulas in this
+  document apply identically to both.
+
+  MANUAL MODE (no VMC.log required)
+    Enter environment values directly (VMs, source TB, hosts, clusters, jobs,
+    retention, change rate, GFS points, backup window, NIC speed) and click
+    "Provide recommendations". The calculator detects manual entry in any
+    field and produces full sizing output: proxy count, repository capacity,
+    backup-server specs, VSA specs, and GFS storage projection.
+
+    What manual mode CANNOT assess: compliance findings that depend on parsed
+    log data — malware/ransomware events, encryption status, immutability,
+    CBT state, and BPA violations. The BP Review tab shows a "Manual sizing
+    mode" banner clarifying this. Fields left blank fall back to documented
+    defaults (e.g. VMs=50, dataTB=5, retention=14, change rate=5%).
+
+  LOG MODE (VMC.log uploaded)
+    Drag-drop a VMC.log. The parser auto-populates every detectable field
+    (shown with a green "auto" badge) and additionally evaluates the full
+    set of best-practice compliance findings. Any auto-detected value can
+    be overridden manually before calculating.
+
+  Findings are gated so that no compliance result is shown until either a log
+  is parsed OR manual values are entered — preventing false "passing" results
+  against an empty default state.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 11 — PROTECTION COVERAGE & ORPHANED JOB DETECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  These two findings expose protection gaps — VMs with no backup and jobs that
+  produce no restore points. Both are log-only (require a VMC.log upload) and
+  are skipped for VCSP providers (tenant data is managed separately).
+
+  ───────────────────────────────────────────────────────────────────────────
+  11.1  PROTECTION COVERAGE (estimate)
+  ───────────────────────────────────────────────────────────────────────────
+
+  GOAL
+    Estimate what fraction of the discovered virtual infrastructure is covered
+    by a backup, and flag the apparent unprotected count.
+
+  INPUTS (all parsed from the VMC.log)
+    infraVMs       = VMware "VirtualMachines" + Hyper-V "VirtualMachines"
+                     (from the "* Infrastructure: { ... VirtualMachines: N }"
+                     summary lines)
+    protectedVMs   = Σ VMsCount across all Type:Backup job lines (deduplicated
+                     by JobID)
+    agentProtected = EndpointBackup + EpAgentBackup
+                     (from the "[Agents]" summary line)
+
+  FORMULA
+    effProt        = min(protectedVMs + agentProtected, infraVMs)
+    unprotectedVMs = max(0, infraVMs − effProt)
+    coveragePct    = round(effProt / infraVMs × 100)
+
+    The min() cap prevents the gap being overstated: jobs can target whole
+    hosts/clusters, multiple jobs can overlap the same VMs, and agents may
+    protect physical machines that are not in the hypervisor inventory — any
+    of which can push (protectedVMs + agentProtected) above infraVMs.
+
+  SEVERITY
+    coveragePct < 50%   → Critical
+    coveragePct < 90%   → Warning
+    coveragePct ≥ 90%   → Passing (informational)
+
+  WHY IT IS AN ESTIMATE (stated in the finding text)
+    VMsCount on a job line may reflect container-level membership rather than
+    an expanded VM list; jobs overlap; and a VM protected by an in-guest agent
+    cannot always be matched 1:1 to a hypervisor VM. The finding therefore
+    directs the user to the Veeam ONE "Protected VMs" report (or Inventory →
+    VMs not in any job) for the authoritative list before acting.
+
+  WORKED EXAMPLES (from reference logs)
+    VMC.log:      23 infra, 0 VM-job,  67 agent → effProt=min(67,23)=23
+                  → 100% coverage, 0 unprotected
+                  (agents alone fully cover the infrastructure)
+    hv-b:         45 infra, 2 VM-job,   7 agent → effProt=9
+                  → 20% coverage, 36 potentially unprotected
+    CHC-PROD:    590 infra, 259 VM-job, 0 agent → effProt=259
+                  → 44% coverage, 331 potentially unprotected (Critical)
+
+  NOTE: Without the agent term, VMC.log would falsely report 0% / 23
+  unprotected. Including agent backups corrects this.
+
+  ───────────────────────────────────────────────────────────────────────────
+  11.2  ORPHANED / DISABLED JOBS
+  ───────────────────────────────────────────────────────────────────────────
+
+  GOAL
+    Identify jobs that exist but create no new restore points — they look like
+    protection but produce nothing, giving a false sense of safety.
+
+  DETECTION (per job, from Type:Backup and Type:Replica lines)
+    Disabled + empty   → ScheduleEnabled:False AND VMsCount:0
+    Schedule disabled  → ScheduleEnabled:False
+    No VMs assigned    → VMsCount:0
+    Replica disabled   → Replica job with ScheduleEnabled:False
+
+  OUTPUT
+    disabledJobCount   = number of jobs matching any condition above
+    orphanedJobs[]     = list of {id, vms, reason} for display
+
+  SEVERITY
+    Always Warning when one or more orphaned jobs are found. The finding lists
+    up to 6 job IDs with their reason and advises re-enabling, assigning VMs,
+    or removing the job after confirming nothing depends on it.
+
+  WORKED EXAMPLES (from reference logs)
+    CHC-PROD:  49 orphaned/disabled jobs detected
+    AKL-Prod:   8 orphaned/disabled jobs detected
+    vbr-sp:     2 jobs with no VMs assigned
+
+  ───────────────────────────────────────────────────────────────────────────
+  PRIVACY NOTE
+  ───────────────────────────────────────────────────────────────────────────
+  All coverage and orphan analysis runs entirely client-side in the browser.
+  The VMC.log is never uploaded or transmitted; parsed values (including VM
+  counts, job IDs, and agent counts) remain local to the user's machine.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 12 — MULTIPLE COLLECTION RUNS IN ONE VMC.log
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  A single VMC.log file can contain SEVERAL collection runs. The Veeam collector
+  appends a new run to the same file each time it executes, so a log gathered
+  over several days holds multiple full snapshots of the environment.
+
+  Each run begins with a marker line containing:
+      CmdLineParams: [STARTCOLLECTINFRASTATISTIC <guid>]
+
+  All parsed data lines — infrastructure VM counts, host/cluster counts, the
+  [Agents] summary, job counts, security settings, BPA violations — are repeated
+  once per run.
+
+  WHICH RUN IS PARSED
+    The tool parses the run with the LATEST DATE AND TIME — not merely the last
+    run by file position. It splits the file into runs (on the "Starting new
+    log" / STARTCOLLECTINFRASTATISTIC boundaries), reads each run's timestamp
+    from the per-line "[DD.MM.YYYY HH:MM:SS.mmm]" prefix, and analyses only the
+    run with the maximum timestamp. The reported state therefore always reflects
+    the most recent collection, even if the runs are not in chronological order
+    in the file.
+
+    Why the line prefix (not the "UTC Time:" header): the line prefix is always
+    dot-separated, zero-padded, and day-first (DD.MM.YYYY) across all logs,
+    whereas the "UTC Time:" header is locale-dependent (e.g. 24/05/2026 vs
+    5/25/2026) and ambiguous. The prefix is converted to a sortable
+    YYYYMMDDHHMMSSmmm number for comparison.
+
+    Rationale: a plain text match returns the FIRST occurrence, which would be
+    the OLDEST run. Selecting by latest timestamp makes every downstream field
+    read current data without changing the individual field-parsing logic.
+
+    Fallback: if the marker is absent (single-run logs, or older collector
+    formats), the entire file is parsed as one run.
+
+  Worked example:
+    Manux-VMC-CHC-PROD contains 3 runs (24, 25, 26 May 2026). The tool reports
+    the 26 May snapshot. VMC.log contains 9 runs; its agent count is taken from
+    the final run (63), not the first (67).
+
+  This collection-run-selection behaviour is implemented the same way in both
+  the single-server tool and Fleet View, since both parsers handle multi-run
+  logs the same way. The two parsers are separate codebases overall, though
+  (not byte-identical), so this describes this specific behaviour only, not
+  a guarantee that every other parsing rule is identical between the two.
+
+  DISPLAYING THE COLLECTION TIME
+    The selected run's start time is captured (as "DD Mon YYYY, HH:MM") and shown
+    to the user so they know how current the data is:
+      Single-server tool — in the loaded-file label, the parsed-detail grid
+        ("Collected" row), and the exported PDF header ("Data collected: ...").
+      Fleet View — per server in the file chips and the dashboard "Collected"
+        column, plus a collection-window note in the estate-totals header.
+    The time shown is when the most recent collection run BEGAN (i.e. when the
+    snapshot was taken), not the last line written within that run.
+
+
+END OF DOCUMENT
+Veeam Advisor v1.0 — Calculation Reference
+Generated: 2026-06-04  ·  Revised: 2026-06-08 (production build)
+Test validation: 160+ assertions (Module C, 39 BP-logic scenarios) across 11 real-world VMC.log files
+================================================================================
+
+
+================================================================================
+  LICENSING TAB — consumption parsing & methodology
+================================================================================
+
+  Source fields (parsed from the VMC.log LICENSE INFORMATION block):
+    - InstancesCount: { InLicense: N, Used: N.NN, LicenseState: <state> }
+        InLicense = instances the licence permits
+        Used      = instances currently consumed (may be fractional)
+    - JSON fallback: "InstancesInLicense" / "InstancesInUse"
+    - Per-workload:  <Workload>: { Count: <objects>, Multiplier: <weight>,
+                                   Instances: <consumed> }
+    - LicenseEdition, Type (Perpetual/Subscription/NFR/Evaluation/Rental/Free),
+      ExpirationDate, SupportExpirationDate
+    - Capacity (VUL): Capacity: { InLicense: N TB, Used: N TB }
+
+  Consumption percentage:
+      pct = round( Used / InLicense * 100 ), capped at 100
+
+  Threshold advisories (consumed %):
+      >= 90%  CRITICAL  — very little headroom; plan renewal / expansion
+      >= 75%  WARNING   — approaching limit
+       < 75%  OK        — healthy headroom
+
+  Expiry proximity (from ExpirationDate, dd/mm/yyyy):
+      expired         flagged red
+      <= 90 days      flagged amber with day count
+
+  How Veeam consumes licences (explainer shown in-tab; confirm against current
+  Veeam licensing programme as multipliers/rounding can change between releases):
+    - VM backup: 1 instance per protected VM (VMware/Hyper-V/Proxmox/AHV/etc.)
+    - Server agents: 1 instance per protected server
+    - Workstation agents: weighted lower (multiple share an instance)
+    - Applications / M365 / Entra ID: per protected object, workload multiplier
+    - Unstructured data (object storage, file backup, file-to-tape): by capacity,
+      per 500 GB of source protected, rounded up to the nearest instance
+    - Capacity (VUL) licences: measured in TB of front-end (source) data
+
+  Reference:
+    https://helpcenter.veeam.com/docs/vbr/userguide/licensing.html?ver=13
+
+
+================================================================================
+  V13 ACCURACY REVIEW — corrections per Veeam Help Center (post Veeam product feedback)
+================================================================================
+
+  1. VBR v13 BACKUP SERVER CPU/RAM
+     v13: bsC = 8 (fixed minimum)
+          bsR = round((16 + 0.5*concurrentJobs) * 10) / 10
+     v12: unchanged — bsC=max(2,ceil(concJ/10)), bsR=max(8,4+ceil(concJ/10)*4)
+     Detected-hardware floor (D.bsCPU/D.bsRAM) still applies on top of either.
+     Ref: helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html
+
+  2. HYPER-V TASK UNIT
+     taskUnit = (platform is VMware or HyperV) ? vms*AVG_DISKS_PER_VM : vms
+     AVG_DISKS_PER_VM = 2 (no per-VM disk count is present in a VMC.log, so an
+     average is used for both VMware and Hyper-V — both create 1 task per VM
+     disk per Veeam). Proxmox/AHV/KVM/Scale remain 1 task per VM.
+
+  3. SYNTHETIC FULL STORAGE
+     if(mode==='active' || mode==='synthetic'){
+       fc = ceil(ret/7); retGB = fullGB*fc + incrGB*(ret-fc);
+     } else { retGB = fullGB + incrGB*ret; }   // forever-forward unchanged
+     Both active and synthetic full create a NEW full backup file
+     periodically, producing a multi-full chain — not space-efficient like
+     forever-forward incremental.
+
+  4. REVERSE INCREMENTAL IN V13
+     UI-only change: the mode dropdown option relabels to "Reverse incremental
+     — legacy/upgraded jobs only (v13)" when v13 is selected; an advisory
+     fires in the storage tab when reverse+v13 are both selected. No formula
+     change — reverse's storage characteristics are not the same bug as
+     forever-forward, and existing upgraded jobs still need sizing.
+
+  5. VSA DISK 1
+     VD1_HARD_MIN=240, VD1_SMALL_REC=480, VD1_MEDIUM_REC=960
+     vD1 = vms<=50 ? 480 : vms<=250 ? 960 : max(960, ceil(bsR*4/480)*480)
+     vD1 = max(240, vD1)   // hard floor always enforced
+     Previously: vD1=max(480,bsR*4) — made 480GB an unconditional floor.
+
+  6. VSA RAM/CPU — REPOSITORY ROLE
+     vsaRepoTasks = max(1, tasksPerProxy)
+     vsaRepoCPU   = max(REPO_CORES_MIN=2, vsaRepoTasks)
+     vsaRepoRAM   = REPO_RAM_BASE=4 + REPO_RAM_PER_TASK=1 * vsaRepoTasks
+     vsaC = max(8, bsC + pVCPU + vsaRepoCPU)
+     vsaR = max(16, bsR + pRAM + vsaRepoRAM)
+     This is VSA's OWN repository role (its local Disk-2 repo), sized from
+     VSA's own task capacity — separate from fix 7's wider-estate repository
+     panel, which sums independently-detected physical/virtual repositories.
+
+  7. REPOSITORY COMPUTE SIZING (NEW)
+     Per repository (D.repoList, using each repo's own r.tasks/r.total_tb/r.refsyn):
+       cpu = max(REPO_CORES_MIN=2, tasks)
+       ram = REPO_RAM_BASE=4 + REPO_RAM_PER_TASK=1*tasks + (refsyn ? REFS_RAM_PER_TB=0.5*total_tb : 0)
+     Gateway-required flag if repo type is a dedupe appliance (DDBoost,
+     ExaGrid, HPStoreOnce*, Quantum, Infinidat, Fujitsu) or CifsShare (SMB).
+     Fallback when no repos parsed: cpu=max(2,round(pCnt*PROXY_VCPU/3)), ram=cpu*4
+     (BP shortcut: repo cores ~= proxy cores/3, RAM = repo cores*4GB).
+     Ref: helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_repo.html
+
+  8. PROXY RAM — PLATFORM-SPECIFIC
+     pTasks = MAX_TASKS_VPROXY = 12
+     VMware:  pRAM = 2 + 1*pTasks    = 14 GB   ("2 GB + 1 GB/task")
+     HyperV:  pRAM = 2 + 0.5*pTasks  =  8 GB   ("2 GB + 0.5 GB/task")
+     other:   pRAM = 4 + 4*pTasks    = 52 GB   ("4 GB + 4 GB/task", general-purpose/unstructured)
+     Old flat constant PROXY_RAM=14 superseded but left declared (unused) for
+     reference. All UI text describing proxy RAM now shows pRAMFormulaNote,
+     the actual formula that ran, rather than a static "2 GB/task" claim.
+
+  Each item validated against real parsed VMC.log data (not formula-only
+  checks) before being committed; see git log for full validation detail
+  per commit.

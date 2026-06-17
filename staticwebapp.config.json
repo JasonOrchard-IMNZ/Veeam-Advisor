@@ -1,0 +1,13 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/robots.txt","/*.txt","/*.json","/*.ps1","/Veeam_Advisor_v1.0.html"]
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-Robots-Tag": "noindex, nofollow, nosnippet, noarchive",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.anthropic.com"
+  },
+  "mimeTypes": { ".html": "text/html", ".txt": "text/plain", ".json": "application/json", ".ps1": "text/plain" }
+}

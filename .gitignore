@@ -1,0 +1,22 @@
+# Test output logs
+VeeamAdvisor-PowerShell-Results_*.txt
+Test-VeeamAdvisor-Results_*.txt
+VeeamAdvisor-VBR-Validation_*.txt
+
+# Standalone — kept out of repo deliverables intentionally (file-system only)
+veeam-advisor-forum-post.md
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local env
+.env
+*.local
