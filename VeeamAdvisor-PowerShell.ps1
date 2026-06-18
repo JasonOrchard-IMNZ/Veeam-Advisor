@@ -1,4 +1,8 @@
 #Requires -Version 5.1
+# NOTE: #Requires -Version 5.1 is the minimum for VBR v12 environments.
+#       VBR v13 requires Windows PowerShell 7.4.7 or later — if you are running
+#       against a v13 server, ensure PS 7.4.7+ is installed before running this
+#       script. See: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 # =============================================================================
 #  Copyright (c) 2026 Jason Orchard. All Rights Reserved.
 #  PROPRIETARY AND CONFIDENTIAL.
@@ -82,6 +86,8 @@
     Veeam Advisor v1.3 — VBR Validation (Module B standalone)
     Reference: helpcenter.veeam.com/docs/vbr/powershell/
     Validated against: Veeam Backup & Replication v13
+    PowerShell requirement: 5.1+ for VBR v12 environments; 7.4.7+ for VBR v13.
+    Ref: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 #>
 
 [CmdletBinding()]
