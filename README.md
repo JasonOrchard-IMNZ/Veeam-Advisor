@@ -110,7 +110,7 @@ data is. See Calculations.txt §12 for details.
 | `robots.txt` | Block all web crawlers |
 | `.github/workflows/azure-static-web-apps.yml` | CI/CD pipeline |
 
-## PowerShell scripts (5.1+ compatible)
+## PowerShell scripts (5.1+ for VBR v12 / 7.4.7+ for VBR v13)
 
 All enforce **TLS 1.2+** for HTTPS, and support connecting to a local console,
 a remote VBR server, or a VSA appliance by hostname or IP — prompting for
