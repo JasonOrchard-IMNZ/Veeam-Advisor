@@ -2,6 +2,7 @@
 VeeamAdvisor-PowerShell-Results_*.txt
 Test-VeeamAdvisor-Results_*.txt
 VeeamAdvisor-VBR-Validation_*.txt
+github-recovery-codes*.txt
 
 # Standalone — kept out of repo deliverables intentionally (file-system only)
 veeam-advisor-forum-post.md
