@@ -59,6 +59,7 @@ header h1{font-size:17px;font-weight:600;color:#9FE1CB;}
 .ver{font-size:11px;color:rgba(159,225,203,0.5);margin-left:auto;}
 .wrap{max-width:1200px;margin:0 auto;padding:1.8rem 1.5rem;display:grid;grid-template-columns:370px 1fr;gap:1.4rem;align-items:start;}
 @media(max-width:900px){.wrap{grid-template-columns:1fr;}}
+@media(max-width:640px){.ver{display:none;}header{gap:8px;padding:0 1rem;}.btn-export{padding:8px!important;}.btn-export-label{display:none;}}
 .card{background:var(--bg);border:0.5px solid var(--bd);border-radius:var(--rl2);overflow:hidden;margin-bottom:1.2rem;}
 .card:last-child{margin-bottom:0;}
 .ch{padding:12px 18px 10px;border-bottom:0.5px solid var(--bd);display:flex;align-items:center;gap:9px;}
@@ -215,8 +216,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
 /* Print / PDF styles */
 @media print{
   body{background:#fff!important;color:#000!important;font-size:11px;}
-  header,.wrap > div:first-child,
-  .wrap{display:block;padding:0;max-width:100%;}
+  #disclaimerBanner,header,.wrap{display:none!important;}
   .card{border:none;border-radius:0;margin:0;}
   #pdfReport{display:block!important;}
   .pdf-page{page-break-after:always;padding:20px;border-bottom:1px solid #ccc;}
@@ -265,8 +265,10 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
 </div>
 <header>
   <div class="logo">V</div>
-  <h1>Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v1.0</span></h1>
-  <div style="font-size:11px;color:var(--tx3);margin:-6px 0 4px">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; unofficial community tool, not affiliated with or supported by Veeam</div>
+  <div style="display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0;overflow:hidden">
+    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v1.0</span></h1>
+    <div style="font-size:11px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; unofficial community tool, not affiliated with or supported by Veeam</div>
+  </div>
   <div class="ver-toggle">
     <span class="vt-label" id="lbl12">v12.x</span>
     <label class="vt-switch">
@@ -279,7 +281,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
   <div class="ver" style="margin-left:16px">bp.veeam.com/vbr</div>
   <button class="btn-export" onclick="exportPDF()" id="btnExport" disabled title="Calculate sizing first, then export">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-    Export PDF
+    <span class="btn-export-label">Export PDF</span>
   </button>
 </header>
 
@@ -504,7 +506,7 @@ function parseLog(raw,fname){
   // Reset
   D={vms:null,tb:null,hosts:null,clusters:null,jobs:null,proxies:null,
      retention:null,gfsDaily:null,gfsWeekly:null,gfsMonthly:null,gfsYearly:null,
-     mode:null,changeRate:null,platform:null,platforms:{},vbr:null,bsRAM:null,bsCPU:null,bpa:[],
+     mode:null,changeRate:null,platform:null,platforms:{},vbr:null,machineName:null,hostName:null,bsRAM:null,bsCPU:null,bpa:[],
      // New fields
      plugins:[],          // installed UI extension plugins {name, version}
      proxyList:[],        // per-proxy hardware {id,hostId,version,cores,ram_gb,phys}
@@ -613,6 +615,12 @@ function parseLog(raw,fname){
   }
 
   m=txt.match(/Version:\s*\[([^\]]+)\]/);if(m)D.vbr=m[1].trim();
+
+  // ── Backup server identity (MachineName / HostName from log header) ───
+  // Lets the report show which server it's actually talking about — useful
+  // once you're juggling logs from multiple sites/customers.
+  m=txt.match(/MachineName:\s*\[([^\]]+)\]/);  if(m)D.machineName=m[1].trim();
+  m=txt.match(/HostName:\s*\[([^\]]+)\]/);     if(m)D.hostName=m[1].trim();
 
   // ── Multi-platform VM detection ────────────────────────────────────
   // Count VMs per platform from infrastructure sections and license
@@ -1548,8 +1556,11 @@ function parseLog(raw,fname){
       D.platform==='Proxmox'?'Proxmox VE':D.platform==='Nutanix'?'Nutanix AHV':
       D.platform==='HPE'?'HPE VME':D.platform==='KVM'?'KVM/oVirt':'Unknown';
   var modeMap={incremental:'Forever-fwd',active:'Active full',synthetic:'Synthetic full',reverse:'Reverse'};
+  var serverLabel = D.hostName && D.machineName && D.hostName.toLowerCase()!==D.machineName.toLowerCase()
+    ? D.hostName+' ('+D.machineName+')' : (D.hostName||D.machineName||'—');
   var rows=[
     ['Collected',D.collectionTime||'—'],
+    ['Server',serverLabel],
     ['Platform',plabel+(D.vbr?' · VBR '+D.vbr:'')],['VMs',D.vms||'—'],
     ['Source data',D.tb?D.tb+' TB':'—'],['Hosts/Clusters',(D.hosts||'—')+'/'+(D.clusters!=null?D.clusters:'—')],
     ['Jobs / Proxies',(D.jobs||'—')+'/'+(D.proxies||'—')],['Retention',D.retention?D.retention+'d':'—'],
@@ -1833,6 +1844,7 @@ function fN(n){return n.toLocaleString();}
   var recTaskCap=tasksNeeded;
 
   render({vms,dataTB,chR,bkW,nicGbE,nicMBps,nicTaskCap,tasksPerProxy,ret,mode,platform,platforms:D.platforms||{},hosts,clusters,jobs,proxyEx,recProxies,
+          machineName:D.machineName||null,hostName:D.hostName||null,
           tasksNeeded,taskUnit,pVCPU,pRAM,pCnt,bsC,bsR,concJ,bsFormulaNote,pRAMFormulaNote,
           retGB:Math.round(retGB),
           gfsW,gfsM,gfsY,gfsD,
@@ -4353,13 +4365,15 @@ function exportPDF(){
     : d.platform==='HyperV'?'Hyper-V':d.platform==='VMware'?'VMware vSphere':
       d.platform==='Proxmox'?'Proxmox VE':d.platform==='Nutanix'?'Nutanix AHV':'Unknown';
   var vbrLabel = VBR_V13 ? 'v13.x' : 'v12.x';
+  var serverLabel = d.hostName && d.machineName && d.hostName.toLowerCase()!==d.machineName.toLowerCase()
+    ? d.hostName+' ('+d.machineName+')' : (d.hostName||d.machineName||null);
 
   var h = '';
 
   // ── PAGE 1: Summary & sizing ──────────────────────────────────────────
   h += '<div class="pdf-page">';
   h += '<div class="pdf-h1">Veeam Sizing Advisor — Report</div>';
-  h += '<div class="pdf-meta">Generated: '+now+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+d.collectionTime:'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+d.vbr+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
+  h += '<div class="pdf-meta">Generated: '+now+(serverLabel?' &nbsp;|&nbsp; Server: '+serverLabel:'')+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+d.collectionTime:'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+d.vbr+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
   h += '<div class="pdf-meta" style="font-size:9px">Veeam Advisor &mdash; Created by Jason Orchard &middot; &copy; 2026 Jason Orchard. All Rights Reserved. Proprietary and confidential.</div>';
   h += '<div style="background:#fef3c7;border:1px solid #d97706;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:10px;line-height:1.5;color:#78350f">'
      + '<b>This is not an official Veeam tool and is not supported by Veeam Support.</b> Results are estimates only and must be validated against the official Veeam calculators (veeam.com/calculators.html), the Veeam Help Center, and Best Practices documentation. Final sizing decisions should be made using official guidance and, where needed, with a Veeam SE / Solution Architect.'
@@ -4539,6 +4553,11 @@ function exportPDF(){
       'ConfigurationBackupRepositoryNotLocal':{label:'Config backup offsite',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
       'BackupServerUpToDate':{label:'VBR up to date',url:'https://www.veeam.com/downloads.html'},
       'PostgreSqlUseRecommendedSettings':{label:'PostgreSQL settings',url:'https://www.veeam.com/kb4542'},
+      'EmailNotificationsEnabled':{label:'Email notifications',url:'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html'},
+      'HardenedRepositoryNotVirtual':{label:'Hardened repo — physical only',url:'https://helpcenter.veeam.com/docs/vbr/userguide/hardened_repository.html'},
+      'ConfigurationBackupEnabledAndEncrypted':{label:'Config backup encrypted',url:'https://helpcenter.veeam.com/docs/vbr/userguide/config_backup_encrypted.html'},
+      'EncryptionPasswordsComplexityRules':{label:'Encryption password complexity',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
+      'BackupServerHighAvailabilityEnabled':{label:'Backup server HA',url:'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html'},
     };
     h += '<table class="pdf-tbl"><tr><th>Violation</th><th>Label</th><th>Help URL</th></tr>';
     d.bpa.forEach(function(v){
