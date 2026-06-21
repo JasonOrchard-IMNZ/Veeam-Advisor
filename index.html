@@ -432,7 +432,25 @@ document.getElementById('fi').addEventListener('change',function(){if(this.files
 
 function handleFile(f){
   var r=new FileReader();
-  r.onload=function(e){parseLog(e.target.result,f.name);var p=document.getElementById('logP');p.textContent=e.target.result.substring(0,400)+(e.target.result.length>400?'\n...':'');p.style.display='block';};
+  r.onload=function(e){
+    try{
+      parseLog(e.target.result,f.name);
+      var p=document.getElementById('logP');
+      p.textContent=e.target.result.substring(0,400)+(e.target.result.length>400?'\n...':'');
+      p.style.display='block';
+    }catch(err){
+      if(window.console&&console.error)console.error('VMC.log parse failed:',err);
+      var dl=document.getElementById('dzlbl');
+      if(dl)dl.textContent='\u26A0 Could not parse this file — it may not be a valid VMC.log'+(err&&err.message?' ('+err.message+')':'')+'.';
+      if(dz){dz.style.borderColor='var(--red)';dz.style.background='';}
+    }
+  };
+  r.onerror=function(){
+    if(window.console&&console.error)console.error('File read error:',r.error);
+    var dl=document.getElementById('dzlbl');
+    if(dl)dl.textContent='\u26A0 Could not read this file. Please try again.';
+    if(dz)dz.style.borderColor='var(--red)';
+  };
   r.readAsText(f);
 }
 
@@ -736,8 +754,8 @@ function parseLog(raw,fname){
   var seenProxy={};
   txt.split('\n').forEach(function(line){
     if(line.indexOf('"ComponentType": "Transport"')>=0){
-      var cid=line.match(/"ComponentID":\s*"([^"]+)"/);
-      var hid=line.match(/"HostID":\s*"([^"]+)"/);
+      var cid=line.match(/"ComponentID":\s*"([\w-]+)"/);
+      var hid=line.match(/"HostID":\s*"([\w-]+)"/);
       var ver=line.match(/"ComponentVersion":\s*"([^"]+)"/);
       if(cid&&!seenProxy[cid[1]]){
         seenProxy[cid[1]]=1;
@@ -1532,6 +1550,20 @@ function parseLog(raw,fname){
   var rH=txt.match(/ReplicaHV:\s*(\d+)/),rV=txt.match(/ReplicaVMware:\s*(\d+)/);
   D.cur.replJobs=(rH?parseInt(rH[1]):0)+(rV?parseInt(rV[1]):0);
 
+  // ── Defense-in-depth: neutralize HTML metacharacters in every parsed string ──
+  // The VMC.log is untrusted input. Several fields are free-text captured with loose
+  // patterns (MachineName/HostName, replication source/target, gateway type, NIC
+  // status). Stripping < > from every string — plus quotes/backslash from id fields,
+  // which are embedded in onclick="copy(this,'<id>')" handlers — guarantees no render
+  // path can be XSS'd even if an esc() is missed downstream, independent of and layered
+  // with the per-sink output escaping. Numbers/booleans/structure are untouched, and
+  // legitimate values (GUIDs, names, versions, dates) never contain these characters.
+  (function scrub(o){
+    if(!o||typeof o!=='object')return;
+    if(Array.isArray(o)){for(var si=0;si<o.length;si++){if(typeof o[si]==='string')o[si]=o[si].replace(/[<>]/g,'');else scrub(o[si]);}return;}
+    for(var sk in o){if(!Object.prototype.hasOwnProperty.call(o,sk))continue;if(typeof o[sk]==='string'){o[sk]=/id$/i.test(sk)?o[sk].replace(/[<>'"\\]/g,''):o[sk].replace(/[<>]/g,'');}else if(typeof o[sk]==='object')scrub(o[sk]);}
+  })(D);
+
   // Populate fields
   sf('vmCount',D.vms,'lvm');sf('dataTB',D.tb,'ltb');sf('hostCount',D.hosts,'lhs');
   sf('clusterCount',D.clusters,'lcl');sf('jobCount',D.jobs,'lbj');sf('proxyExist',D.proxies,'lpx');
@@ -1595,7 +1627,7 @@ function parseLog(raw,fname){
     ['M365',D.o365Installed===true?'Installed':D.o365Installed===false?'Not installed':'—'],
     ['License',D.licEdition||(D.supportExpiry?'Exp: '+D.supportExpiry:'—')],
   ];
-  document.getElementById('detG').innerHTML=rows.map(function(r){return '<div class="dr"><span class="dk">'+r[0]+'</span><span class="dv">'+r[1]+'</span></div>';}).join('');
+  document.getElementById('detG').innerHTML=rows.map(function(r){return '<div class="dr"><span class="dk">'+esc(r[0])+'</span><span class="dv">'+esc(r[1])+'</span></div>';}).join('');
   document.getElementById('detB').style.display='block';
 }
 
@@ -1921,7 +1953,7 @@ function render(d){
   h+=st(Math.round(d.chR*100)+'%','Change',false);h+=st(d.ret+'d','Retention',false);h+=st(d.jobs,'Jobs',false);
   h+='</div>';
 
-  if(d.fromLog)h+=nt('ok','&#10003; <b>'+plat+'</b> environment parsed'+(d.vbr?' · VBR '+d.vbr:'')+(d.vbrV13?' <span class="ver-badge vb13">v13</span>':' <span class="ver-badge vb12">v12.x</span>')+'.');
+  if(d.fromLog)h+=nt('ok','&#10003; <b>'+plat+'</b> environment parsed'+(d.vbr?' · VBR '+esc(d.vbr):'')+(d.vbrV13?' <span class="ver-badge vb13">v13</span>':' <span class="ver-badge vb12">v12.x</span>')+'.');
   else h+=nt('w','&#9888; No VMC.log loaded — using manual/default values. Version: <b>'+(d.vbrV13?'v13.x (toggle above)':'v12.x (toggle above)')+'</b>.');
 
   // Multi-platform breakdown if >1 platform detected
@@ -2101,7 +2133,7 @@ function render(d){
 
   // ── TAB 1: VBR v13 ON WINDOWS ────────────────────────────────────────
   h+='<div>';
-  if(d.vbr && d.vbr.startsWith('12')) h+=nt('i','&#8505; VMC.log shows VBR '+d.vbr+'. Sizing below is for a <b>new VBR v13 Windows</b> deployment targeting this workload.');
+  if(d.vbr && d.vbr.startsWith('12')) h+=nt('i','&#8505; VMC.log shows VBR '+esc(d.vbr)+'. Sizing below is for a <b>new VBR v13 Windows</b> deployment targeting this workload.');
   h+=rc('b','VBR v13 on Windows Server','WINDOWS',[
     {v:d.bsC+' vCPU',l:'backup server'},
     {v:d.bsR+' GB',l:'backup server RAM'},
@@ -2315,7 +2347,7 @@ function render(d){
       h+='</tr>';
     });
     h+='</table></div>';
-    if(d.nicAutoSuggest) h+=nt('i','&#128279; NIC dropdown <b>auto-set to '+d.nicAutoSuggest+' GbE</b> based on detected adapter ('+((d.nicPrimaryType||{}).desc||'detected')+').');
+    if(d.nicAutoSuggest) h+=nt('i','&#128279; NIC dropdown <b>auto-set to '+d.nicAutoSuggest+' GbE</b> based on detected adapter ('+esc((d.nicPrimaryType||{}).desc||'detected')+').');
     if(d.nicHasLegacy) h+=nt('w','&#9888; <b>Legacy/emulated NIC detected.</b> Emulated adapters (E1000, E1000e) impose speed caps and high CPU overhead. Replace with vmxnet3 / VirtIO / Hyper-V Synthetic for production backup workloads.');
   } else {
     h+=nt('i','&#128279; No Network Interface lines in this log — NIC speed is a manual input above. VMC.log records adapter name and description but not link speed.');
@@ -3299,7 +3331,7 @@ function render(d){
   h+='<div class="score-circle '+scoreClass+'"><div class="sc-num">'+score+'</div><div class="sc-lbl">/ 100</div></div>';
   h+='<div><p style="font-size:15px;font-weight:700;color:var(--tx)">Best Practice Score</p>';
   h+='<p style="font-size:13px;color:var(--tx2);margin-top:3px"><span style="color:var(--red);font-weight:700">'+crits.length+' critical</span> · <span style="color:var(--amber);font-weight:700">'+warns.length+' warnings</span> · <span style="color:var(--green);font-weight:700">'+oks.length+' passing</span>'+(infos.length?' · <span style="color:var(--bdk)">'+infos.length+' informational</span>':'')+'</p>';
-  h+='<p style="font-size:12px;color:var(--tx3);margin-top:4px">Based on bp.veeam.com/vbr recommendations'+(d.vbr?' for VBR '+d.vbr:'')+'</p>';
+  h+='<p style="font-size:12px;color:var(--tx3);margin-top:4px">Based on bp.veeam.com/vbr recommendations'+(d.vbr?' for VBR '+esc(d.vbr):'')+'</p>';
   h+='</div></div>';
 
   if(crits.length){
@@ -3923,7 +3955,7 @@ function tapeResultHTML(t){
   h+='<tr><td>Daily increments (retention)</td><td class="num">'+t.dailies+'</td><td class="num">'+t.incrTB.toFixed(2)+' TB</td><td class="num">'+(t.dailies*t.incrTB).toFixed(1)+' TB</td></tr>';
   h+='<tr style="background:var(--bg2)"><td><b>Total to tape</b></td><td></td><td></td><td class="num"><b>'+t.totalTB.toFixed(1)+' TB</b></td></tr>';
   h+='<tr><td>Usable per tape (after ~10% End-of-Media headroom)</td><td></td><td></td><td class="num">'+t.effCap.toFixed(1)+' TB</td></tr>';
-  h+='<tr style="background:var(--gl)"><td><b>Tapes required (per copy)</b></td><td></td><td></td><td class="num"><b>'+t.tapes+' &times; '+t.gen+'</b></td></tr>';
+  h+='<tr style="background:var(--gl)"><td><b>Tapes required (per copy)</b></td><td></td><td></td><td class="num"><b>'+t.tapes+' &times; '+esc(t.gen)+'</b></td></tr>';
   h+='</table></div>';
   return h;
 }
@@ -4388,7 +4420,7 @@ function exportPDF(){
   // ── PAGE 1: Summary & sizing ──────────────────────────────────────────
   h += '<div class="pdf-page">';
   h += '<div class="pdf-h1">Veeam Sizing Advisor — Report</div>';
-  h += '<div class="pdf-meta">Generated: '+now+(serverLabel?' &nbsp;|&nbsp; Server: '+serverLabel:'')+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+d.collectionTime:'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+d.vbr+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
+  h += '<div class="pdf-meta">Generated: '+now+(serverLabel?' &nbsp;|&nbsp; Server: '+esc(serverLabel):'')+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+esc(d.collectionTime):'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+esc(d.vbr)+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
   h += '<div class="pdf-meta" style="font-size:9px">Veeam Advisor &mdash; Created by Jason Orchard &middot; &copy; 2026 Jason Orchard. All Rights Reserved. Proprietary and confidential.</div>';
   h += '<div style="background:#fef3c7;border:1px solid #d97706;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:10px;line-height:1.5;color:#78350f">'
      + '<b>This is not an official Veeam tool and is not supported by Veeam Support.</b> Results are estimates only and must be validated against the official Veeam calculators (veeam.com/calculators.html), the Veeam Help Center, and Best Practices documentation. Final sizing decisions should be made using official guidance and, where needed, with a Veeam SE / Solution Architect.'
@@ -4581,7 +4613,7 @@ function exportPDF(){
     h += '<table class="pdf-tbl"><tr><th>Violation</th><th>Label</th><th>Help URL</th></tr>';
     d.bpa.forEach(function(v){
       var kb=BPA_KB_REF[v];
-      h += '<tr><td style="font-size:10px" class="pdf-crit">'+v+'</td>';
+      h += '<tr><td style="font-size:10px" class="pdf-crit">'+esc(v)+'</td>';
       h += '<td>'+esc(kb?kb.label:v)+'</td>';
       h += '<td style="font-size:10px"><a href="'+(kb?kb.url:'https://bp.veeam.com/vbr/Security/')+'">'+( kb?kb.url:'bp.veeam.com/vbr')+'</a></td>';
       h += '</tr>';

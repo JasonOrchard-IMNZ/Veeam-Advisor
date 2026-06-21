@@ -2,6 +2,45 @@
 
 Notable changes to the tool are recorded here. Newest first.
 
+## v1.0.2 — 2026-06-21
+
+### Security
+
+- **Defense-in-depth XSS hardening.** A crafted VMC.log could inject HTML/JS into the
+  rendered report through free-text fields parsed with permissive patterns (machine /
+  host name, replication source / target, gateway type, NIC status, version strings).
+  Closed on three layers:
+  - *Source-side scrubber* — all log-parsed strings are neutralised at the parse
+    boundary (angle brackets stripped from every string; quotes and backslash also
+    stripped from GUID / ID fields) before any rendering, so every render path is safe
+    independent of downstream escaping. Numbers, booleans, structure and legitimate
+    values (names, versions, dates, GUIDs) are untouched.
+  - *Output escaping* — every log-derived value written to `innerHTML` is now
+    HTML-escaped at the point of render across the main report, the tape table, the PDF
+    export and the details summary box. Clears the CodeQL `js/xss-through-dom` alerts.
+  - *Handler-context fix* — the clickable "copy ID" cells embed an identifier inside an
+    inline `onclick`; a crafted ID containing a quote could break out of the JS string.
+    Fixed by stripping quotes from ID fields and tightening the `ComponentID` /
+    `HostID` captures from `[^"]+` to a GUID-safe `[\w-]+`.
+
+  Audit confirmed no `eval` / `Function` / `document.write` / `insertAdjacentHTML`
+  code-execution sinks, no log-derived `href` / `src` URLs, and no exploitable
+  prototype-pollution path. The tool continues to make zero network calls and carry
+  zero external script dependencies.
+
+### Fixed
+
+- **Parse exception handling.** File loading now wraps the parser in `try / catch` and
+  adds a FileReader `onerror` handler. A malformed or unreadable file previously threw
+  an uncaught exception and left the UI silently half-loaded; it now surfaces a clear
+  message and flags the drop zone, with no loss of state.
+
+### Notes
+
+- No changes to sizing constants, calculations or analysis logic — legitimate logs
+  parse and render identically to v1.0.1. `index.html` and `Veeam_Advisor_v1.0.2.html`
+  remain byte-identical.
+
 ## v1.0.1 — 2026-06-20
 
 ### Fixed
