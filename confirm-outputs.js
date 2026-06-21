@@ -24,7 +24,7 @@ let store={};
 function mkEl(id){return{addEventListener(){},click(){},style:{},classList:{add(){},remove(){},toggle(){},contains(){return false;}},set innerHTML(v){store[id]=v;},get innerHTML(){return store[id]||'';},set textContent(v){store[id+'_t']=v;},get textContent(){return store[id+'_t']||'';},scrollIntoView(){},options:[],selectedIndex:0,value:'',appendChild(){},querySelector(){return null;},children:[],focus(){},checked:false};}
 global.document={getElementById:id=>mkEl(id),querySelectorAll:()=>[],createElement:()=>mkEl('t'),body:{appendChild(){}},querySelector:()=>null,head:{appendChild(){}}};
 global.window={}; global.FileReader=function(){};
-eval(fs.readFileSync(TOOL,'utf8').match(/<script[^>]*>([\s\S]*?)<\/script>/)[1]);
+eval(fs.readFileSync(TOOL,'utf8').match(/<script[^>]*>([\s\S]*?)<\/script>/i)[1]);
 
 let pass=0, fail=0; const fails=[];
 function check(name,cond){ if(cond){pass++;} else {fail++;fails.push(name);} }

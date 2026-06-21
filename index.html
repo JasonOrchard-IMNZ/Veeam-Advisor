@@ -1737,7 +1737,7 @@ function fN(n){return n.toLocaleString();}
   var chR     = gv('changeRate',D.changeRate||5)/100;
   var bkW     = gv('backupWindow',8);
   var nicGbE  = parseInt(document.getElementById('nicSpeed').value)||0;
-  var mode    = document.getElementById('backupMode').value;
+  var mode    = esc(document.getElementById('backupMode').value);
   var platform= D.platform||'HyperV';
 
   // GFS all tiers
