@@ -1,6 +1,6 @@
 <!--
-  Veeam Advisor v1.0.1 — PRODUCTION RELEASE
-  Released: 2026-06-20  (v1.0: 2026-06-08)
+  Veeam Advisor v1.0.2 — PRODUCTION RELEASE
+  Released: 2026-06-21  (v1.0.1: 2026-06-20, v1.0: 2026-06-08)
   Build: production
 
   ==========================================================================
@@ -11,6 +11,18 @@
   reproduced, modified, distributed, or used in any form without the prior
   express written permission of the Author. See the LICENSE file for terms.
   ==========================================================================
+
+  v1.0.2 — changes since v1.0.1:
+  - Security: defense-in-depth XSS hardening. A source-side scrubber neutralises
+    HTML metacharacters in every log-parsed string at the parse boundary (angle
+    brackets from all strings; quotes/backslash from id fields embedded in onclick
+    handlers), and all log-derived values are escaped at innerHTML render points.
+    Closes the CodeQL js/xss-through-dom alerts.
+  - Security: tightened ComponentID / HostID captures from [^"]+ to GUID-safe [\w-]+.
+  - Robustness: the parse entry point (handleFile) is wrapped in try/catch with a
+    FileReader onerror handler — a malformed or unreadable file now surfaces a clear
+    message instead of failing silently.
+  - No change to sizing constants, calculations, or analysis logic.
 
   v1.0.1 — changes since v1.0:
   - PDF export: removed the forced page-break-after on .pdf-page sections that
@@ -52,7 +64,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor v1.0.1</title>
+<title>Veeam Advisor v1.0.2</title>
 <style>
 :root{
   --green:#1D9E75;--gl:#E1F5EE;--gd:#085041;
@@ -281,7 +293,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
 <header>
   <div class="logo">V</div>
   <div style="display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0;overflow:hidden">
-    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v1.0.1</span></h1>
+    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v1.0.2</span></h1>
     <div style="font-size:11px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; unofficial community tool, not affiliated with or supported by Veeam</div>
   </div>
   <div class="ver-toggle">
