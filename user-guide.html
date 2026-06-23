@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veeam Advisor &mdash; User Guide (v1.0.2)</title>
+<meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
+<meta name="robots" content="noindex">
+<style>
+:root{
+  --green:#1D9E75;--gl:#E1F5EE;--gd:#085041;
+  --blue:#378ADD;--bl:#E6F1FB;--bdk:#185FA5;
+  --amber:#BA7517;--al:#FAEEDA;
+  --red:#E24B4A;--rl:#FCEBEB;
+  --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
+  --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
+  --bd:rgba(0,0,0,0.11);--bd2:rgba(0,0,0,0.2);
+  --link:#185FA5;--code:#0c5e47;--codebg:#eaf3ef;
+  --r:10px;--rl2:14px;--hdr:58px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
+  --tx:#f0efea;--tx2:#B4B2A9;--tx3:#888780;
+  --bd:rgba(255,255,255,0.12);--bd2:rgba(255,255,255,0.22);
+  --gl:#06382F;--bl:#06294C;--al:#3A2406;
+  --link:#7CB8EE;--code:#86d9bd;--codebg:#1f2a26;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:-apple-system,'Segoe UI',system-ui,Roboto,sans-serif;background:var(--bg2);color:var(--tx);font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased}
+a{color:var(--link)}
+.skip{position:absolute;left:-999px;top:0;background:var(--gd);color:#fff;padding:10px 14px;border-radius:0 0 8px 0;z-index:200}
+.skip:focus{left:0}
+
+/* header */
+header{position:sticky;top:0;z-index:100;background:var(--gd);height:var(--hdr);display:flex;align-items:center;gap:12px;padding:0 clamp(14px,4vw,28px);border-bottom:2px solid var(--green)}
+.logo{width:30px;height:30px;border-radius:7px;background:var(--green);color:#fff;font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.brand b{color:#9FE1CB;font-size:15px;font-weight:600;white-space:nowrap}
+.brand span{color:rgba(159,225,203,.6);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.openbtn{margin-left:auto;display:inline-flex;align-items:center;gap:7px;color:#CFEFE3;font-size:13px;font-weight:600;text-decoration:none;border:1px solid rgba(159,225,203,.35);padding:7px 12px;border-radius:8px;transition:background .15s,border-color .15s}
+.openbtn:hover{background:rgba(159,225,203,.12);border-color:rgba(159,225,203,.6)}
+@media (max-width:560px){.openbtn span{display:none}}
+
+/* hero */
+.hero{max-width:1080px;margin:0 auto;padding:clamp(26px,5vw,46px) clamp(16px,4vw,28px) 6px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--green)}
+.hero h1{font-size:clamp(1.9rem,5vw,2.6rem);line-height:1.12;font-weight:700;letter-spacing:-.01em;margin:.35rem 0 .2rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.pill{font-size:.8rem;font-weight:700;color:var(--gd);background:var(--gl);border:1px solid rgba(29,158,117,.35);padding:2px 10px;border-radius:999px;letter-spacing:0}
+.hero .lede{font-size:clamp(1.02rem,2.4vw,1.18rem);color:var(--tx2);max-width:62ch;margin-top:.5rem}
+.hero .meta{font-size:.84rem;color:var(--tx3);margin-top:.7rem}
+
+/* disclaimer */
+.disc{max-width:1080px;margin:1.1rem auto 0;padding:0 clamp(16px,4vw,28px)}
+.disc-in{display:flex;gap:12px;background:var(--al);border:1px solid rgba(186,117,23,.4);border-left:4px solid var(--amber);border-radius:var(--r);padding:13px 16px}
+.disc-in svg{color:var(--amber);flex-shrink:0;margin-top:2px}
+.disc-in p{margin:0;font-size:.92rem}
+.disc-in b{color:var(--amber)}
+
+/* layout */
+.wrap{max-width:1080px;margin:0 auto;padding:clamp(18px,4vw,30px) clamp(16px,4vw,28px) 40px;display:grid;grid-template-columns:228px minmax(0,1fr);gap:clamp(24px,4vw,52px);align-items:start}
+@media (max-width:900px){.wrap{grid-template-columns:1fr;gap:18px}}
+
+/* desktop toc */
+.toc{position:sticky;top:calc(var(--hdr) + 18px);align-self:start;max-height:calc(100vh - var(--hdr) - 36px);overflow:auto}
+.toc .lbl{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);padding:0 10px 8px}
+.toc ul{list-style:none}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:6px 10px;color:var(--tx2);text-decoration:none;font-size:.9rem;border-left:2px solid transparent;border-radius:0 7px 7px 0;transition:color .12s,background .12s,border-color .12s}
+.toc a .n{color:var(--tx3);font-size:.78rem;font-variant-numeric:tabular-nums;min-width:1.1em;text-align:right}
+.toc a:hover{color:var(--tx);background:var(--bg3)}
+.toc a.active{color:var(--gd);background:var(--gl);border-left-color:var(--green);font-weight:600}
+.toc a.active .n{color:var(--green)}
+@media (prefers-color-scheme:dark){.toc a.active{color:#9FE1CB}.toc a.active .n{color:var(--green)}}
+@media (max-width:900px){.toc{display:none}}
+
+/* mobile toc */
+.toc-m{display:none}
+@media (max-width:900px){.toc-m{display:block;background:var(--bg);border:1px solid var(--bd);border-radius:var(--r)}}
+.toc-m summary{list-style:none;cursor:pointer;padding:12px 14px;font-weight:600;font-size:.95rem;display:flex;align-items:center;justify-content:space-between}
+.toc-m summary::-webkit-details-marker{display:none}
+.toc-m summary::after{content:"";width:9px;height:9px;border-right:2px solid var(--tx3);border-bottom:2px solid var(--tx3);transform:rotate(45deg);transition:transform .2s}
+.toc-m[open] summary::after{transform:rotate(-135deg)}
+.toc-m ul{list-style:none;padding:2px 8px 10px}
+.toc-m a{display:flex;gap:9px;padding:7px 10px;color:var(--tx2);text-decoration:none;font-size:.92rem;border-radius:7px}
+.toc-m a .n{color:var(--tx3);min-width:1.3em}
+.toc-m a:active{background:var(--bg3)}
+
+/* article */
+article{min-width:0;max-width:760px}
+section{scroll-margin-top:calc(var(--hdr) + 16px);padding-top:.4rem}
+section + section{margin-top:1.6rem;border-top:1px solid var(--bd);padding-top:1.7rem}
+h2{font-size:clamp(1.32rem,3vw,1.62rem);font-weight:700;letter-spacing:-.005em;line-height:1.2;margin-bottom:.7rem;scroll-margin-top:calc(var(--hdr) + 16px)}
+.anchor{margin-left:.45rem;color:var(--tx3);text-decoration:none;font-weight:400;opacity:0;transition:opacity .12s}
+h2:hover .anchor,.anchor:focus{opacity:1}
+h3{font-size:1.05rem;font-weight:650;margin:1.3rem 0 .5rem}
+p{margin:0 0 1rem}
+ul,ol{margin:0 0 1rem;padding-left:1.35rem}
+li{margin-bottom:.45rem}
+li::marker{color:var(--green)}
+strong{font-weight:650}
+a:hover{text-decoration:underline}
+code{font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:.86em;background:var(--codebg);color:var(--code);padding:1.5px 5px;border-radius:5px;border:1px solid var(--bd)}
+
+/* notes / callouts */
+.note,.callout-inline{background:var(--bg);border:1px solid var(--bd);border-left:3px solid var(--green);border-radius:var(--r);padding:11px 15px;font-size:.94rem}
+.callout-inline{background:var(--gl);border-left-color:var(--gd)}
+@media (prefers-color-scheme:dark){.callout-inline{background:var(--bg3)}}
+
+/* code block */
+.code{position:relative;margin:0 0 1rem}
+.code pre{background:var(--bg3);border:1px solid var(--bd);border-left:3px solid var(--green);border-radius:var(--r);padding:14px 16px;overflow-x:auto}
+.code code{font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:.84rem;line-height:1.6;color:var(--tx);background:none;border:0;padding:0;white-space:pre}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:.72rem;font-weight:600;color:var(--tx2);background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 9px;cursor:pointer;opacity:.85;transition:opacity .12s,color .12s}
+.copy:hover{opacity:1;color:var(--tx)}
+.copy.ok{color:var(--green);border-color:var(--green)}
+
+/* table */
+.tablewrap{overflow-x:auto;border:1px solid var(--bd);border-radius:var(--r);margin:0 0 1rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:520px}
+thead th{background:var(--green);color:#fff;text-align:left;font-weight:600;padding:9px 13px;white-space:nowrap}
+thead th.c{text-align:center}
+tbody td{padding:8px 13px;border-top:1px solid var(--bd);vertical-align:top}
+tbody td.c{text-align:center;color:var(--tx3);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody td.t{font-weight:650;white-space:nowrap}
+tbody tr:nth-child(even){background:var(--bg)}
+
+/* faq */
+.faq{margin:0}
+.faq dt{font-weight:650;margin-top:1.05rem;padding-left:.9rem;border-left:3px solid var(--green)}
+.faq dt:first-child{margin-top:0}
+.faq dd{margin:.35rem 0 0;padding-left:.9rem;color:var(--tx2)}
+
+/* footer */
+footer{border-top:1px solid var(--bd);background:var(--bg)}
+.foot{max-width:1080px;margin:0 auto;padding:22px clamp(16px,4vw,28px);font-size:.82rem;color:var(--tx3);display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between}
+.foot a{color:var(--link)}
+
+/* back to top */
+#top{position:fixed;right:18px;bottom:18px;width:44px;height:44px;border-radius:50%;border:1px solid var(--bd2);background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .2s,transform .2s,visibility .2s;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:90}
+#top.show{opacity:1;visibility:visible;transform:none}
+#top:hover{background:var(--gd)}
+
+:focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
+
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+
+@media print{
+  header,.toc,.toc-m,#top,.openbtn,.copy,.anchor{display:none!important}
+  body{background:#fff;color:#000;font-size:11.5pt}
+  .wrap{display:block;max-width:none;padding:0}
+  article{max-width:none}
+  .hero{padding:0 0 8px}
+  a{color:#000;text-decoration:underline}
+  .disc-in{border:1px solid #b8860b}
+  section{break-inside:avoid}
+  section + section{border-top:1px solid #ccc}
+  .code pre,.tablewrap{overflow:visible}
+  thead th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header>
+  <div class="logo">V</div>
+  <div class="brand"><b>Veeam Advisor</b><span>User Guide</span></div>
+  <a class="openbtn" href="index.html" aria-label="Open Veeam Advisor"><span>Open the tool</span> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M9 7h8v8"/></svg></a>
+</header>
+
+<div class="hero">
+  <div class="eyebrow">User Guide</div>
+  <h1>Veeam Advisor <span class="pill">v1.0.2</span></h1>
+  <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
+  <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
+</div>
+
+<div class="disc">
+  <div class="disc-in"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.7 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+    <p><b>Unofficial, community-built tool.</b> It is not an official Veeam product and is not supported by Veeam Support. Results are estimates from a parsed log and must be validated against the <a href="https://www.veeam.com/calculators.html" target="_blank" rel="noopener">official Veeam calculators</a>, the <a href="https://helpcenter.veeam.com/" target="_blank" rel="noopener">Veeam Help Center</a>, and Best Practices documentation. For final sizing decisions, consult a Veeam SE / Solution Architect.</p>
+  </div>
+</div>
+
+<div class="wrap">
+  <aside class="toc" aria-label="Contents">
+    <div class="lbl">On this page</div>
+    <ul>
+      <li><a href="#what-it-does"><span class="n">1</span>What it does</a></li>
+      <li><a href="#privacy"><span class="n">2</span>Privacy</a></li>
+      <li><a href="#input-data"><span class="n">3</span>Getting your data</a></li>
+      <li><a href="#quick-start"><span class="n">4</span>Quick start</a></li>
+      <li><a href="#interface"><span class="n">5</span>The interface</a></li>
+      <li><a href="#step-1-import"><span class="n">6</span>Import a VMC.log</a></li>
+      <li><a href="#step-2-parameters"><span class="n">7</span>Environment parameters</a></li>
+      <li><a href="#step-3-generate"><span class="n">8</span>Generate recommendations</a></li>
+      <li><a href="#results-tabs"><span class="n">9</span>Reading the results</a></li>
+      <li><a href="#export-pdf"><span class="n">10</span>Exporting a PDF</a></li>
+      <li><a href="#version-toggle"><span class="n">11</span>v12.x vs v13.x</a></li>
+      <li><a href="#fleet-view"><span class="n">12</span>Fleet View</a></li>
+      <li><a href="#troubleshooting"><span class="n">13</span>Troubleshooting &amp; FAQ</a></li>
+      <li><a href="#limitations"><span class="n">14</span>Limitations</a></li>
+    </ul>
+  </aside>
+
+  <main id="main">
+    <details class="toc-m">
+      <summary>On this page</summary>
+      <ul>
+      <li><a href="#what-it-does"><span class="n">1</span>What it does</a></li>
+      <li><a href="#privacy"><span class="n">2</span>Privacy</a></li>
+      <li><a href="#input-data"><span class="n">3</span>Getting your data</a></li>
+      <li><a href="#quick-start"><span class="n">4</span>Quick start</a></li>
+      <li><a href="#interface"><span class="n">5</span>The interface</a></li>
+      <li><a href="#step-1-import"><span class="n">6</span>Import a VMC.log</a></li>
+      <li><a href="#step-2-parameters"><span class="n">7</span>Environment parameters</a></li>
+      <li><a href="#step-3-generate"><span class="n">8</span>Generate recommendations</a></li>
+      <li><a href="#results-tabs"><span class="n">9</span>Reading the results</a></li>
+      <li><a href="#export-pdf"><span class="n">10</span>Exporting a PDF</a></li>
+      <li><a href="#version-toggle"><span class="n">11</span>v12.x vs v13.x</a></li>
+      <li><a href="#fleet-view"><span class="n">12</span>Fleet View</a></li>
+      <li><a href="#troubleshooting"><span class="n">13</span>Troubleshooting &amp; FAQ</a></li>
+      <li><a href="#limitations"><span class="n">14</span>Limitations</a></li>
+      </ul>
+    </details>
+
+    <section id="what-it-does" aria-labelledby="what-it-does-h">
+      <h2 id="what-it-does-h">1. What it does<a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a></h2>
+
+    <p>Veeam Advisor is a single-file, browser-based tool that takes a Veeam Backup &amp; Replication (VBR) <code>VMC.log</code> file and turns it into two things:</p>
+    <ul>
+      <li><strong>Sizing recommendations</strong> &mdash; proxy, repository, backup-server and VSA sizing, with NIC-bandwidth modelling, GFS retention, and a storage-growth projection.</li>
+      <li><strong>A best-practice / security compliance review</strong> &mdash; 50+ findings drawn from bp.veeam.com/security and bp.veeam.com/vbr, plus a full inventory of what&rsquo;s in the environment.</li>
+    </ul>
+    <p>It auto-detects whether the server is a <strong>VSA (Veeam Software Appliance)</strong> or a <strong>Windows VBR</strong> install, the virtualisation platform (VMware / Hyper-V / Proxmox / Nutanix AHV), Cloud Connect roles (provider or tenant), proxies, repositories, every job type, replication, agent jobs, failover plans, GFS/retention, malware events, MFA, config-backup encryption, Enterprise Manager, tape infrastructure, and NIC speed. If Veeam Backup for Azure is linked alongside VBR, it picks that up too.</p>
+    <p>You can also run it <strong>with no log at all</strong> &mdash; type your numbers into the form and use it purely as a sizing calculator. A log simply adds the auto-population and the compliance findings on top.</p>
+    </section>
+
+    <section id="privacy" aria-labelledby="privacy-h">
+      <h2 id="privacy-h">2. How it handles your data (privacy)<a class="anchor" href="#privacy" aria-label="Link to this section">#</a></h2>
+
+    <p>Everything runs <strong>entirely in your browser</strong>. The <code>VMC.log</code> you load is never uploaded, transmitted, or stored anywhere &mdash; there is no server-side runtime. All values parsed from the log are HTML-escaped before they are displayed.</p>
+    <p>In practice this means you can run a customer&rsquo;s log through it on your own machine without the file leaving your laptop. It also means there is nothing to save online: when you close the tab the parsed data is gone, so export a PDF if you want a record.</p>
+    </section>
+
+    <section id="input-data" aria-labelledby="input-data-h">
+      <h2 id="input-data-h">3. Getting your input data<a class="anchor" href="#input-data" aria-label="Link to this section">#</a></h2>
+
+    <p>You have two ways to feed the tool. Either is fine.</p>
+    <h3>Option A &mdash; a VMC.log file</h3>
+    <p><code>VMC.log</code> is one of the diagnostic / inventory logs produced by a VBR server. If you did not collect it yourself, ask whoever manages the VBR environment to provide the current one. On the VBR server, Veeam logs live under the Veeam program-data log folder (typically <code>C:\ProgramData\Veeam\Backup\&hellip;</code>); confirm the exact path for your version if you are collecting it yourself.</p>
+    <p>A single <code>VMC.log</code> can contain several appended collection runs. Veeam Advisor automatically reads the run with the <strong>latest date/time</strong> and shows that <strong>collection date</strong> in the UI and on the PDF, so you always know how current the data is.</p>
+    <p>Accepted formats: <code>.log</code> and <code>.txt</code> (including RTF exports), from <strong>VBR 12.x and 13.x</strong>, on <strong>Hyper-V or VMware</strong>.</p>
+    <h3>Option B &mdash; the companion PowerShell script (live pull)</h3>
+    <p>If you have access to the VBR server and would rather pull fresh data directly, the repo ships <code>VeeamAdvisor-PowerShell.ps1</code>. It collects the same inventory the app consumes (including a live coverage / orphaned-job analysis) straight from the Veeam API.</p>
+    <ul>
+      <li><strong>PowerShell 5.1+</strong> for VBR v12 &nbsp;&middot;&nbsp; <strong>PowerShell 7.4.7+</strong> for VBR v13</li>
+      <li>Enforces TLS 1.2+; connects to a local console, a remote VBR server, or a VSA by hostname/IP (prompts for credentials when remote)</li>
+    </ul>
+    <div class="code"><button class="copy" type="button" aria-label="Copy code">Copy</button><pre><code># Run locally on the VBR server
+.\VeeamAdvisor-PowerShell.ps1
+
+# Target a remote server with explicit credentials
+.\VeeamAdvisor-PowerShell.ps1 -VBRServer vbr01.lab.local -Credential (Get-Credential)</code></pre></div>
+    </section>
+
+    <section id="quick-start" aria-labelledby="quick-start-h">
+      <h2 id="quick-start-h">4. Quick start<a class="anchor" href="#quick-start" aria-label="Link to this section">#</a></h2>
+
+    <ol>
+      <li><strong>Open</strong> Veeam Advisor in a browser (Chrome recommended &mdash; see <a href="#export-pdf">Exporting a PDF</a> for why).</li>
+      <li><strong>Drag a <code>VMC.log</code></strong> onto the <em>Import VMC.log</em> box, or click it to browse. The form fills in automatically, and the auto-detected fields turn green.</li>
+      <li><strong>Click <em>Provide recommendations</em>.</strong> The right-hand panel populates with sizing plus the tabbed analysis.</li>
+      <li><em>(Optional)</em> Click <strong>Export PDF</strong> in the top bar for a shareable report.</li>
+    </ol>
+    <p class="note">No log handy? Skip straight to typing values into <em>Environment parameters</em> and click <em>Provide recommendations</em> &mdash; you will get sizing without the compliance findings.</p>
+    </section>
+
+    <section id="interface" aria-labelledby="interface-h">
+      <h2 id="interface-h">5. The interface, panel by panel<a class="anchor" href="#interface" aria-label="Link to this section">#</a></h2>
+
+    <h3>Top bar</h3>
+    <ul>
+      <li><strong>Version toggle (v12.x / v13.x):</strong> tells the tool which VBR generation you are sizing for. Defaults to <strong>v13.x</strong>. See <a href="#version-toggle">v12.x vs v13.x</a>.</li>
+      <li><strong>Export PDF:</strong> disabled (greyed out) until you have run a calculation &mdash; that is expected, not a bug.</li>
+    </ul>
+    <h3>Left column</h3>
+    <ul>
+      <li><strong>Import VMC.log</strong> &mdash; the drag-and-drop zone. After a successful parse it shows a &ldquo;VMC.log parsed &mdash; fields populated&rdquo; panel summarising what it found.</li>
+      <li><strong>Environment parameters</strong> &mdash; the form that drives sizing, grouped into Infrastructure, Backup policy, GFS retention, and Sizing &amp; deployment. A <strong>Reset</strong> button clears it.</li>
+    </ul>
+    <h3>Right column</h3>
+    <ul>
+      <li><strong>Sizing recommendations</strong> &mdash; empty until you calculate; then it holds the headline sizing plus all 15 analysis tabs.</li>
+    </ul>
+    </section>
+
+    <section id="step-1-import" aria-labelledby="step-1-import-h">
+      <h2 id="step-1-import-h">6. Step 1 — Import a VMC.log<a class="anchor" href="#step-1-import" aria-label="Link to this section">#</a></h2>
+
+    <p>Drag the file onto the box or click to browse. On success:</p>
+    <ul>
+      <li>Fields the tool could read from the log are <strong>filled in and highlighted green</strong> with an <em>auto</em> badge.</li>
+      <li>A summary panel confirms the parse and shows key detected facts.</li>
+      <li>The <strong>collection date/time</strong> of the latest run in the file is recorded (and later printed on the PDF).</li>
+    </ul>
+    <p>If the file is malformed or unreadable, you get a clear on-screen message rather than a silent failure &mdash; re-export the log or check you grabbed the right file.</p>
+    </section>
+
+    <section id="step-2-parameters" aria-labelledby="step-2-parameters-h">
+      <h2 id="step-2-parameters-h">7. Step 2 — Review the environment parameters<a class="anchor" href="#step-2-parameters" aria-label="Link to this section">#</a></h2>
+
+    <p>Green fields came from the log; <strong>you can override any of them.</strong> Anything not stored in a <code>VMC.log</code> is left for you to enter. The groups:</p>
+    <ul>
+      <li><strong>Infrastructure</strong> &mdash; Total VMs &middot; Source data (TB) &middot; Hosts &middot; Clusters &middot; Backup jobs &middot; Existing proxies.</li>
+      <li><strong>Backup policy (from VMC.log)</strong> &mdash; Retention (days) &middot; Daily change rate&nbsp;% &middot; Backup mode (forward / forever-forward incremental, active full + incrementals, synthetic full weekly, or reverse incremental).</li>
+      <li><strong>GFS retention (from VMC.log)</strong> &mdash; Daily &middot; Weekly &middot; Monthly &middot; Yearly restore points.</li>
+      <li><strong>Sizing &amp; deployment</strong> &mdash; Backup window (hours) and <strong>Proxy NIC speed</strong>.</li>
+    </ul>
+    <p class="note">NIC link speed is <strong>not</strong> stored in <code>VMC.log</code>, so the adapter is detected but its speed must be set manually (1 GbE up to 100 GbE, or &ldquo;Not applicable&rdquo; for HotAdd/SAN). Set this to match your actual proxy hardware &mdash; it directly affects the throughput model.</p>
+    <p>A couple of policy fields are version-aware. <strong>Reverse incremental</strong> is flagged as legacy when you are in v13 mode (see <a href="#version-toggle">v12.x vs v13.x</a>).</p>
+    </section>
+
+    <section id="step-3-generate" aria-labelledby="step-3-generate-h">
+      <h2 id="step-3-generate-h">8. Step 3 — Generate recommendations<a class="anchor" href="#step-3-generate" aria-label="Link to this section">#</a></h2>
+
+    <p>Click <strong>Provide recommendations</strong>. The right panel fills with:</p>
+    <ul>
+      <li>Headline sizing (proxies, repository capacity, backup-server resources, VSA where relevant).</li>
+      <li>The 15 analysis tabs (next section), each with counts/badges where the log surfaced something noteworthy.</li>
+    </ul>
+    <p>Re-run it any time after changing a field &mdash; it recalculates from the current form values. Running a calculation is also what <strong>enables the Export PDF button</strong>.</p>
+    </section>
+
+    <section id="results-tabs" aria-labelledby="results-tabs-h">
+      <h2 id="results-tabs-h">9. Reading the results: the 15 tabs<a class="anchor" href="#results-tabs" aria-label="Link to this section">#</a></h2>
+
+    <p>Tabs carry small badges/counts when there is something to flag (for example a replication count, a malware count, or the number of BP findings). Tabs in app order:</p>
+    <div class="tablewrap">
+  <table>
+    <thead><tr><th class="c">#</th><th>Tab</th><th>What it shows</th></tr></thead>
+    <tbody>
+          <tr><td class="c">1</td><td class="t">VSA</td><td>Sizing for the Veeam Software Appliance. v13-only — in v12 mode it tells you to use VBR Windows instead.</td></tr>
+          <tr><td class="c">2</td><td class="t">VBR Windows</td><td>Sizing for a Windows-based backup server.</td></tr>
+          <tr><td class="c">3</td><td class="t">Proxy BP</td><td>Proxy sizing and best-practice guidance (count, transport mode, concurrency).</td></tr>
+          <tr><td class="c">4</td><td class="t">Repository</td><td>Per-repository detail: type, immutability (incl. Hardened Linux and Veeam Data Cloud), task limits, per-VM chains, dedup/compression flags.</td></tr>
+          <tr><td class="c">5</td><td class="t">Retention</td><td>Short-term retention plus the GFS (daily/weekly/monthly/yearly) picture.</td></tr>
+          <tr><td class="c">6</td><td class="t">Replication</td><td>Replication jobs and failover plans.</td></tr>
+          <tr><td class="c">7</td><td class="t">All jobs</td><td>Every parsed job across all types, including orphaned/disabled jobs that create no restore points.</td></tr>
+          <tr><td class="c">8</td><td class="t">Cloud Connect</td><td>VCSP provider or tenant detail when the server has a Cloud Connect role.</td></tr>
+          <tr><td class="c">9</td><td class="t">Malware</td><td>Malware-detection events broken down by type, source, state and severity, with file-extension detail.</td></tr>
+          <tr><td class="c">10</td><td class="t">Settings</td><td>Configuration findings (warnings) — MFA, config-backup encryption and similar global settings.</td></tr>
+          <tr><td class="c">11</td><td class="t">BP Review</td><td>The consolidated best-practice / security review and overall BP score.</td></tr>
+          <tr><td class="c">12</td><td class="t">Agents</td><td>Veeam Agent protection, distinguishing managed agent backups, agent policies, and legacy standalone jobs.</td></tr>
+          <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools) and a single GFS tape-job sizing across LTO-7/8/9.</td></tr>
+          <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, plus a security-posture summary (MFA / immutability / encryption).</td></tr>
+          <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories.</td></tr>
+    </tbody>
+  </table>
+</div>
+    <p class="callout-inline"><strong>On protection coverage:</strong> the tool compares discovered infrastructure VMs against VMs covered by jobs <strong>and</strong> Veeam Agent backups and flags an estimated unprotected count. Treat it as a prompt to investigate &mdash; for the exact list of unprotected VMs, use the <strong>Veeam ONE Protected VMs</strong> report.</p>
+    </section>
+
+    <section id="export-pdf" aria-labelledby="export-pdf-h">
+      <h2 id="export-pdf-h">10. Exporting a PDF report<a class="anchor" href="#export-pdf" aria-label="Link to this section">#</a></h2>
+
+    <p>Once you have calculated, click <strong>Export PDF</strong> (top bar). The report includes both the <strong>date it was generated</strong> and the <strong>data-collection date</strong> from the log, so a reader can tell how current it is. The report flows continuously &mdash; headings stay with their tables and content blocks do not split awkwardly across pages.</p>
+    <p class="note"><strong>Pick the right print destination.</strong> In the print dialog, choose <strong>&ldquo;Save as PDF&rdquo;</strong> (Chrome&rsquo;s built-in option). This produces a vector, searchable, roughly 4&times; smaller file. Avoid <strong>&ldquo;Microsoft Print to PDF&rdquo;</strong>, which rasterises the page into a large, image-only PDF.</p>
+    </section>
+
+    <section id="version-toggle" aria-labelledby="version-toggle-h">
+      <h2 id="version-toggle-h">11. v12.x vs v13.x — the version toggle<a class="anchor" href="#version-toggle" aria-label="Link to this section">#</a></h2>
+
+    <p>The toggle in the top bar tells Veeam Advisor which VBR generation you are sizing for, and it changes some guidance:</p>
+    <ul>
+      <li><strong>VSA (Veeam Software Appliance)</strong> requires <strong>v13</strong>. In v12 mode the VSA tab is unavailable and points you to <em>VBR Windows</em>.</li>
+      <li><strong>Reverse incremental</strong> is deprecated for <strong>new</strong> jobs in v13. It stays selectable so you can size existing upgraded/legacy jobs, but new jobs should use forward incremental, active full, or synthetic full.</li>
+      <li>Running v12 surfaces a note that v13-only features &mdash; VSA, improved Hardened-Linux immutability, and several newer BPA/security checks &mdash; are not available, with a pointer toward planning an upgrade.</li>
+    </ul>
+    <p>Set it to match the environment you are actually advising on <strong>before</strong> you calculate.</p>
+    </section>
+
+    <section id="fleet-view" aria-labelledby="fleet-view-h">
+      <h2 id="fleet-view-h">12. Fleet View (multiple servers)<a class="anchor" href="#fleet-view" aria-label="Link to this section">#</a></h2>
+
+    <p>Veeam Advisor analyses <strong>one</strong> server in depth. For a whole estate, the repo includes a companion file, <code>Veeam_Advisor_Fleet.html</code> (Fleet View). You upload one <code>VMC.log</code> per server and click <strong>Build fleet view</strong> for:</p>
+    <ul>
+      <li><strong>Fleet Dashboard</strong> &mdash; estate totals, fleet-wide coverage, average BP score, and a per-server table sorted weakest-first.</li>
+      <li><strong>Comparison Matrix</strong> &mdash; servers as columns and BP checks / key values as rows, with inconsistent rows highlighted so you can spot odd-one-out configs.</li>
+      <li><strong>Aggregate Report</strong> &mdash; combined posture and a remediation-priority list, weakest servers first.</li>
+    </ul>
+    <p>Note that Veeam Advisor and Fleet View are separate codebases that parse the same log format. The newest additions (for example Veeam Backup for Azure detection and a few licensing-consumption corrections) currently live in Veeam Advisor first. If a finding appears in one tool but not the other for the same log, that is usually why &mdash; check which tool you are in before assuming a discrepancy is a bug.</p>
+    </section>
+
+    <section id="troubleshooting" aria-labelledby="troubleshooting-h">
+      <h2 id="troubleshooting-h">13. Troubleshooting &amp; FAQ<a class="anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+
+    <dl class="faq">
+      <dt>The Export PDF button is greyed out.</dt>
+      <dd>You have not calculated yet. Click <em>Provide recommendations</em> first.</dd>
+      <dt>My PDF is huge and the text is not selectable.</dt>
+      <dd>You printed via <em>Microsoft Print to PDF</em>. Re-export using Chrome&rsquo;s <em>Save as PDF</em>.</dd>
+      <dt>Nothing populated after I loaded the file.</dt>
+      <dd>Make sure it is an actual <code>VMC.log</code> (<code>.log</code> / <code>.txt</code> / RTF) from VBR 12.x/13.x. A malformed file shows an error message &mdash; re-collect and try again, or use the PowerShell companion to pull data live.</dd>
+      <dt>NIC speed looks wrong / the throughput numbers seem off.</dt>
+      <dd>NIC link speed is not recorded in <code>VMC.log</code>. Set <strong>Proxy NIC speed</strong> manually to match your hardware, then recalculate.</dd>
+      <dt>It says VSA is not available.</dt>
+      <dd>You are in <strong>v12.x</strong> mode. Toggle to <strong>v13.x</strong> (VSA is v13-only), or size with the <em>VBR Windows</em> tab for your current version.</dd>
+      <dt>The unprotected-VM count surprises me.</dt>
+      <dd>It is an estimate based on parsed jobs and agents. Confirm against the Veeam ONE <em>Protected VMs</em> report before acting.</dd>
+      <dt>Can I use it without a log?</dt>
+      <dd>Yes. Type into <em>Environment parameters</em> and calculate for sizing only; the compliance findings need a log.</dd>
+      <dt>Is my customer&rsquo;s data safe?</dt>
+      <dd>Yes &mdash; it is processed locally in your browser and never uploaded. Nothing persists after you close the tab, so export a PDF if you need a record.</dd>
+    </dl>
+    </section>
+
+    <section id="limitations" aria-labelledby="limitations-h">
+      <h2 id="limitations-h">14. Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
+
+    <p>Veeam Advisor is an <strong>unofficial</strong> aid for sizing and best-practice review, not an authoritative source. Its outputs are estimates from a parsed log; NIC speed and a few other values are not in the log and depend on what you enter. Always validate against the <a href="https://www.veeam.com/calculators.html" target="_blank" rel="noopener">official Veeam calculators</a>, the <a href="https://helpcenter.veeam.com/" target="_blank" rel="noopener">Veeam Help Center</a>, and Best Practices documentation, and involve a Veeam SE / Solution Architect for final decisions.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="foot">
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v1.0.2 &middot; Unofficial community tool</span>
+    <span><a href="index.html">Open Veeam Advisor</a></span>
+  </div>
+</footer>
+
+<button id="top" type="button" aria-label="Back to top"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+
+<script>
+(function(){
+  "use strict";
+  // back to top
+  var top=document.getElementById('top');
+  var onScroll=function(){ top.classList.toggle('show', window.scrollY>520); };
+  window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+  top.addEventListener('click',function(){ window.scrollTo({top:0,behavior: matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); });
+
+  // close mobile contents after picking a link
+  document.querySelectorAll('.toc-m a').forEach(function(a){
+    a.addEventListener('click',function(){ var d=a.closest('details'); if(d) d.open=false; });
+  });
+
+  // scroll-spy on desktop nav
+  var links={};
+  document.querySelectorAll('.toc a').forEach(function(a){
+    var id=a.getAttribute('href').slice(1); (links[id]=links[id]||[]).push(a);
+  });
+  var current=null;
+  var setActive=function(id){
+    if(id===current) return;
+    if(current&&links[current]) links[current].forEach(function(a){a.classList.remove('active');});
+    current=id;
+    if(links[id]) links[id].forEach(function(a){a.classList.add('active');});
+  };
+  var sections=[].slice.call(document.querySelectorAll('main section[id]'));
+  if('IntersectionObserver' in window){
+    var visible={};
+    var obs=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting) visible[e.target.id]=true; else delete visible[e.target.id]; });
+      // choose the topmost visible section
+      var best=null,bestTop=Infinity;
+      sections.forEach(function(s){
+        if(visible[s.id]){ var t=s.getBoundingClientRect().top; if(t<bestTop){bestTop=t;best=s.id;} }
+      });
+      if(best) setActive(best);
+    },{rootMargin:'-'+(58+12)+'px 0px -65% 0px',threshold:0});
+    sections.forEach(function(s){obs.observe(s);});
+  }
+})();
+</script>
+</body>
+</html>
