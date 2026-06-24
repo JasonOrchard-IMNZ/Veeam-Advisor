@@ -109,6 +109,11 @@ data is. See Calculations.txt §12 for details.
 | `staticwebapp.config.json` | Azure SWA routing + security headers |
 | `robots.txt` | Block all web crawlers |
 | `.github/workflows/azure-static-web-apps.yml` | CI/CD pipeline |
+| `user-guide.html` | In-app User Guide (linked from the tool header) |
+| `Veeam_Advisor_v1.0.3.html` | Locked v1.0.3 snapshot (byte-identical to `index.html`) |
+| `confirm-outputs.js` | Fleet View output assertions |
+| `confirm-bp-findings.js` | Single-server BP Review regression assertions (20-log corpus) |
+| `CHANGELOG.md` | Version history |
 
 ## PowerShell scripts (5.1+ for VBR v12 / 7.4.7+ for VBR v13)
 

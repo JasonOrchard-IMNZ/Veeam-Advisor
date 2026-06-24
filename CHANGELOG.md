@@ -2,6 +2,60 @@
 
 Notable changes to the tool are recorded here. Newest first.
 
+## v1.0.3 — 2026-06-24
+
+### Fixed — BP Review false positives
+
+Five Best-Practice-Review findings shared one root-cause parsing fault: a value extracted
+with a multi-colon regex and the `dom()` helper resolved to `"{ Enabled: X"` (it only strips
+text up to the first colon), so a comparison like `c.encryption !== 'True'` was always true and
+the finding fired regardless of the real setting. The single-server findings path was not
+covered by the existing test harness (which exercises the fleet tool), which is why these
+shipped. All five are corrected and validated against a 20-log corpus spanning VBR
+**12.1 / 12.2 / 12.3 and 13.x**, RTF and plain text, and VMware / Hyper-V / agent / Cloud Connect
+deployments.
+
+- **Backup encryption (critical) — false positive on fully-encrypted estates.** Encryption is
+  now read only from VM/disk backup-job lines using a brace-*optional* pattern
+  (`Encryption:\s*\{?\s*Enabled:\s*(True|False)`) so RTF-stripped logs — where `stripRTF` removes
+  all braces — still match. Tape jobs (which use `IsEncryptionEnabled`) and repository-level
+  encryption (on `RepositoryID` lines) are excluded by the job-line scoping. The finding now
+  fires only when a job is genuinely unencrypted, reports **"N of M jobs"**, and stays silent
+  when there are no backup jobs (Cloud Connect / replica-only / orchestrator logs).
+
+- **Malware (critical) — false positive on benign extension noise.** Severity is now gated on
+  infected / suspicious **restore points** (`OIBsInfectedCount` / `OIBsSuspiciousCount`, summed
+  across ManuallyChecked + DetectedByVeeam) instead of raw event counters. Confirmed infection →
+  critical; suspicious restore points → warning; scan events with no infected/suspicious restore
+  point → informational. A reference log carried 4529 ransomware-extension events with **zero**
+  infected restore points — previously a "4529 confirmed threats" critical, now informational.
+
+- **Large job (critical) — over-rated and misleading remediation.** Re-tiered by VM count:
+  **>300 critical, 100–300 informational**. Removed the "enable per-VM backup files first"
+  guidance — per-VM files are the modern default and are not reliably detectable from the log
+  (only 4 of 20 corpus logs expose the field).
+
+- **Repository health check (warning)** and **Deleted-VM retention (warning) — always fired.**
+  Both are now evaluated per backup job by majority (same brace-optional pattern; the colon
+  anchor avoids matching `FullHealthCheckEnabled`). They fire only when most jobs have the
+  feature disabled. This cleared false positives on logs where the feature was actually enabled
+  (MillBrook, may25-elive, wrhnbak01).
+
+### Added
+
+- **User Guide link** in the tool header and a **download link to the companion PowerShell
+  script** (`VeeamAdvisor-PowerShell.ps1`) in the drop zone, so both are reachable directly
+  from the tool. Links are relative paths that resolve on the Azure Static Web App deployment
+  (where `staticwebapp.config.json` already serves `.ps1` as text and keeps `.html` addressable).
+
+### Notes
+
+- No change to sizing constants, infrastructure calculations, or the immutability, backup-copy,
+  CBT, MFA, configuration-backup, or security/BPA checks — these were audited against the same
+  corpus and confirmed correctly implemented (single-colon captures or sound multi-signal
+  boolean logic, not the `dom()` fault).
+- `index.html` is byte-identical to `Veeam_Advisor_v1.0.3.html` (deploy convention unchanged).
+
 ## v1.0.2 — 2026-06-21
 
 ### Security
