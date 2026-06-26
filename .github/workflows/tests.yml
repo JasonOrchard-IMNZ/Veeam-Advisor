@@ -1,0 +1,34 @@
+name: tests
+
+# Runs the self-contained BP Review regression fixtures on every push/PR to main.
+# Fixtures contain NO customer data and need no VMC.log on disk, so this is safe for
+# public CI. This workflow is independent of the Azure Static Web Apps deployment
+# workflow and does not affect deployment.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  bp-findings:
+    name: BP Review regression fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax-check confirm-bp-findings.js
+        run: node --check confirm-bp-findings.js
+
+      - name: Run BP Review fixtures (v1.0.3 + v1.1.0, no customer logs)
+        run: node confirm-bp-findings.js

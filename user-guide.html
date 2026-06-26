@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor &mdash; User Guide (v1.0.3)</title>
+<title>Veeam Advisor &mdash; User Guide (v1.1.0)</title>
 <meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
 <meta name="robots" content="noindex">
 <style>
@@ -170,7 +170,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <div class="hero">
   <div class="eyebrow">User Guide</div>
-  <h1>Veeam Advisor <span class="pill">v1.0.3</span></h1>
+  <h1>Veeam Advisor <span class="pill">v1.1.0</span></h1>
   <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
   <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
 </div>
@@ -343,21 +343,22 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
           <tr><td class="c">2</td><td class="t">VBR Windows</td><td>Sizing for a Windows-based backup server.</td></tr>
           <tr><td class="c">3</td><td class="t">Proxy BP</td><td>Proxy sizing and best-practice guidance (count, transport mode, concurrency).</td></tr>
           <tr><td class="c">4</td><td class="t">Repository</td><td>Per-repository detail: type, immutability (incl. Hardened Linux and Veeam Data Cloud), task limits, per-VM chains, dedup/compression flags.</td></tr>
-          <tr><td class="c">5</td><td class="t">Retention</td><td>Short-term retention plus the GFS (daily/weekly/monthly/yearly) picture.</td></tr>
+          <tr><td class="c">5</td><td class="t">Retention</td><td>Short-term retention plus the GFS (daily/weekly/monthly/yearly) picture, with a <strong>retention-by-job-type</strong> summary (v1.1.0).</td></tr>
           <tr><td class="c">6</td><td class="t">Replication</td><td>Replication jobs and failover plans.</td></tr>
-          <tr><td class="c">7</td><td class="t">All jobs</td><td>Every parsed job across all types, including orphaned/disabled jobs that create no restore points.</td></tr>
+          <tr><td class="c">7</td><td class="t">All jobs</td><td>Every parsed job across all types, including orphaned/disabled jobs that create no restore points. A <strong>Jobs-by-type</strong> summary (v1.1.0) classifies jobs into friendly names with encryption, GFS and retention broken out per type.</td></tr>
           <tr><td class="c">8</td><td class="t">Cloud Connect</td><td>VCSP provider or tenant detail when the server has a Cloud Connect role.</td></tr>
           <tr><td class="c">9</td><td class="t">Malware</td><td>Malware-detection events broken down by type, source, state and severity, with file-extension detail.</td></tr>
           <tr><td class="c">10</td><td class="t">Settings</td><td>Configuration findings (warnings) — MFA, config-backup encryption and similar global settings.</td></tr>
           <tr><td class="c">11</td><td class="t">BP Review</td><td>The consolidated best-practice / security review and overall BP score.</td></tr>
-          <tr><td class="c">12</td><td class="t">Agents</td><td>Veeam Agent protection, distinguishing managed agent backups, agent policies, and legacy standalone jobs.</td></tr>
+          <tr><td class="c">12</td><td class="t">Agents</td><td>Veeam Agent protection with a <strong>licence cross-check</strong> (v1.1.0): managed Server / Workstation agents (Server = 1 instance, Workstation = 0.33) and standalone agents, reconciled against the licensed agent instances. Perpetual (socket) estates are shown as socket-covered.</td></tr>
           <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools) and a single GFS tape-job sizing across LTO-7/8/9.</td></tr>
           <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, plus a security-posture summary (MFA / immutability / encryption).</td></tr>
-          <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories.</td></tr>
+          <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories. <strong>Perpetual (socket)</strong> licences also show socket consumption (v1.1.0).</td></tr>
     </tbody>
   </table>
 </div>
-    <p class="callout-inline"><strong>On protection coverage:</strong> the tool compares discovered infrastructure VMs against VMs covered by jobs <strong>and</strong> Veeam Agent backups and flags an estimated unprotected count. Treat it as a prompt to investigate &mdash; for the exact list of unprotected VMs, use the <strong>Veeam ONE Protected VMs</strong> report.</p>
+    <p class="callout-inline"><strong>On protection coverage:</strong> the tool compares discovered infrastructure VMs against VMs covered by jobs <strong>and</strong> Veeam Agent backups and flags an estimated unprotected count. Treat it as a prompt to investigate &mdash; for the exact list of unprotected VMs, use the <strong>Veeam ONE Protected VMs</strong> report. <em>(v1.1.0: the agent contribution now counts real agent machines &mdash; managed Server + Workstation + standalone &mdash; rather than an agent-backup operation count, so coverage on agent-heavy estates is more accurate.)</em></p>
+    <p class="callout-inline"><strong>New in v1.1.0:</strong> a per-job-type breakout (All jobs &amp; Retention) classifies every job into a friendly name with encryption, GFS and retention shown per type; the Agents tab cross-checks detected agents against the licensed instances (Server = 1, Workstation = 0.33, standalone agents counted); and the Licensing tab surfaces socket consumption for Perpetual licences. The BP Review encryption finding is now per type, so unencrypted Backup <em>copy</em> jobs are flagged too.</p>
     </section>
 
     <section id="export-pdf" aria-labelledby="export-pdf-h">
@@ -424,7 +425,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <footer>
   <div class="foot">
-    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v1.0.3 &middot; Unofficial community tool</span>
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v1.1.0 &middot; Unofficial community tool</span>
     <span><a href="index.html">Open Veeam Advisor</a></span>
   </div>
 </footer>
