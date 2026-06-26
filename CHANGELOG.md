@@ -51,9 +51,16 @@ accurate values, and the Agents tab badge now reflects machines, not operations.
 
 ### Added — Perpetual sockets (Licensing tab)
 
-Socket-based (**Perpetual**) licences now display **socket consumption** — sockets licensed, sockets
-in use (VMware / Hyper-V split) and workloads covered — alongside the existing instance and capacity
-views. Fields are read from both JSON and structured forms, taking the most-recent run.
+Socket-based (**Perpetual**) licences now display **socket consumption** — sockets licensed,
+sockets in use, and a **per-platform breakdown** (sockets and workloads per hypervisor) —
+alongside the existing instance and capacity views. The figures are read from the authoritative
+per-platform `UsedSockets` structure (`"Name": "<plat>", "UsedSockets": N, "TotalWorkloadsNumber":
+M`), which is keyed by platform name and therefore covers VMware / Hyper-V / Nutanix / Proxmox /
+any hypervisor — unlike the flat `SocketsViInUse` / `SocketsHvInUse` summary fields, which exist
+only for VMware and Hyper-V (a socket estate on a third platform would be undercounted by the flat
+fields). The flat fields are retained as a fallback for heavily RTF-stripped logs. Validated across
+all 8 perpetual logs in the corpus; the per-platform socket totals reconcile exactly with the flat
+summary on every one.
 
 ### Changed — BP Review encryption finding is now per job type
 
