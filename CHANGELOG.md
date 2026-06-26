@@ -68,6 +68,30 @@ The encryption finding is evaluated per job type, so unencrypted **Backup copy**
 types) are surfaced, not only primary VM backup jobs. Critical for primary/copy data, warning for
 the rest.
 
+### Fixed — render-path field wiring (forensic audit)
+
+A full audit of the render path — every `d.X` the renderer/tab functions read versus the object
+`render()` actually receives — found and fixed all field-name mismatches, so every documented
+feature now renders:
+
+- **The v1.1.0 render features themselves** (per-job-type breakout, agent reconciliation,
+  perpetual sockets) and the per-type encryption finding are now forwarded into the render
+  object. They were computed on the data object but not passed to `render()`, so none of them
+  displayed and unencrypted backups were no longer being flagged.
+- **Tape capacity estimate** (Tape tab) now renders. It read `d.tb` / `d.retention` /
+  `d.gfsWeekly|Monthly|Yearly`, which the render object provides as `dataTB` / `ret` /
+  `gfsW|gfsM|gfsY`; the size gate therefore always failed and the tab always showed the
+  "upload a log" prompt even with tape data present.
+- **Infrastructure tab**: "Backup proxies" now shows the proxy count (`d.proxies` →
+  `detectedProxies`) and "Replication" shows the job count (`d.replJobs` → `replicationJobs`).
+- **BP Review**: the "WAN Accelerators deprecated" advisory now fires (`d.v13` → `vbrV13`).
+- **Cloud Connect** provider label (`d.isProvider` → `d.cloudConnect.isProvider`) and the
+  appliance "sized vCPU / RAM" suffix (`d.bsCPU` / `d.bsRAM` → `bsCPUact` / `bsRAMact`) now
+  resolve to their correct fields.
+
+Verified by a render-path audit that reports zero remaining field mismatches, and by rendering
+every affected tab through the actual `render()` object across the 20-log corpus.
+
 ### Unchanged
 
 Sizing constants and the infrastructure, immutability, backup-copy, CBT, MFA, config-backup, malware,
