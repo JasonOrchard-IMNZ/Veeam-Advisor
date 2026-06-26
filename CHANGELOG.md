@@ -2,6 +2,72 @@
 
 Notable changes to the tool are recorded here. Newest first.
 
+## v1.1.0 — 2026-06-26
+
+Feature release: three enhancements (per-job-type breakout, agent licence reconciliation,
+perpetual sockets), plus a coverage-accuracy correction that fell out of the agent work.
+Validated against the same 20-log corpus (VBR **12.1 / 12.2 / 12.3 and 13.x**, RTF and plain,
+VMware / Hyper-V / agent / Cloud Connect, instance and perpetual licences).
+
+### Added — Per-job-type breakout (All jobs + Retention tabs)
+
+Every configured job in `CURRENT JOBS INFO` is classified by its `Type:` into a friendly common
+name — **Backup Job, Backup copy job, Agent backup, Agent backup (mgmt), SureBackup (scan only),
+SureBackup (virtual labs), Config backup, Other** — and **encryption, GFS and retention are broken
+out per type**.
+
+- The **All jobs** tab gains a *Jobs by type* table (count · encryption · GFS · retention) above
+  the existing per-category detail.
+- The **Retention** tab gains a *Retention by job type* table covering all job types, including
+  copy and agent jobs that the per-job GFS table doesn't.
+- Retention reads `RetentionPolicy` (VM backup) and `RetentionSettings` (replica / copy / agent),
+  both `{ Value, Unit }`, with a brace-optional pattern so RTF-stripped logs match. Records are
+  de-duped by `JobID` (definition line wins).
+
+### Added — Agent licence reconciliation (Agents tab, rebuilt)
+
+The Agents tab is rebuilt on a corrected agent model and now **cross-checks detected agents against
+the licence**:
+
+- **Managed agents** are counted from `AgentBackup` + `AgentPolicy` jobs by their `ComputerType`:
+  a **Server** agent = 1 licence instance, a **Workstation** agent = 0.33 (three workstations = one
+  instance, rounded up). These reconcile against the `AgentsServer` / `AgentsWorkstation` instances
+  in the LICENSE block.
+- **Standalone `EndpointBackup` agents are now correctly recognised as licence-consuming** — the
+  previous build assumed they were free, which was wrong (an estate with zero managed agents but a
+  consumed Workstation instance is accounted for by its standalone agent).
+- **Perpetual (socket)** estates are shown as socket-covered; the per-instance agent check is
+  skipped because sockets cover agents.
+- **BP Review** gains a warning when more server agents are detected than licensed (instance
+  licences only).
+
+### Changed — Coverage accuracy (agent-protected machines)
+
+The agent count feeding the **protection-coverage estimate** now uses the real agent machine count
+(**managed Server + Workstation + standalone**) instead of the `[Agents] EpAgentBackup` figure,
+which is an agent-backup **operation / session count** — e.g. **62** on an estate with ~1 real agent
+— and wrongly excluded `EndpointBackup`. Coverage percentages on agent-heavy logs shift to more
+accurate values, and the Agents tab badge now reflects machines, not operations.
+
+### Added — Perpetual sockets (Licensing tab)
+
+Socket-based (**Perpetual**) licences now display **socket consumption** — sockets licensed, sockets
+in use (VMware / Hyper-V split) and workloads covered — alongside the existing instance and capacity
+views. Fields are read from both JSON and structured forms, taking the most-recent run.
+
+### Changed — BP Review encryption finding is now per job type
+
+The encryption finding is evaluated per job type, so unencrypted **Backup copy** jobs (and other
+types) are surfaced, not only primary VM backup jobs. Critical for primary/copy data, warning for
+the rest.
+
+### Unchanged
+
+Sizing constants and the infrastructure, immutability, backup-copy, CBT, MFA, config-backup, malware,
+health-check, deleted-VM, and security / BPA checks are unchanged from v1.0.3.
+
+---
+
 ## v1.0.3 — 2026-06-24
 
 ### Fixed — BP Review false positives
