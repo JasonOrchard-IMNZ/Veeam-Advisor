@@ -32,8 +32,11 @@
     on an estate with ~1 real agent) and wrongly excluded EndpointBackup. Coverage percentages
     on agent-heavy logs shift to more accurate values as a result.
   - Perpetual sockets (Licensing tab): socket-based (Perpetual) licences now show socket
-    consumption — sockets licensed, in use (VMware / Hyper-V split) and workloads covered —
-    alongside the existing instance/capacity views.
+    consumption — sockets licensed, sockets in use, and a per-platform breakdown (sockets +
+    workloads per hypervisor) — alongside the existing instance/capacity views. Read from the
+    authoritative per-platform UsedSockets structure (keyed by platform name, so VMware /
+    Hyper-V / Nutanix / Proxmox / any hypervisor is covered), with the flat SocketsViInUse /
+    SocketsHvInUse summary as a fallback for heavily RTF-stripped logs.
   - BP Review encryption finding is now per job type, so unencrypted Backup COPY jobs (and
     other types) are surfaced, not only primary VM backup jobs.
   - No change to sizing constants or the infrastructure, immutability, backup-copy, CBT, MFA,
@@ -1608,15 +1611,31 @@ function parseLog(raw,fname){
   })();
 
   // (3) Perpetual (socket) metrics — surfaced on the Licensing tab the way instance
-  // consumption already is. Fields appear in JSON ("SocketsInLicense":"26") and/or
-  // structured (SocketsInLicense: 26) form; take the last match (most-recent run).
+  // consumption already is. The AUTHORITATIVE source is the per-platform structure
+  //   "Name": "<plat>", "UsedSockets": N, "TotalWorkloadsNumber": M
+  // keyed by platform name, so it covers VMware / Hyper-V / Nutanix / Proxmox / any
+  // hypervisor — unlike the two flat SocketsViInUse / SocketsHvInUse summary fields,
+  // which only exist for VMware and Hyper-V (a socket estate on a third platform
+  // would be undercounted by the flat fields). The most-recent run carries one entry
+  // per platform; de-dupe by name. Flat fields are kept as a fallback for heavily
+  // RTF-stripped logs and cross-checking.
   if(D.licType==='Perpetual'){
     var sgk=function(k){var rx=new RegExp('(?:"'+k+'":\\s*"?|'+k+':\\s*)(\\d+)','g'),mm,last=null;
       while((mm=rx.exec(txt))!==null)last=parseInt(mm[1]);return last;};
+    var perPlat=[], seenPlat={}, ppRx=/"Name":\s*"([^"]+)",\s*"UsedSockets":\s*(\d+)(?:[^}]*?"TotalWorkloadsNumber":\s*(\d+))?/g, pm;
+    while((pm=ppRx.exec(txt))!==null){
+      var pName=pm[1];
+      if(seenPlat[pName]) continue; seenPlat[pName]=true;
+      perPlat.push({name:pName, sockets:parseInt(pm[2]), workloads:(pm[3]!=null?parseInt(pm[3]):null)});
+    }
+    var flatUsed=(sgk('SocketsViInUse')||0)+(sgk('SocketsHvInUse')||0);
+    var ppUsed=perPlat.reduce(function(a,p){return a+p.sockets;},0);
     D.licSockets={
       inLicense:sgk('SocketsInLicense'),
+      used:(perPlat.length ? ppUsed : flatUsed),
       viInUse:sgk('SocketsViInUse'), hvInUse:sgk('SocketsHvInUse'),
-      workloads:sgk('SocketsTotalWorkloadsNumber')
+      workloads:sgk('SocketsTotalWorkloadsNumber'),
+      perPlatform:perPlat
     };
   }
 
@@ -4465,7 +4484,7 @@ function licenseTab(d){
   // surface sockets the way instances are surfaced for subscription/VUL licences.
   if(d.licSockets && (d.licSockets.inLicense!=null || d.licSockets.viInUse!=null || d.licSockets.hvInUse!=null)){
     var sk=d.licSockets;
-    var skLic=sk.inLicense||0, skUsed=(sk.viInUse||0)+(sk.hvInUse||0);
+    var skLic=sk.inLicense||0, skUsed=(sk.used!=null?sk.used:((sk.viInUse||0)+(sk.hvInUse||0)));
     var skPct = skLic>0 ? Math.min(100,Math.round(skUsed/skLic*100)) : 0;
     var skCol = skPct>=90?'var(--red)':skPct>=75?'#d97706':'var(--green)';
     h+='<div style="margin:18px 0 6px;font-weight:600;font-size:14px">Socket consumption (Perpetual licence)</div>';
@@ -4479,10 +4498,23 @@ function licenseTab(d){
       h+='<div style="height:100%;width:'+skPct+'%;background:'+skCol+';border-radius:7px"></div></div>';
     }
     h+='<div class="tw" style="margin-top:10px"><table>';
-    h+='<tr><th>Socket metric</th><th>Value</th></tr>';
-    h+='<tr><td>Sockets licensed</td><td><b>'+skLic+'</b></td></tr>';
-    h+='<tr><td>Sockets in use</td><td><b>'+skUsed+'</b>'+((sk.viInUse!=null||sk.hvInUse!=null)?' <span style="color:var(--tx3);font-size:12px">(VMware '+(sk.viInUse||0)+' &middot; Hyper-V '+(sk.hvInUse||0)+')</span>':'')+'</td></tr>';
-    if(sk.workloads!=null) h+='<tr><td>Workloads covered</td><td><b>'+sk.workloads+'</b></td></tr>';
+    if(sk.perPlatform && sk.perPlatform.length){
+      // Authoritative per-platform breakdown (sockets + workloads per hypervisor).
+      h+='<tr><th>Platform</th><th>Sockets</th><th>Workloads</th></tr>';
+      var twl=0, anyWl=false;
+      sk.perPlatform.forEach(function(p){
+        if(p.workloads!=null){twl+=p.workloads; anyWl=true;}
+        h+='<tr><td>'+esc(p.name)+'</td><td style="text-align:center"><b>'+p.sockets+'</b></td><td style="text-align:center">'+(p.workloads!=null?p.workloads:'<span style="color:var(--tx3)">&mdash;</span>')+'</td></tr>';
+      });
+      if(sk.perPlatform.length>1)
+        h+='<tr style="border-top:1px solid var(--bd)"><td style="font-weight:600">Total in use</td><td style="text-align:center"><b>'+skUsed+'</b></td><td style="text-align:center"><b>'+(anyWl?twl:(sk.workloads!=null?sk.workloads:'&mdash;'))+'</b></td></tr>';
+    } else {
+      // Fallback (flat summary) — e.g. heavily RTF-stripped logs with no per-platform structure.
+      h+='<tr><th>Socket metric</th><th>Value</th></tr>';
+      h+='<tr><td>Sockets licensed</td><td><b>'+skLic+'</b></td></tr>';
+      h+='<tr><td>Sockets in use</td><td><b>'+skUsed+'</b>'+((sk.viInUse!=null||sk.hvInUse!=null)?' <span style="color:var(--tx3);font-size:12px">(VMware '+(sk.viInUse||0)+' &middot; Hyper-V '+(sk.hvInUse||0)+')</span>':'')+'</td></tr>';
+      if(sk.workloads!=null) h+='<tr><td>Workloads covered</td><td><b>'+sk.workloads+'</b></td></tr>';
+    }
     h+='</table></div>';
     h+='<p style="font-size:11px;color:var(--tx3);margin-top:6px">&#8201;Perpetual (socket) licences are consumed per occupied CPU <b>socket</b> on protected hosts &mdash; a socket covers unlimited VMs. Agents and capacity workloads on a socket-licensed estate are covered by the sockets, which is why the per-instance agent figures can read zero here.</p>';
   }
