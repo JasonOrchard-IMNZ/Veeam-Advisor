@@ -39,6 +39,12 @@
     SocketsHvInUse summary as a fallback for heavily RTF-stripped logs.
   - BP Review encryption finding is now per job type, so unencrypted Backup COPY jobs (and
     other types) are surfaced, not only primary VM backup jobs.
+  - Render-path audit: every field the renderer reads is now correctly forwarded into the render
+    object. This fixes the three v1.1.0 render features + per-type encryption finding (computed
+    but not passed, so not displayed), the Tape capacity estimate (read dataTB/ret/gfsW under the
+    wrong names, so it always showed the upload prompt), the Infrastructure "Backup proxies" and
+    "Replication" counts, the WAN-accelerator advisory, the Cloud Connect provider label and the
+    appliance sized-vCPU/RAM suffix. Zero field mismatches remain.
   - No change to sizing constants or the infrastructure, immutability, backup-copy, CBT, MFA,
     config-backup, malware, health-check, deleted-VM, or security/BPA checks.
 
@@ -2130,6 +2136,7 @@ function fN(n){return n.toLocaleString();}
           orphanedJobs:D.orphanedJobs||[],disabledJobCount:D.disabledJobCount||0,
           plugins:D.plugins||[],agentJobs:D.agentJobs,nasJobs:D.nasJobs,
           agentDetail:D.agentDetail||{epBackup:0,epAgentBackup:0,epPolicy:0,epMgmt:0,legacy:false,jobs:[]},
+          jobRecords:D.jobRecords||[], jobsByType:D.jobsByType||[], agentRecon:D.agentRecon, licSockets:D.licSockets,
           tapeServers:D.tapeServers,vmTapeJobs:D.vmTapeJobs,fileTapeJobs:D.fileTapeJobs,tapeJobs:D.tapeJobs,tapeLibraries:D.tapeLibraries,tapeDrives:D.tapeDrives,mediaPools:D.mediaPools,gfsMediaPools:D.gfsMediaPools,regularMediaPools:D.regularMediaPools,tapeLTO:D.tapeLTO,cdpPolicies:D.cdpPolicies,surebackup:D.surebackup,
           sobrs:D.sobrs,sobrTiers:D.sobrTiers||[],replicationJobs:D.replicationJobs,
           veeamOne:D.veeamOne,inlineScan:D.inlineScan,yaraScan:D.yaraScan,
@@ -3806,7 +3813,7 @@ function buildFindings(d){
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/virtual_lab.html');
 
   // WAN Accelerator deprecation
-  if(d.wanAccel>0&&d.v13) add('i','WAN Accelerators detected — deprecated in v12+',
+  if(d.wanAccel>0&&d.vbrV13) add('i','WAN Accelerators detected — deprecated in v12+',
     d.wanAccel+' WAN Accelerator(s) configured. WAN acceleration is deprecated from Veeam v12 — modern object storage repositories provide better offsite efficiency without dedicated WAN Accel appliances.',
     'Consider replacing WAN Accel with direct backup copy to object storage (S3, Azure Blob, or Veeam Data Cloud).',
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/wan_accelerator.html');
@@ -4197,13 +4204,13 @@ function tapeCalc(d,gen,useComp){
   var cap=useComp?g.comp:g.native;          // per-tape usable TB
   var EOM=0.90;                              // End-of-Media: tapes fill ~90% before swap
   var COMPRESSION=0.5;                       // Veeam full ~50% of source (matches sizing tab)
-  var srcTB=d.tb||0;
+  var srcTB=d.dataTB||0;
   var fullTB=srcTB*COMPRESSION;              // one full backup on tape (TB)
   // GFS full restore points kept on tape = weekly + monthly + yearly (+1 active full)
-  var wk=d.gfsWeekly||0, mo=d.gfsMonthly||0, yr=d.gfsYearly||0;
+  var wk=d.gfsW||0, mo=d.gfsM||0, yr=d.gfsY||0;
   var fulls=wk+mo+yr+1;                      // +1 for the current/active full
   // Daily increments retained (each ~10% of a full — Veeam typical change rate)
-  var dailies=d.retention||0;
+  var dailies=d.ret||0;
   var incrTB=fullTB*0.10;
   var totalTB=(fulls*fullTB)+(dailies*incrTB);
   var effCap=cap*EOM;                        // usable capacity after EOM headroom
@@ -4287,7 +4294,7 @@ function tapeTab(d){
     }
   }
 
-  if(!d.fromLog || !(d.tb>0)){
+  if(!d.fromLog || !(d.dataTB>0)){
     h+='<div class="nt nw">&#9888; Tape sizing needs the source data size and GFS retention from a VMC.log. Upload a log (or enter data and GFS points in the sizing inputs) to see tape estimates.</div>';
   } else {
     // LTO generation selector + compression toggle
@@ -4355,7 +4362,7 @@ function infraTab(d){
   h+=infraRow('Backup server',
     (d.isVSA?'VSA appliance':'Windows VBR')+(d.vbr?' &middot; '+esc(d.vbr):''),
     'ok',
-    (d.vbrV13?'v13':'v12.x')+(d.bsCPU?' &middot; sized '+d.bsCPU+' vCPU / '+d.bsRAM+' GB':''));
+    (d.vbrV13?'v13':'v12.x')+(d.bsCPUact?' &middot; sized '+d.bsCPUact+' vCPU / '+d.bsRAMact+' GB':''));
 
   // VBR database / config backup
   h+=infraRow('Configuration backup',
@@ -4364,8 +4371,8 @@ function infraTab(d){
     'Protects the VBR configuration database. Should be enabled and encrypted.');
 
   // Proxies
-  h+=infraRow('Backup proxies', cv(d.proxies),
-    (d.proxies>0)?'ok':'warn',
+  h+=infraRow('Backup proxies', cv(d.detectedProxies),
+    (d.detectedProxies>0)?'ok':'warn',
     'Move data between source and repository. Scale to backup window.');
 
   // Repositories
@@ -4403,11 +4410,12 @@ function infraTab(d){
     'Automated recovery verification.'+(d.virtualLabs>0?' '+d.virtualLabs+' virtual lab'+(d.virtualLabs===1?'':'s')+'.':'')+(d.appGroups>0?' '+d.appGroups+' application group'+(d.appGroups===1?'':'s')+'.':''));
 
   // Cloud Connect (service providers)
-  if(d.serviceProviders!=null || d.isProvider){
+  var isProv = d.cloudConnect && d.cloudConnect.isProvider===true;
+  if(d.serviceProviders!=null || isProv){
     h+=infraRow('Cloud Connect',
-      d.isProvider?'This is a provider':(d.serviceProviders>0?d.serviceProviders+' service provider'+(d.serviceProviders===1?'':'s'):'None'),
-      (d.isProvider||d.serviceProviders>0)?'ok':'na',
-      d.isProvider?'Serves tenants (VCSP).':'Off-site backup to a Veeam Cloud Connect provider.');
+      isProv?'This is a provider':(d.serviceProviders>0?d.serviceProviders+' service provider'+(d.serviceProviders===1?'':'s'):'None'),
+      (isProv||d.serviceProviders>0)?'ok':'na',
+      isProv?'Serves tenants (VCSP).':'Off-site backup to a Veeam Cloud Connect provider.');
   }
 
   // Plug-ins
@@ -4418,8 +4426,8 @@ function infraTab(d){
 
   // Replication (DR)
   h+=infraRow('Replication',
-    (d.replJobs>0)?d.replJobs+' job'+(d.replJobs===1?'':'s'):'Not configured',
-    (d.replJobs>0)?'ok':'na',
+    (d.replicationJobs>0)?d.replicationJobs+' job'+(d.replicationJobs===1?'':'s'):'Not configured',
+    (d.replicationJobs>0)?'ok':'na',
     'VM replicas for disaster recovery.');
 
   h+='</table></div>';
