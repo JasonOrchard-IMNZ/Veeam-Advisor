@@ -4482,7 +4482,7 @@ function licenseTab(d){
   // ── Perpetual (socket) consumption — socket-based licences (v1.1.0) ──────────
   // Perpetual licences are consumed per occupied CPU socket, not per instance, so
   // surface sockets the way instances are surfaced for subscription/VUL licences.
-  if(d.licSockets && (d.licSockets.inLicense!=null || d.licSockets.viInUse!=null || d.licSockets.hvInUse!=null)){
+  if(d.licSockets && (d.licSockets.inLicense!=null || d.licSockets.viInUse!=null || d.licSockets.hvInUse!=null || (d.licSockets.perPlatform && d.licSockets.perPlatform.length))){
     var sk=d.licSockets;
     var skLic=sk.inLicense||0, skUsed=(sk.used!=null?sk.used:((sk.viInUse||0)+(sk.hvInUse||0)));
     var skPct = skLic>0 ? Math.min(100,Math.round(skUsed/skLic*100)) : 0;
@@ -4490,7 +4490,7 @@ function licenseTab(d){
     h+='<div style="margin:18px 0 6px;font-weight:600;font-size:14px">Socket consumption (Perpetual licence)</div>';
     h+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">';
     if(skLic>0) h+='<div style="font-size:30px;font-weight:700;color:'+skCol+'">'+skPct+'%</div>';
-    h+='<div style="font-size:14px;color:var(--tx2)"><b>'+skUsed+'</b> of <b>'+skLic+'</b> sockets in use</div>';
+    h+='<div style="font-size:14px;color:var(--tx2)"><b>'+skUsed+'</b>'+(skLic>0?' of <b>'+skLic+'</b>':'')+' sockets in use</div>';
     if(skLic>0) h+='<div style="margin-left:auto;font-size:13px;color:var(--tx3)">'+Math.max(0,skLic-skUsed)+' available</div>';
     h+='</div>';
     if(skLic>0){
@@ -4500,7 +4500,7 @@ function licenseTab(d){
     h+='<div class="tw" style="margin-top:10px"><table>';
     if(sk.perPlatform && sk.perPlatform.length){
       // Authoritative per-platform breakdown (sockets + workloads per hypervisor).
-      h+='<tr><th>Platform</th><th>Sockets</th><th>Workloads</th></tr>';
+      h+='<tr><th>Platform</th><th>Sockets in use</th><th>Workloads</th></tr>';
       var twl=0, anyWl=false;
       sk.perPlatform.forEach(function(p){
         if(p.workloads!=null){twl+=p.workloads; anyWl=true;}
@@ -4508,6 +4508,8 @@ function licenseTab(d){
       });
       if(sk.perPlatform.length>1)
         h+='<tr style="border-top:1px solid var(--bd)"><td style="font-weight:600">Total in use</td><td style="text-align:center"><b>'+skUsed+'</b></td><td style="text-align:center"><b>'+(anyWl?twl:(sk.workloads!=null?sk.workloads:'&mdash;'))+'</b></td></tr>';
+      if(skLic>0)
+        h+='<tr style="'+(sk.perPlatform.length===1?'border-top:1px solid var(--bd);':'')+'"><td style="color:var(--tx2)">Sockets licensed</td><td style="text-align:center;color:var(--tx2)"><b>'+skLic+'</b></td><td></td></tr>';
     } else {
       // Fallback (flat summary) — e.g. heavily RTF-stripped logs with no per-platform structure.
       h+='<tr><th>Socket metric</th><th>Value</th></tr>';
