@@ -92,6 +92,27 @@ feature now renders:
 Verified by a render-path audit that reports zero remaining field mismatches, and by rendering
 every affected tab through the actual `render()` object across the 20-log corpus.
 
+### PDF export — v1.1.0 feature parity
+
+The Export PDF report previously contained only the sizing sections and predated the v1.1.0
+feature work. It now includes the v1.1.0 additions so the exported report matches the on-screen
+tool:
+
+- **Infrastructure** page — full inventory (backup server, proxies, repositories, SOBR,
+  Enterprise Manager, tape, WAN accelerators, SureBackup, Cloud Connect, plug-ins, and
+  **replication**) plus a security-posture summary (MFA, immutability, encryption), mirroring
+  the on-screen Infrastructure tab.
+- **Licensing** page — edition / type / state / expiry, plus perpetual **socket consumption**
+  (per-platform sockets + workloads), **instance consumption**, and **capacity (VUL)** licensing.
+- **Agents** — the licence cross-check (managed server / workstation + standalone, with the
+  per-instance reconciliation table, or the perpetual-socket note).
+- **Jobs by type** — per-type encryption / GFS / retention breakout.
+- **Tape capacity estimate** — single GFS tape job (native LTO-9) with the full math table.
+
+The Best Practice Review section already reflected v1.1.0, as it renders from the shared
+findings. The export reads only fields present in the render object (verified by the same
+render-path audit), and `exportPDF()` runs clean across the 20-log corpus.
+
 ### Unchanged
 
 Sizing constants and the infrastructure, immutability, backup-copy, CBT, MFA, config-backup, malware,
