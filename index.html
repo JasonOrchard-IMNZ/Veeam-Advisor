@@ -4826,6 +4826,43 @@ function exportPDF(){
   h += '<tr style="background:#f0fbf7"><td><b>Total</b></td><td>—</td><td>—</td><td><b>'+d.repoTB+' TB</b></td></tr>';
   h += '</table>';
 
+  // Jobs by type (v1.1.0) — per-type encryption / GFS / retention
+  if(d.jobsByType && d.jobsByType.length){
+    h += '<div class="pdf-h2">Jobs by type &mdash; encryption, GFS &amp; retention</div>';
+    h += '<table class="pdf-tbl"><tr><th>Job type</th><th>Jobs</th><th>Encryption</th><th>GFS jobs</th><th>Retention</th></tr>';
+    d.jobsByType.forEach(function(t){
+      var encCell;
+      if(t.encTotal===0) encCell='&mdash;';
+      else if(t.encOff===0) encCell='<span class="pdf-ok">All '+t.encTotal+' on</span>';
+      else encCell='<span class="pdf-warn">'+t.encOff+' of '+t.encTotal+' off</span>';
+      var gfsCell = t.gfsOn>0 ? '<span class="pdf-ok">'+t.gfsOn+'</span>' : '&mdash;';
+      var rk=Object.keys(t.rets);
+      var retCell = rk.length ? esc(rk.sort(function(a,b){return parseInt(a)-parseInt(b);}).join(', ')) : '&mdash;';
+      h += '<tr><td><b>'+esc(t.common)+'</b></td><td>'+t.count+'</td><td>'+encCell+'</td><td>'+gfsCell+'</td><td style="font-size:10px">'+retCell+'</td></tr>';
+    });
+    h += '</table>';
+  }
+
+  // Tape capacity estimate (v1.1.0) — single GFS tape job, native LTO-9
+  if(d.dataTB>0){
+    var tp=tapeCalc(d,'LTO-9',false);
+    h += '<div class="pdf-h2">Tape capacity estimate &mdash; single GFS tape job</div>';
+    h += '<div class="pdf-grid">';
+    h += pdfStat(tp.tapes+' &times;','LTO-9 tapes / copy');
+    h += pdfStat(tp.totalTB.toFixed(1)+' TB','Total tape data');
+    h += pdfStat(tp.fulls,'Full points (GFS+active)');
+    h += pdfStat(tp.cap+' TB','Per-tape (native)');
+    h += '</div>';
+    h += '<table class="pdf-tbl"><tr><th>Component</th><th>Count</th><th>Size each</th><th>Subtotal</th></tr>';
+    h += '<tr><td>Full backups (weekly &times;'+tp.wk+' + monthly &times;'+tp.mo+' + yearly &times;'+tp.yr+' + 1 active)</td><td>'+tp.fulls+'</td><td>'+tp.fullTB.toFixed(2)+' TB</td><td><b>'+(tp.fulls*tp.fullTB).toFixed(1)+' TB</b></td></tr>';
+    h += '<tr><td>Daily increments ('+tp.dailies+'-day retention)</td><td>'+tp.dailies+'</td><td>'+tp.incrTB.toFixed(2)+' TB</td><td><b>'+(tp.dailies*tp.incrTB).toFixed(1)+' TB</b></td></tr>';
+    h += '<tr style="background:#f0fbf7"><td><b>Total to tape</b></td><td>&mdash;</td><td>&mdash;</td><td><b>'+tp.totalTB.toFixed(1)+' TB</b></td></tr>';
+    h += '<tr><td>Usable per tape (after ~10% End-of-Media)</td><td>&mdash;</td><td>&mdash;</td><td>'+tp.effCap.toFixed(1)+' TB</td></tr>';
+    h += '<tr style="background:#f0fbf7"><td><b>Tapes required (per copy)</b></td><td>&mdash;</td><td>&mdash;</td><td><b>'+tp.tapes+' &times; LTO-9</b></td></tr>';
+    h += '</table>';
+    h += '<p style="font-size:9px;color:#777;margin-top:4px">Planning estimate: source data &times;50% per full, ~10% daily change, native LTO-9 capacity (Veeam image backups are pre-compressed). Switch generation / compression on the on-screen Tape tab. Validate against actual backup sizes.</p>';
+  }
+
   // Per-job retention
   if(d.jobGFS&&d.jobGFS.length){
     h += '<div class="pdf-h2">Per-job retention & GFS ('+d.jobGFS.length+' jobs)</div>';
@@ -4849,6 +4886,115 @@ function exportPDF(){
     h += '</table>';
   }
   h += '</div>'; // page 2
+
+  // ── PAGE: Infrastructure (v1.1.0 parity with on-screen Infrastructure tab) ──
+  if(d.fromLog){
+    var civ=function(n){return (n==null)?'&mdash;':(n+'');};
+    var iRow=function(label,val,sev,note){
+      var cls = sev==='ok'?' class="pdf-ok"':sev==='warn'?' class="pdf-warn"':sev==='crit'?' class="pdf-crit"':'';
+      return '<tr><td><b>'+label+'</b></td><td'+cls+'>'+val+'</td><td style="font-size:10px;color:#555">'+note+'</td></tr>';
+    };
+    h += '<div class="pdf-page">';
+    h += '<div class="pdf-h2">Infrastructure</div>';
+    h += '<table class="pdf-tbl"><tr><th>Component</th><th>Status</th><th>Notes</th></tr>';
+    h += iRow('Backup server',(d.isVSA?'VSA appliance':'Windows VBR')+(d.vbr?' &middot; '+esc(d.vbr):''),'ok',(d.vbrV13?'v13':'v12.x')+(d.bsCPUact?' &middot; sized '+d.bsCPUact+' vCPU / '+d.bsRAMact+' GB':''));
+    h += iRow('Configuration backup',d.configBackupEncrypted===true?'Encrypted':d.configBackupEncrypted===false?'Not encrypted':'Unknown',d.configBackupEncrypted===true?'ok':d.configBackupEncrypted===false?'warn':'na','Protects the VBR configuration database.');
+    h += iRow('Backup proxies',civ(d.detectedProxies),(d.detectedProxies>0)?'ok':'warn','Move data between source and repository.');
+    h += iRow('Backup repositories',(d.repoList?d.repoList.length:0)+' repo'+((d.repoList&&d.repoList.length===1)?'':'s')+(d.repoServers!=null?' on '+d.repoServers+' server'+(d.repoServers===1?'':'s'):''),(d.repoList&&d.repoList.length>0)?'ok':'warn','Backup storage targets.');
+    h += iRow('Scale-out repositories (SOBR)',civ(d.sobrs),(d.sobrs>0)?'ok':'na','Capacity / archive tiering to object storage.');
+    h += iRow('Enterprise Manager',(d.enterpriseManager&&d.enterpriseManager!=='None'&&d.enterpriseManager!=='False')?esc(''+d.enterpriseManager):'Not configured',(d.enterpriseManager&&d.enterpriseManager!=='None'&&d.enterpriseManager!=='False')?'ok':'na','Central management across VBR servers.');
+    h += iRow('Tape',(d.tapeServers>0||d.tapeJobs>0)?((d.tapeServers||0)+' server'+((d.tapeServers||0)===1?'':'s')+', '+(d.tapeDrives||0)+' drive'+((d.tapeDrives||0)===1?'':'s')+', '+(d.tapeJobs||0)+' job'+((d.tapeJobs||0)===1?'':'s')):'Not configured',(d.tapeServers>0||d.tapeJobs>0)?'ok':'na',(d.gfsMediaPools>0?d.gfsMediaPools+' GFS media pool'+(d.gfsMediaPools===1?'':'s')+'. ':'')+'See tape capacity estimate.');
+    h += iRow('WAN accelerators',civ(d.wanAccel),(d.wanAccel>0)?'ok':'na','Optimise backup copy over WAN (Enterprise Plus).');
+    h += iRow('SureBackup',(d.surebackup>0)?d.surebackup+' job'+(d.surebackup===1?'':'s'):'Not configured',(d.surebackup>0)?'ok':'warn','Automated recovery verification.'+(d.virtualLabs>0?' '+d.virtualLabs+' virtual lab'+(d.virtualLabs===1?'':'s')+'.':'')+(d.appGroups>0?' '+d.appGroups+' application group'+(d.appGroups===1?'':'s')+'.':''));
+    var isProvP = d.cloudConnect && d.cloudConnect.isProvider===true;
+    if(d.serviceProviders!=null || isProvP) h += iRow('Cloud Connect',isProvP?'This is a provider':(d.serviceProviders>0?d.serviceProviders+' service provider'+(d.serviceProviders===1?'':'s'):'None'),(isProvP||d.serviceProviders>0)?'ok':'na',isProvP?'Serves tenants (VCSP).':'Off-site backup to a Cloud Connect provider.');
+    h += iRow('Enterprise plug-ins',(d.plugins&&d.plugins.length>0)?d.plugins.length+' detected':'None',(d.plugins&&d.plugins.length>0)?'info':'na','Application plug-ins (e.g. Oracle RMAN, SAP HANA).');
+    h += iRow('Replication',(d.replicationJobs>0)?d.replicationJobs+' job'+(d.replicationJobs===1?'':'s'):'Not configured',(d.replicationJobs>0)?'ok':'na','VM replicas for disaster recovery.');
+    h += '</table>';
+    h += '<div class="pdf-h2">Security posture</div>';
+    h += '<table class="pdf-tbl"><tr><th>Control</th><th>State</th><th>Notes</th></tr>';
+    h += iRow('Multi-factor authentication',d.mfaEnabled===true?'Enabled':d.mfaEnabled===false?'Disabled':'Unknown',d.mfaEnabled===true?'ok':d.mfaEnabled===false?'crit':'na','MFA on the backup console.');
+    h += iRow('Immutability',d.immutabilityMinDays>0?d.immutabilityMinDays+' days':d.immutabilityMinDays===0?'Not set':'Unknown',d.immutabilityMinDays>0?'ok':d.immutabilityMinDays===0?'crit':'na','Immutable backups resist ransomware / deletion.');
+    h += iRow('Backup encryption',d.configBackupEncrypted===true?'Enabled':d.configBackupEncrypted===false?'Disabled':'Unknown',d.configBackupEncrypted===true?'ok':d.configBackupEncrypted===false?'warn':'na','Encrypt backups at rest.');
+    h += '</table>';
+    h += '</div>'; // infrastructure page
+  }
+
+  // ── PAGE: Licensing & Agents (v1.1.0) ─────────────────────────────────
+  if(d.fromLog && ((d.licInLicense!=null&&d.licInLicense>0) || (d.licCapTB!=null&&d.licCapTB>0) || d.licEdition || d.licSockets || d.agentRecon)){
+    h += '<div class="pdf-page">';
+    h += '<div class="pdf-h2">Licensing</div>';
+    h += '<table class="pdf-tbl"><tr><th>Licence</th><th>Detail</th></tr>';
+    if(d.licEdition) h += '<tr><td><b>Edition</b></td><td>'+esc(d.licEdition)+'</td></tr>';
+    if(d.licType) h += '<tr><td><b>Type</b></td><td>'+esc(d.licType)+'</td></tr>';
+    if(d.licState) h += '<tr><td><b>State</b></td><td>'+esc(d.licState)+'</td></tr>';
+    if(d.licExpiry) h += '<tr><td><b>Expires</b></td><td>'+esc(d.licExpiry)+'</td></tr>';
+    if(d.supportExpiry) h += '<tr><td><b>Support expires</b></td><td>'+esc(d.supportExpiry)+'</td></tr>';
+    h += '</table>';
+    // Perpetual (socket) consumption
+    if(d.licSockets && (d.licSockets.inLicense!=null || d.licSockets.viInUse!=null || d.licSockets.hvInUse!=null)){
+      var sk=d.licSockets;
+      var skLic=sk.inLicense||0, skUsed=(sk.used!=null?sk.used:((sk.viInUse||0)+(sk.hvInUse||0)));
+      h += '<div class="pdf-h2">Socket consumption (Perpetual licence)</div>';
+      if(sk.perPlatform && sk.perPlatform.length){
+        h += '<table class="pdf-tbl"><tr><th>Platform</th><th>Sockets</th><th>Workloads</th></tr>';
+        var twl=0,anyWl=false;
+        sk.perPlatform.forEach(function(p){ if(p.workloads!=null){twl+=p.workloads;anyWl=true;} h += '<tr><td>'+esc(p.name)+'</td><td>'+p.sockets+'</td><td>'+(p.workloads!=null?p.workloads:'&mdash;')+'</td></tr>'; });
+        h += '<tr style="background:#f0fbf7"><td><b>Total in use</b></td><td><b>'+skUsed+'</b></td><td><b>'+(anyWl?twl:(sk.workloads!=null?sk.workloads:'&mdash;'))+'</b></td></tr>';
+        if(skLic>0) h += '<tr><td>Sockets licensed</td><td><b>'+skLic+'</b></td><td>'+Math.max(0,skLic-skUsed)+' available</td></tr>';
+        h += '</table>';
+      } else {
+        h += '<table class="pdf-tbl"><tr><th>Socket metric</th><th>Value</th></tr>';
+        h += '<tr><td>Sockets licensed</td><td><b>'+skLic+'</b></td></tr>';
+        h += '<tr><td>Sockets in use</td><td><b>'+skUsed+'</b>'+((sk.viInUse!=null||sk.hvInUse!=null)?' (VMware '+(sk.viInUse||0)+' / Hyper-V '+(sk.hvInUse||0)+')':'')+'</td></tr>';
+        if(sk.workloads!=null) h += '<tr><td>Workloads covered</td><td><b>'+sk.workloads+'</b></td></tr>';
+        h += '</table>';
+      }
+      h += '<p style="font-size:9px;color:#777;margin-top:4px">Perpetual licences are consumed per occupied CPU socket &mdash; a socket covers unlimited VMs, and agents / capacity workloads on a socket-licensed estate are covered by the sockets (so per-instance agent figures can read zero).</p>';
+    }
+    // Instance consumption
+    if(d.licInLicense!=null && d.licInLicense>0){
+      var lpct=Math.min(100,Math.round(d.licUsed/d.licInLicense*100));
+      h += '<div class="pdf-h2">Instance consumption</div>';
+      h += '<table class="pdf-tbl"><tr><th>Metric</th><th>Value</th></tr>';
+      h += '<tr><td>Instances used</td><td><b>'+fmtInst(d.licUsed)+'</b> of '+fmtInst(d.licInLicense)+' ('+lpct+'%)</td></tr>';
+      h += '<tr><td>Available</td><td>'+fmtInst(d.licInLicense-d.licUsed)+'</td></tr>';
+      h += '</table>';
+    }
+    // Capacity (VUL)
+    if(d.licCapTB!=null && d.licCapTB>0){
+      var cpct2=Math.min(100,Math.round((d.licCapUsedTB||0)/d.licCapTB*100));
+      h += '<div class="pdf-h2">Capacity (VUL) licensing</div>';
+      h += '<table class="pdf-tbl"><tr><th>Metric</th><th>Value</th></tr>';
+      h += '<tr><td>Capacity used</td><td><b>'+(d.licCapUsedTB||0)+' TB</b> of '+d.licCapTB+' TB ('+cpct2+'%)</td></tr>';
+      h += '</table>';
+    }
+    // Agents — licence cross-check
+    if(d.agentRecon){
+      var ar=d.agentRecon;
+      var atotal=ar.mgdServer+ar.mgdWorkstation+ar.standalone;
+      h += '<div class="pdf-h2">Agents &mdash; licence cross-check</div>';
+      h += '<div class="pdf-grid">';
+      h += pdfStat(atotal,'Agent-protected machines');
+      h += pdfStat(ar.mgdServer,'Managed &mdash; Server');
+      h += pdfStat(ar.mgdWorkstation,'Managed &mdash; Workstation');
+      h += pdfStat(ar.standalone,'Standalone (Endpoint)');
+      h += '</div>';
+      if(ar.perpetual){
+        h += '<p style="font-size:10px;color:#555">Perpetual (socket) licence &mdash; agents are covered by CPU sockets, not per-agent instances, so AgentsServer / AgentsWorkstation read zero. See socket consumption above.</p>';
+      } else {
+        var srvT=ar.expSrvInst===ar.licSrv?'<span class="pdf-ok">&#10003;</span>':'<span class="pdf-warn">&#9888;</span>';
+        var wksT=ar.expWksInst===ar.licWks?'<span class="pdf-ok">&#10003;</span>':'<span class="pdf-warn">&#9888;</span>';
+        h += '<table class="pdf-tbl"><tr><th>Agent type</th><th>Detected</th><th>Instances</th><th>Licensed</th><th>Match</th></tr>';
+        h += '<tr><td><b>Server agents</b></td><td>'+ar.mgdServer+'</td><td>'+ar.expSrvInst+' (&times;1)</td><td>'+ar.licSrv+'</td><td>'+srvT+'</td></tr>';
+        h += '<tr><td><b>Workstation agents</b></td><td>'+ar.mgdWorkstation+'</td><td>'+ar.expWksInst+' (&times;0.33)</td><td>'+ar.licWks+'</td><td>'+wksT+'</td></tr>';
+        h += '</table>';
+        if(ar.standalone>0) h += '<p style="font-size:10px;color:#555">Plus '+ar.standalone+' standalone EndpointBackup agent'+(ar.standalone===1?'':'s')+', which also consume a licence instance.</p>';
+        if(ar.overServer) h += '<p style="font-size:10px;color:#E24B4A;font-weight:600">&#9888; More server agents detected ('+ar.mgdServer+') than licensed ('+ar.licSrv+') &mdash; check licence headroom.</p>';
+      }
+    }
+    h += '</div>'; // licensing & agents page
+  }
 
   // ── PAGE 3: Current settings & BP review ─────────────────────────────
   h += '<div class="pdf-page">';
