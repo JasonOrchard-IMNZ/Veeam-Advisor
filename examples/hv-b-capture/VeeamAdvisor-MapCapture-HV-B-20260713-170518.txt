@@ -1,0 +1,136 @@
+Veeam Advisor — Backup Map capture
+Host: HV-B   Date: 2026-07-13 17:05:18Z
+READ ONLY — this script does not modify the VBR configuration.
+Active VBR session detected (127.0.0.1) — reusing it, connecting nothing.
+VBR: 127.0.0.1
+PS : 7.6.0
+
+--- Backup job: property names ---
+   TypeName: Veeam.Backup.Core.CBackupJob
+   AutoScheduleOptions, BackupPlatform, BackupPolicyTag, BackupStorageOptions, BackupTargetOptions, CloudReplicaTargetOptions, Description, Extensions, FreeBackupImpl, HasNoJobRecord, HasParent, HvReplicaTargetOptions, HvSourceOptions, Id, Info, IsBackup, IsBackupCopy, IsBackupCopySimpleMode, IsBackupJob, IsBackupPolicy, IsBackupSync, IsCdpInGuestJob, IsCdpReplica, IsChildJob, IsChildWorkerJob, IsContinuous, IsDbPluginPolicyJob, IsDeleted, IsEndpointJob, IsEntraIdDbCopy, IsEpAgentManagementChildJob, IsEpAgentManagementJob, IsEpAgentManagementParentJob, IsEpAgentPolicyChildJob, IsEpAgentStandaloneJob, IsEpPolicy, IsFileTapeBackup, IsFree, IsIdle, IsImmediateSimpleCopy, IsInitialReplica, IsLegacyReplica, IsLinuxEndpointJob, IsLogBackup, IsLogBackupCopy, IsLogBackupCopyWorkerJob, IsMacEndpointJob, IsMappingReplica, IsMbaPolicyOrSaJob, IsMongoDbBackupJob, IsMssqlPluginPolicyJob, IsNasBackup, IsNasBackupCopy, IsPluginBackupCopy, IsPluginBackupCopyWorker, IsPolicyJob, IsPseudoContinuousJob, IsReplica, IsRunning, IsScheduledSimpleCopy, IsScheduleEnabled, IsSimpleModeWorker, IsSnapOrCdpCloudReplica, IsSnapOrCdpReplica, IsSnapshotReplica, IsStopAfterCurTaskAllowed, IsStopEnabled, IsStorageCopy, IsTapeBackup, IsTapeCopy, IsVcdCdpReplica, IsViOrCdpReplica, IsViReplica, IsVmbApiChildJob, IsVmbApiPolicy, IsVmCopy, IsVmTapeBackup, IsWorkerJob, JobScriptCommand, JobTargetType, JobType, LatestRunLocal, LinkedBackupIds, LinkedBackups, LinkedJobIds, LinkedJobs, LinkedRepositories, LinkedRepositoryIds, LogNameMainPart, Name, NameWithDescription, NotificationOptions, Options, OracleEnabled, ParentJob, ParentJobId, ParentScheduleId, PolicyJobId, PostgreSqlEnabled, PreviousJobIdInScheduleChain, RansomwareOptions, ScheduleOptions, SheduleEnabledTime, SourceProxyAutoDetect, SourceType, SqlEnabled, TargetDir, TargetFile, TargetHostId, TargetRepositoryId, TargetType, TypeToString, Uid, UserCryptoKey, Usn, VcdReplicaOptions, ViReplicaTargetOptions, ViSourceOptions, VssOptions
+
+   --- .Info sub-object properties ---
+   BackupPlatform, BackupPolicyTag, CommonInfo, CreationTimeUtc, Description, DisplayName, ExcludedSize, Id, IncludedSize, InitialRepositoryId, IsContinuous, IsDeleted, IsScheduleEnabled, IsVmbApiPolicy, JobPriority, JobType, LatestStatus, ModifiedBy, Name, NameWithDescription, Options, OracleEnabled, ParentJobId, ParentScheduleId, Path, PolicyJobId, PostgreSqlEnabled, PwdKeyId, ScheduleOptions, SheduleEnabledTime, SourceType, SqlEnabled, TargetDir, TargetFile, TargetHostId, TargetRepositoryId, TargetType, Usn, VcbHostId, Version, VssOptions
+
+   --- methods that look like they resolve a target ---
+   FindBackupLogsRepository, FindBackupLogsRepositoryId, FindBackupTargetRepository, FindBackupTargetRepositoryId, FindChildWorkerJobByLinkedBackupId, FindChildWorkerJobByLinkedBackupIds, FindChildWorkerJobByLinkedJobId, FindFirstLinkedBackup, FindFirstLinkedJob, FindInitialRepository, FindSecondaryRepository, FindSecondaryRepositoryId, FindSourceJobsForPolicyWorkers, FindSourceWanAccelerator, FindTargetEntraIdDatabaseRepository, FindTargetRepository, FindTargetRepositoryId, FindTargetWanAccelerator, FindWorkerJobBySourceBackupId, FindWorkerJobBySourceJobId, GetBackupTargetRepository, GetFirstLinkedBackup, GetFirstLinkedJob, GetGuestProcessingProxyHosts, GetInitialRepository, GetSecondaryRepository, GetSourceCdpProxies, GetSourceHosts, GetSourceOffHostHvProxies, GetSourceViProxies, GetSourceWanAccelerator, GetTargetCdpProxies, GetTargetEntraIdDatabaseRepository, GetTargetHost, GetTargetOffhostHvProxies, GetTargetProxies, GetTargetRepository, GetTargetViProxies, GetTargetWanAccelerator, IsCloudTargetJob, IsReplicaTarget, SetBackupLogsRepository, SetSecondaryRepository, UpdateTargetHost, UpdateTargetRepository
+
+--- Replica job: property names ---
+   TypeName: Veeam.Backup.Core.CBackupJob
+   AutoScheduleOptions, BackupPlatform, BackupPolicyTag, BackupStorageOptions, BackupTargetOptions, CloudReplicaTargetOptions, Description, Extensions, FreeBackupImpl, HasNoJobRecord, HasParent, HvReplicaTargetOptions, HvSourceOptions, Id, Info, IsBackup, IsBackupCopy, IsBackupCopySimpleMode, IsBackupJob, IsBackupPolicy, IsBackupSync, IsCdpInGuestJob, IsCdpReplica, IsChildJob, IsChildWorkerJob, IsContinuous, IsDbPluginPolicyJob, IsDeleted, IsEndpointJob, IsEntraIdDbCopy, IsEpAgentManagementChildJob, IsEpAgentManagementJob, IsEpAgentManagementParentJob, IsEpAgentPolicyChildJob, IsEpAgentStandaloneJob, IsEpPolicy, IsFileTapeBackup, IsFree, IsIdle, IsImmediateSimpleCopy, IsInitialReplica, IsLegacyReplica, IsLinuxEndpointJob, IsLogBackup, IsLogBackupCopy, IsLogBackupCopyWorkerJob, IsMacEndpointJob, IsMappingReplica, IsMbaPolicyOrSaJob, IsMongoDbBackupJob, IsMssqlPluginPolicyJob, IsNasBackup, IsNasBackupCopy, IsPluginBackupCopy, IsPluginBackupCopyWorker, IsPolicyJob, IsPseudoContinuousJob, IsReplica, IsRunning, IsScheduledSimpleCopy, IsScheduleEnabled, IsSimpleModeWorker, IsSnapOrCdpCloudReplica, IsSnapOrCdpReplica, IsSnapshotReplica, IsStopAfterCurTaskAllowed, IsStopEnabled, IsStorageCopy, IsTapeBackup, IsTapeCopy, IsVcdCdpReplica, IsViOrCdpReplica, IsViReplica, IsVmbApiChildJob, IsVmbApiPolicy, IsVmCopy, IsVmTapeBackup, IsWorkerJob, JobScriptCommand, JobTargetType, JobType, LatestRunLocal, LinkedBackupIds, LinkedBackups, LinkedJobIds, LinkedJobs, LinkedRepositories, LinkedRepositoryIds, LogNameMainPart, Name, NameWithDescription, NotificationOptions, Options, OracleEnabled, ParentJob, ParentJobId, ParentScheduleId, PolicyJobId, PostgreSqlEnabled, PreviousJobIdInScheduleChain, RansomwareOptions, ScheduleOptions, SheduleEnabledTime, SourceProxyAutoDetect, SourceType, SqlEnabled, TargetDir, TargetFile, TargetHostId, TargetRepositoryId, TargetType, TypeToString, Uid, UserCryptoKey, Usn, VcdReplicaOptions, ViReplicaTargetOptions, ViSourceOptions, VssOptions
+
+   --- .Info sub-object properties ---
+   BackupPlatform, BackupPolicyTag, CommonInfo, CreationTimeUtc, Description, DisplayName, ExcludedSize, Id, IncludedSize, InitialRepositoryId, IsContinuous, IsDeleted, IsScheduleEnabled, IsVmbApiPolicy, JobPriority, JobType, LatestStatus, ModifiedBy, Name, NameWithDescription, Options, OracleEnabled, ParentJobId, ParentScheduleId, Path, PolicyJobId, PostgreSqlEnabled, PwdKeyId, ScheduleOptions, SheduleEnabledTime, SourceType, SqlEnabled, TargetDir, TargetFile, TargetHostId, TargetRepositoryId, TargetType, Usn, VcbHostId, Version, VssOptions
+
+   --- methods that look like they resolve a target ---
+   FindBackupLogsRepository, FindBackupLogsRepositoryId, FindBackupTargetRepository, FindBackupTargetRepositoryId, FindChildWorkerJobByLinkedBackupId, FindChildWorkerJobByLinkedBackupIds, FindChildWorkerJobByLinkedJobId, FindFirstLinkedBackup, FindFirstLinkedJob, FindInitialRepository, FindSecondaryRepository, FindSecondaryRepositoryId, FindSourceJobsForPolicyWorkers, FindSourceWanAccelerator, FindTargetEntraIdDatabaseRepository, FindTargetRepository, FindTargetRepositoryId, FindTargetWanAccelerator, FindWorkerJobBySourceBackupId, FindWorkerJobBySourceJobId, GetBackupTargetRepository, GetFirstLinkedBackup, GetFirstLinkedJob, GetGuestProcessingProxyHosts, GetInitialRepository, GetSecondaryRepository, GetSourceCdpProxies, GetSourceHosts, GetSourceOffHostHvProxies, GetSourceViProxies, GetSourceWanAccelerator, GetTargetCdpProxies, GetTargetEntraIdDatabaseRepository, GetTargetHost, GetTargetOffhostHvProxies, GetTargetProxies, GetTargetRepository, GetTargetViProxies, GetTargetWanAccelerator, IsCloudTargetJob, IsReplicaTarget, SetBackupLogsRepository, SetSecondaryRepository, UpdateTargetHost, UpdateTargetRepository
+
+--- Configuration backup job: property names ---
+   TypeName: Veeam.Backup.PowerShell.Infos.VBRConfigurationBackupJob
+   Description, Enabled, EncryptionOptions, Id, LastResult, LastState, Name, NextRun, NotificationOptions, Repository, RestorePointsToKeep, ScheduleOptions, Target, Type
+  WARNING: Get-VBRCloudTenant failed: Veeam Cloud Connect service provider license is required.
+
+--- Cloud tenant (provider role): property names ---
+   (this server hosts no cloud tenants — not a provider)
+
+--- Cloud provider (tenant role): property names ---
+   TypeName: Veeam.Backup.PowerShell.Infos.VBRCloudProvider
+   Certificate, Credentials, Description, DNSName, Id, IpAddress, IsManagedByProvider, Port, ReplicationResources, ReplicationResourcesEnabled, Resources, ResourcesEnabled, Type, vCDReplicationResources
+
+--- Backup copy job: property names ---
+   (no backup copy jobs on this server)
+Simple repositories: 5
+  88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   WinLocal                     Default Backup Repository
+  61d12a42-5dd6-4d2c-9675-1eabe97af71b   VeeamVault                   Veeam Vault
+  07eb1cf7-d1fc-42d7-8f6b-e0f917fb6364   VeeamVault                   Object storage repository 2
+  8c10671d-f99c-445d-82d7-f4cfc09133aa   VeeamVault                   Agent backup
+  b0a6949e-baa0-4a32-9e30-c4b21f64006d   Cloud                        SP repository
+
+Scale-out repositories: 0
+
+External repositories: 0
+
+Default-repository hypothesis: GUID 88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec IS present, named 'Default Backup Repository', type WinLocal
+JobId                                  JobType                IsReplica TargetRepositoryId                     JobName
+ef67919b-e2fc-4391-b154-74f66b26ae07   Replica                True      88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   Replication Job 2
+    repo name : Default Backup Repository
+    size      : 39162216448
+4422b967-51db-4a91-a60c-d95e3eb052c1   EpAgentBackup          False     88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   Workstation Agent By server
+    repo name : Default Backup Repository
+    size      : 0
+682f0358-c74a-4ed6-9fdd-1c30d04a1354   EpAgentPolicy          False     88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   Workstation Agent By workstation
+    repo name : Default Backup Repository
+    size      : 0
+0ccde0f7-8345-4d9b-bb67-a323625d103e   EpAgentPolicy          False     88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   Agent Backup ubuntu
+    repo name : Default Backup Repository
+    size      : 0
+712153de-d3db-422f-95f6-2f074092ab68   Backup                 False     61d12a42-5dd6-4d2c-9675-1eabe97af71b   Backup Job 1
+    repo name : Veeam Vault
+    size      : 16882073600
+1d062018-9586-4604-a69c-9c7e08eb9a61   Replica                True      88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec   hv-a pull repl
+    repo name : Default Backup Repository
+    size      : 0
+79839fff-afd8-42fa-b42a-194ca66fad7e   Backup                 False     61d12a42-5dd6-4d2c-9675-1eabe97af71b   Backup Job 3
+    repo name : Veeam Vault
+    size      : 3796
+37e240bd-17ce-450c-bc44-ae0b37ac061e   Backup                 False     b0a6949e-baa0-4a32-9e30-c4b21f64006d   Backup Job 2
+    repo name : SP repository
+    size      : 34446771033
+Replica jobs: 2
+
+  Job 'Replication Job 2'  Id: ef67919b-e2fc-4391-b154-74f66b26ae07
+    TargetHostId    : 5ec1506e-be19-4d05-8ba7-8ed17c65d1b4
+    GetTargetHost() : n/a (Exception calling "GetTargetHost" with "0" argument(s): "Host with id '5ec1506e-be19-4d05-8ba7-8ed17c65d1b4' was not found")
+    Target host type: n/a (Exception calling "GetTargetHost" with "0" argument(s): "Host with id '5ec1506e-be19-4d05-8ba7-8ed17c65d1b4' was not found")
+    TargetDir       : n/a (null)
+    Target datastore: n/a (Method invocation failed because [Veeam.Backup.Core.CBackupJob] does not contain a method named 'GetTargetDatastore'.)
+    IsCloudTarget   : n/a (null)
+    Metadata repo   : 88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec
+    ReplicaNameSuffx: n/a (null)
+    TargetHost (raw): n/a (null)
+
+  Job 'hv-a pull repl'  Id: 1d062018-9586-4604-a69c-9c7e08eb9a61
+    TargetHostId    : 2a3cf205-7b69-4458-8749-13f88f3023f8
+    GetTargetHost() : hv-b
+    Target host type: HvServer
+    TargetDir       : C:\Replicas
+    Target datastore: n/a (Method invocation failed because [Veeam.Backup.Core.CBackupJob] does not contain a method named 'GetTargetDatastore'.)
+    IsCloudTarget   : n/a (null)
+    Metadata repo   : 88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec
+    ReplicaNameSuffx: n/a (null)
+    TargetHost (raw): n/a (null)
+Backup copy jobs: 0
+Configuration backup jobs: 1
+
+  Config backup 'Backup Configuration Job'  Id: 99d1bf3d-e2e0-4bec-b2b3-820c0b87d212
+    Target        : Default Backup Repository
+    TargetRepositoryId: n/a (null)
+    Repository    : Default Backup Repository
+    Repository Id : 88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec
+    Enabled       : True
+    Encryption    : True
+    LastResult    : Success
+  WARNING: Get-VBRCloudTenant failed: Veeam Cloud Connect service provider license is required.
+Cloud tenants hosted by this server: 0
+  WARNING: Get-VBRCloudGateway failed: Veeam Cloud Connect service provider license is required.
+Cloud gateways: 0
+  WARNING: Get-VBRCloudGatewayPool failed: Veeam Cloud Connect service provider license is required.
+Cloud gateway pools: 0
+Cloud providers this server backs up to: 1
+
+  Provider 'vbr-sp'  Id: 873eb8b7-c219-4019-9fbe-dd96a7d057b8
+    Address           : vbr-sp : 6180
+    Backup resources  : 0
+      cloud repo -> n/a (null)                             n/a (null)
+    Replica resources : 0
+JobId,JobName,JobType,IsReplica
+ef67919b-e2fc-4391-b154-74f66b26ae07,Replication Job 2,Replica,True
+4422b967-51db-4a91-a60c-d95e3eb052c1,Workstation Agent By server,EpAgentBackup,False
+682f0358-c74a-4ed6-9fdd-1c30d04a1354,Workstation Agent By workstation,EpAgentPolicy,False
+0ccde0f7-8345-4d9b-bb67-a323625d103e,Agent Backup ubuntu,EpAgentPolicy,False
+712153de-d3db-422f-95f6-2f074092ab68,Backup Job 1,Backup,False
+1d062018-9586-4604-a69c-9c7e08eb9a61,hv-a pull repl,Replica,True
+79839fff-afd8-42fa-b42a-194ca66fad7e,Backup Job 3,Backup,False
+37e240bd-17ce-450c-bc44-ae0b37ac061e,Backup Job 2,Backup,False
+
+=== capture complete: .\VeeamAdvisor-MapCapture-HV-B-20260713-170518.txt ===
