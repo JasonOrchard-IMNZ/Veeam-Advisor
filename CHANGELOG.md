@@ -2,6 +2,368 @@
 
 Notable changes to the tool are recorded here. Newest first.
 
+## v2.0 — 2026-07-09
+
+Major release. A repository-parsing rebuild grounded in a forensic audit of 22 production
+`VMC.log` files, a full retro arcade re-theme, removal of Fleet View, and a set of
+accessibility fixes. Reconciliation of the repository list against the log's own
+authoritative type summary improved from **9/22 to 17/22 exact matches**.
+
+### Fixed — Repository parser (major)
+
+The repository-definition gate previously required optional companion fields
+(`ConcurrentTaskLimit`, `RepositoryGroupType`, a numeric `TotalSpace`). Repository types that
+legitimately omit them were silently dropped — no error, no warning, just missing rows.
+
+The gate is rebuilt to anchor on the definition line's invariant shape,
+`RepositoryID: <guid>, Type: <type>`, and to accept whatever space field is present. The
+word-boundary anchor excludes `CacheRepositoryID` / `ObjectStorageID` / `GatewayHostID` and
+job-line repository references, so the change is strictly more precise, not merely broader.
+
+Recovered:
+
+- **`VeeamDataCloudObjStgVersion2`** — reports `UsedSpace` and carries
+  `RepositoryGroupType: ArchiveRepository`, but has no `ConcurrentTaskLimit`, which the old
+  gate required. One production log was under-reporting ~106 TiB.
+- **All `*External` types** (`AzureStorageExternal`, `ExternalPlatform`, …) — carry `UsedSpace`
+  and `RepositoryGroupType: ExternalRepository` but no `ConcurrentTaskLimit`.
+- **Offline repositories** — `TotalSpace: null` or `-1`. Now listed and labelled *offline*
+  rather than dropped.
+- **`SanSnapshotOnly`** — carries no space field at all, by design (storage snapshots hold no
+  backup files). Now listed with *n/a* capacity. Guarded by `RepositoryGroupType` so
+  Veeam Agent schema lines (`TotalBackupsSize`) are still correctly skipped.
+
+### Fixed — `LimitStorageConsumption` quota handling on object/archive repositories
+
+`LimitStorageConsumption` always carries a `Value` and `Unit`, **even when `Enabled: False`**.
+Veeam Data Cloud v2 repositories emit `{ Enabled: False, Value: 10, Unit: TB }` on a
+repository holding 106 TiB. Reading `Value` without first testing `Enabled` would cap a
+106 TiB repository at 10 TB. The parser reads the quota only when it is enabled; otherwise the
+repository is treated as having no declared capacity. Across the 22-log corpus there are 155
+disabled and 33 enabled quota declarations, so this distinction is load-bearing.
+
+Where an enabled quota **is** present, `Used` is now read from `UsedSpace` directly rather than
+derived as `total − free`. Because `free` clamps at zero, the derived figure would report the
+quota rather than actual consumption once a repository exceeds its limit — a repository holding
+106 TiB against a 10 TB quota would have displayed `10.0 TB`. Repositories over their configured
+limit are now shown in red with an explanatory tooltip.
+
+The quota regex also tolerates the escaped `\{` brace form for consistency with the summary-line
+parser.
+
+### Added — Backup Map tab
+
+A new tab renders the job → repository → repository topology as a diagram, plus a matching
+table and a PDF page.
+
+**The linkage was already in the log**, under asymmetric field names that are easy to miss:
+
+| Job type | Target field | Source field |
+|---|---|---|
+| `Type: Backup` | `BackupRepository: <guid>` | — |
+| `Type: BCSMPolicy` (backup copy) | `RepositoryID: <guid>` | `SourceBackupJobs: [<guid>…]` |
+
+There is no `BackupRepositoryID` or `TargetRepositoryID` field anywhere in the corpus. Across
+the 22 logs, 496 of 512 storage-bearing jobs declare a target repository, and **every target
+that is a real GUID resolves to a parsed repository**.
+
+Three defects in the source data that the parser has to survive:
+
+- **GUID case is inconsistent.** Some logs write `SourceBackupJobs` in upper case while `JobID`
+  is lower case. A raw string comparison resolved zero of one environment's 54 copy edges.
+  Every id is normalised.
+- **`00000000-0000-0000-0000-000000000000` is a sentinel** meaning "no destination configured",
+  not a missing repository. It never becomes a node.
+- **A job's fields are spread across collection passes.** The pass carrying the repository
+  reference wins. `jobRecords` deliberately keeps its existing first-occurrence-wins semantics,
+  so the map uses a separate parser rather than altering values the job tables depend on.
+
+**The diagram shows job flow.** Every job that writes to a repository is drawn as its own node,
+in a column immediately left of its target — so each arrow is a short hop rather than a long
+diagonal. Backup copy relationships then run between the repository columns.
+
+Job nodes are drawn only while they stay legible. Above 40 jobs the job column is dropped and
+the repository boxes carry aggregate counts instead; one production log has 167 jobs, and 167
+chips is not a diagram. The threshold is reported on the tab and in the PDF rather than being
+silent.
+
+**Replica destinations are drawn as an explicit unknown.** A replica's `BackupRepository` is the
+metadata repository, not the destination. Pointing an arrow from a replica job at that
+repository implied the replicated VM landed there, which it does not. `VMC.log` records **no
+target host, datastore or cluster** for a replica job — only `TargetHVPlatform`, `IsCloudTarget`,
+`ReplicaType` and `TargetProxy`. Replicas therefore draw a dashed *metadata* edge into the
+repository and a solid edge into a destination node labelled "not named in VMC.log", grouped by
+Cloud Connect vs on-premises and by platform.
+
+Also worth recording: in every corpus log that has replicas, the metadata repository is
+`88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec` — byte-identical across four unrelated environments. That
+is the built-in Default Backup Repository, present on every VBR install. The tool now says so
+rather than presenting it as a deliberate placement.
+
+**Replica jobs are on the map.** They were initially excluded on the assumption that a replica
+targets a host rather than a repository. That assumption was wrong: all 216 replica jobs in the
+corpus carry `BackupRepository`, and every one resolves. A replica writes its metadata and
+digests there — the VM data lands on the target host — so replicas are drawn with a dashed
+border and their `IncludedSize` is excluded from the repository's primary data, alongside the
+existing exclusion of copy-job size. `FailoverPlan` and `SureBackup` genuinely carry no
+repository and remain excluded.
+
+**Canvas height fits the content.** Width stays fixed at 1080; height starts at a 360 px
+minimum and grows with the diagram (167 jobs across 24 repositories reaches 1742 px). The
+earlier fixed 1600 px floor left a three-repository map floating in a mostly empty canvas.
+
+Accounting decisions that materially change the numbers:
+
+- **Edges count distinct copy jobs, not job references.** A copy job may name many source jobs
+  on the same edge; incrementing per pair multiplied both the job count and the byte total by
+  the fan-out, reporting more data on one arrow than the whole estate holds.
+- **A copy job's `IncludedSize` is the same data its source job already counted.** Copy volume
+  is reported separately as *Copied in* rather than added to the repository's primary data.
+
+**Backup copy topologies can contain cycles** — a repository that copies out and receives a
+return copy. Lane assignment uses Kahn's algorithm over the acyclic part, then breaks each cycle
+by promoting its entry node and resuming the sort. Relaxing through a cycle instead saturates,
+and lane compaction then folds the whole component into one lane, which turns ordinary forward
+edges into false "return copy" arrows. Return copies render as dashed amber arrows.
+
+**The diagram is a 1080-wide canvas, expanding downward only.** Width is the fixed dimension.
+
+*Width is fixed.* Lane width always divides the 1080. The arrow gutter is derived from the lane
+rather than held constant, so the box width is `lane − gutter` and is strictly narrower than its
+lane — adjacent lanes can never overlap, however many copy hops the estate has. Beyond about
+seven lanes the boxes become too narrow to carry full labels; the map reports that it is
+compressed, suppresses the right-aligned size (kept in the tooltip and the table), and clips the
+remaining labels with an ellipsis.
+
+*Height expands to fit.* Repository boxes are a fixed 64 px and job chips 40 px; each repository
+is given a block tall enough for its own jobs and centred against it. The canvas grows to
+whatever that needs, with a 360 px floor.
+
+**The diagram is drawn on demand.** The tab renders its summary, table and findings
+immediately, but the SVG is built only when the user presses *Draw map*. A large estate
+produces roughly 21 KB of SVG at about 600×1600, and forcing the browser to lay that out on
+every upload costs more than it is worth for a tab most sessions never open. The button yields
+once before building so its state paints, and it recovers cleanly if the build throws.
+
+Findings surfaced: idle repositories (configured but targeted by no job — 12 of 24 in one
+environment, 14 of 38 in another), absence of any backup copy flow, return copy cycles,
+unresolvable copy sources, jobs with no destination, and tape jobs excluded because they target
+media pools rather than repositories.
+
+Declared limits: `VMC.log` never records job names, so nodes are labelled by repository and job
+GUIDs are shown as 8-character prefixes. In one environment 220 backup copy source references
+name jobs the log never enumerates; those arrows cannot be drawn and the count is reported.
+
+### Fixed — PDF map image missing on large estates unless redrawn; button wording
+
+On a large estate (e.g. ANZCO, 125 jobs) the PDF's Backup map page came out tables-only unless
+the user had pressed the map button first. Two causes: the map raster was never cached during the
+on-screen draw (only an export-time off-screen rasterise existed, which could be tainted or race
+the print), and `window.print()` fired before the embedded image data-URL had decoded. Now the
+draw caches the PNG from the live on-screen SVG (the reliable path), a cold export triggers that
+same draw and waits for it, and printing waits for the embedded image to finish loading (bounded
+by a timeout). The map button now reads **Draw map** consistently rather than switching to
+"Redraw map" after the first draw.
+
+### Fixed — replica destination edges dropped after a capture upload
+
+After a PowerShell capture enriched the map, the arrows from replica jobs to their destination
+nodes disappeared (the destination boxes floated unconnected). The destination-node key was
+derived in two places — the node builder and the edge drawer — with identical logic. Enrichment
+re-keyed the nodes from the platform-based fallback (`onprem|WinServer…`) to a host-based key
+(`host|hv-b`, `deleted|5ec1506e…`), but the edge drawer still computed the old key, so its lookup
+missed and the edges were silently skipped. Both now call a single shared `bmReplicaKey()`, so the
+edges follow the nodes in every enrichment state. Verified: edge count preserved across upload on
+both a tenant (hv-b) and a provider (vbr-sp) capture.
+
+### Added — expandable per-repository job detail
+
+The Backup map's repository table is now interactive: click any repository row to expand the
+individual jobs writing to it, each with full detail — job ID or captured name, type, platform,
+source data, retention, encryption, schedule and last result. This is independent of the diagram's
+40-job threshold, so on a large estate (e.g. 167 jobs) where the diagram shows aggregate counts,
+you can still drill into any one repository's jobs. The PDF export now lists jobs grouped by
+repository the same way, replacing the previous flat table that was suppressed above 40 jobs.
+
+### Changed — PDF export now includes the diagram without drawing it first
+
+Previously the PDF's Backup map page only carried the drawn diagram if the user had opened the
+Backup map tab and pressed Draw; otherwise it fell back to tables only. Export now rasterises the
+map itself (off-screen) before building the PDF, so the diagram image is always present. If the
+map is already drawn, the cached image is reused with no re-render; if there is no map, or the
+browser blocks the canvas, it falls back to the tables as before.
+
+### Fixed — PDF export did nothing; PNG export failed silently
+
+Two defects in the map export path, both now fixed:
+
+- **Export PDF button did nothing.** `exportPDF()` referenced `_bmMapPng` (the cached map image
+  for the PDF page), but that global's declaration had been lost in an earlier edit — only its
+  uses remained. Reading an undeclared variable throws a `ReferenceError` before `window.print()`
+  is reached, so the button silently failed. The declaration is restored; all 23 corpus logs now
+  export cleanly.
+- **PNG export flashed an error and produced nothing.** The generated `<svg>` root carried no
+  `xmlns` attribute. It renders on screen (the browser supplies the namespace implicitly) but a
+  namespace-less SVG cannot be parsed by `new Image()`, so rasterising to PNG failed via
+  `onerror`. The same defect would have left the PDF's embedded diagram and the SVG download
+  malformed. `xmlns="http://www.w3.org/2000/svg"` is now emitted on the SVG root, with a
+  serialisation guard in the export path. A PNG failure now shows a persistent, readable message
+  (pointing to the SVG download) instead of a one-second toast.
+
+### Fixed — MapCapture.ps1 console noise and agent-job coverage
+
+A real HV-B run surfaced two script defects (the file output was correct throughout; these were
+console-only or completeness issues). The helper functions `H` and `W` collided with PowerShell's
+built-in `h` alias for `Get-History`, whose first parameter is `-Id [Int64]` — so `H "VERSION"`
+emitted "Cannot bind parameter 'Id'" on the console. Renamed to `Section` and `Emit`. And
+`Get-VBRJob` on v13 warns that it no longer returns computer/agent backup jobs; the script now
+unions `Get-VBRComputerBackupJob` so agent jobs are captured and the warning is pre-empted. A
+worked example (the real HV-B capture, its console transcript, and notes) ships under
+`examples/hv-b-capture/`.
+
+### Added — optional PowerShell capture enrichment for the Backup Map
+
+`VMC.log` cannot record three things the Backup Map wants: job names (it stores GUIDs only),
+replica target hosts (it stores nothing), and whether a replica points at a host that still
+exists. The `VeeamAdvisor-MapCapture.ps1` companion collects exactly these from a live VBR
+server. Uploading its output alongside the log now enriches the map.
+
+Drop the capture `.txt` on the same drop zone as the log, in either order. The tool detects the
+format, and:
+
+- **Job nodes show real names** — "Backup Job 2", "hv-a pull repl" — instead of GUID prefixes.
+- **Replica destinations resolve to real hosts.** Where VMC.log could only say "not named in
+  VMC.log", the capture supplies the host (e.g. `hv-b`, `C:\Replicas`), drawn with a solid
+  border instead of dashed.
+- **Replica jobs targeting a deleted host are flagged.** If the capture resolved a job's target
+  host id to "not found", the destination is drawn in red and a finding warns that the job is
+  configured against infrastructure that no longer exists and would fail to run.
+
+On the Backup map tab, a panel now offers a one-click **Download MapCapture.ps1** and an **Upload capture output** control, so the whole round-trip happens from the tab itself; the script is served by the deployment (staticwebapp.config.json already excludes .ps1 from the SPA fallback). The User Guide gains a dedicated Backup map section (9a) covering the diagram and the capture workflow.
+
+The enrichment is safe by construction. It is entirely optional — the map is unchanged without
+it. Job IDs are the join key, so a capture from a different server (no IDs in common) is detected
+and ignored with a notice rather than applied. Nothing is fabricated: a field the capture did not
+resolve falls back to the log-only rendering.
+
+### Added — MTU on the Network Interfaces panel
+
+`VMC.log` records `MTU` on an indented continuation line inside each `Network Interface`
+block. It is now parsed and shown as a column alongside adapter, status and inferred speed.
+
+The value is read only from the interface's **own** block — bounded by the next
+`Network Interface,` header — so an adapter that omits `MTU` cannot inherit the value from
+the interface that follows it. Interfaces with no recorded MTU show an em dash; an adapter
+reporting `MTU: -1` shows *unknown*.
+
+Findings added:
+
+- **Reduced MTU** (below 1500) — normally a VPN or overlay tunnel; backup traffic across the
+  path fragments and throughput drops.
+- **Jumbo frames** (9000+) — informational, with the caveat that every device in the path must
+  use the same MTU or a single 1500-byte hop silently fragments the traffic.
+- **Mixed MTU** across interfaces — prompts a check that backup and storage paths are
+  consistent end-to-end.
+- **Consistent MTU** — confirmation when all interfaces agree.
+
+Across the 22-log corpus, 23 of 35 detected interfaces record an MTU; all are 1500.
+
+### Fixed — Repository type summary read the wrong collection pass
+
+`VMC.log` repeats its `Repository types:` summary on every collection pass. The tool matched
+the **first** occurrence, so a repository added between passes was under-counted. It now reads
+the **last** summary, and repository rows are scoped to the final completed enumeration pass so
+repositories removed between passes no longer linger.
+
+### Fixed — Escaped-brace summary lines
+
+Some exported logs escape the summary's opening brace as `\{`, which defeated the regex and
+produced a zero repository-type count. The pattern now tolerates it.
+
+### Fixed — False-positive immutability findings
+
+The "immutability disabled" finding no longer fires on offline repositories, capacity-less
+repositories, or External repositories. Immutability on an External repository is governed by
+the native cloud tool that created the backups, not by Veeam.
+
+### Fixed — Accessibility (pre-existing contrast failures)
+
+- Retention table headers rendered *Monthly* in `var(--amber)` at **2.2:1** and *Yearly* in
+  `var(--purple)`. Both now use text-safe stops.
+- The `DR` job category was hardcoded to `#E24B4A`, byte-identical to the `--red` token it
+  should always have used.
+
+### Changed — Retro arcade colour scheme
+
+The palette is drawn from a supplied 1990s arcade reference. Cabinet-black header with a neon
+accent rule, monospace display font on headings, and borders lifted from 0.5px to 1px.
+
+- All **22 hardcoded hex colours** across the tool are replaced with tokens.
+- Semantic tokens (`--green`, `--amber`, `--red`, `--purple`, `--blue`) resolve to the
+  **text-safe** stop. An audit showed they are used overwhelmingly as `color:` (amber 24 of 27
+  sites; red 25 of 28), and every `background:` site pairs them with white text — which the
+  deep stops serve at 6.4:1 or better. Bright arcade hues remain available as `--arcade-*`
+  for chrome where contrast is not load-bearing.
+- Four tint backgrounds (`--gl`, `--al`, `--rl`, `--pl`) have no equivalent in the supplied
+  palette and are lightened from their source hue. Each is validated against its paired text
+  stop. `--bl` uses the supplied `#e8f8ff`.
+- **Zero WCAG AA failures** in light or dark mode. Dark mode is retained and retuned.
+
+### Changed — Sub-terabyte repositories
+
+Repositories under 0.1 TB displayed `0.0 TB`. They now display GB / MB. Empty object-storage
+repositories display *empty* rather than an em dash.
+
+### Fixed — PDF/print output could inherit dark-mode colours
+
+`exportPDF()` emits `var(--bdk)`, `var(--pdk)`, `var(--rd)`, `var(--bd)` and `var(--tx3)` into
+the report body, and the `@media print` block forced a white background without resetting the
+token values. A user whose operating system was set to dark mode would therefore export a PDF
+with pale blue and salmon text on a white page (about 1.5:1) and near-invisible table borders.
+
+`@media print` now re-asserts the full light-mode `:root` token set, so print output is light
+regardless of OS preference. The same reset is applied to `user-guide.html`, where the defect
+was pre-existing: printing the guide from a dark-mode OS produced dark code blocks and tint
+backgrounds on a white page.
+
+### Changed — PDF export
+
+The report header now carries the tool version and the feedback contact. The disclaimer banner
+is restyled to the arcade palette. PDF output remains light mode.
+
+### Added — Feedback & Bug Fix Requests
+
+A `mailto:` link is added to the tool header, the User Guide header, and the PDF export header.
+
+### Removed — Fleet View
+
+`Veeam_Advisor_Fleet.html` is removed from the package, along with `confirm-outputs.js` (which
+existed solely to load and assert against the Fleet codebase and was not part of CI). All
+references are stripped from `README.md`, `user-guide.html` and
+`Veeam_Advisor_v1.0_Calculations.txt`. The User Guide's section 12 is removed and sections 13
+and 14 renumbered.
+
+Changelog history above this entry is left intact: Fleet View was a real part of those releases.
+
+### Known limitations (unchanged, now reported rather than hidden)
+
+Three of the 22 audited logs count repositories in the type summary that the log never
+enumerates anywhere — no definition line, no `ExtentsIDs` membership, no job reference
+(`WinLocal` ×4 and `ExternalPlatform` ×1 across DRGVMBKP1, Richo and procare). No row can be
+constructed for these. The parser is correct; the source data is incomplete.
+
+An earlier working theory held that scale-out repository **extents** lacked definition lines.
+This was disproved during the audit: `ExtentsIDs` resolves cleanly to enumerated repository
+rows in every case.
+
+### Notes — PowerShell (review only, no code changes)
+
+`VeeamAdvisor-PowerShell.ps1` enumerates repositories with a bare `Get-VBRBackupRepository`,
+which returns neither scale-out repositories (`-ScaleOut`) nor external repositories
+(`Get-VBRExternalRepository`). This is the same class of blind spot corrected in the log
+parser this release. Recorded for a future release; no changes made in v2.0.
+
+
 ## v1.1.0 — 2026-06-26
 
 Feature release: three enhancements (per-job-type breakout, agent licence reconciliation,
