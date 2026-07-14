@@ -813,7 +813,7 @@ SECTION 12 — MULTIPLE COLLECTION RUNS IN ONE VMC.log
     the final run (63), not the first (67).
 
   This collection-run-selection behaviour is implemented the same way in both
-  the single-server tool and Fleet View, since both parsers handle multi-run
+  the tool, since the parser handles multi-run
   logs the same way. The two parsers are separate codebases overall, though
   (not byte-identical), so this describes this specific behaviour only, not
   a guarantee that every other parsing rule is identical between the two.
@@ -823,7 +823,6 @@ SECTION 12 — MULTIPLE COLLECTION RUNS IN ONE VMC.log
     to the user so they know how current the data is:
       Single-server tool — in the loaded-file label, the parsed-detail grid
         ("Collected" row), and the exported PDF header ("Data collected: ...").
-      Fleet View — per server in the file chips and the dashboard "Collected"
         column, plus a collection-window note in the estate-totals header.
     The time shown is when the most recent collection run BEGAN (i.e. when the
     snapshot was taken), not the last line written within that run.

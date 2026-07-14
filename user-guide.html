@@ -3,27 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor &mdash; User Guide (v1.1.0)</title>
+<title>Veeam Advisor &mdash; User Guide (v2.0)</title>
 <meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
 <meta name="robots" content="noindex">
 <style>
 :root{
-  --green:#1D9E75;--gl:#E1F5EE;--gd:#085041;
-  --blue:#378ADD;--bl:#E6F1FB;--bdk:#185FA5;
-  --amber:#BA7517;--al:#FAEEDA;
-  --red:#E24B4A;--rl:#FCEBEB;
+  /* Arcade palette (v2.0) — mirrors index.html. Fill/text stops are literal
+     supplied values; tints are lightened and validated to clear WCAG AA. */
+  --arcade-ink:#101010;--arcade-jade:#50a850;--arcade-jade-deep:#207030;
+  --arcade-azure:#3050b0;--arcade-azure-deep:#204090;--arcade-indigo:#203060;
+  --arcade-ember:#f89000;--arcade-umber:#a05030;
+  --arcade-crimson:#d82000;--arcade-crimson-deep:#a00000;
+  --arcade-neon:#f8e000;--arcade-frost:#e8f8ff;
+  --green:var(--arcade-jade-deep);--gl:#e3f1e3;--gd:var(--arcade-jade-deep);
+  --blue:var(--arcade-azure-deep);--bl:var(--arcade-frost);--bdk:var(--arcade-azure-deep);
+  --amber:var(--arcade-umber);--al:#fef2e0;
+  --red:var(--arcade-crimson-deep);--rl:#f9dbd6;
   --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
   --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
-  --bd:rgba(0,0,0,0.11);--bd2:rgba(0,0,0,0.2);
-  --link:#185FA5;--code:#0c5e47;--codebg:#eaf3ef;
+  --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
+  --link:#204090;--code:#207030;--codebg:#e3f1e3;
+  --font-display:ui-monospace,'Cascadia Mono','Segoe UI Mono','Consolas','SF Mono','Menlo',monospace;
   --r:10px;--rl2:14px;--hdr:58px;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
   --tx:#f0efea;--tx2:#B4B2A9;--tx3:#888780;
-  --bd:rgba(255,255,255,0.12);--bd2:rgba(255,255,255,0.22);
-  --gl:#06382F;--bl:#06294C;--al:#3A2406;
-  --link:#7CB8EE;--code:#86d9bd;--codebg:#1f2a26;
+  --bd:rgba(255,255,255,0.16);--bd2:rgba(255,255,255,0.28);
+  --gl:#222d20;--bl:#202638;--al:#483315;--rl:#421d15;
+  --green:#50a850;--gd:#50a850;--amber:#e0a060;--red:#f08070;
+  --blue:#a0d8f8;--bdk:#a0d8f8;
+  --link:#a0d8f8;--code:#86d9bd;--codebg:#1f2a26;
 }}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -33,12 +43,12 @@ a{color:var(--link)}
 .skip:focus{left:0}
 
 /* header */
-header{position:sticky;top:0;z-index:100;background:var(--gd);height:var(--hdr);display:flex;align-items:center;gap:12px;padding:0 clamp(14px,4vw,28px);border-bottom:2px solid var(--green)}
-.logo{width:30px;height:30px;border-radius:7px;background:var(--green);color:#fff;font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+header{position:sticky;top:0;z-index:100;background:var(--arcade-ink);border-bottom:3px solid var(--arcade-neon);height:var(--hdr);display:flex;align-items:center;gap:12px;padding:0 clamp(14px,4vw,28px);border-bottom:2px solid var(--green)}
+.logo{width:30px;height:30px;border-radius:7px;background:var(--arcade-jade);border:2px solid var(--arcade-ink);color:var(--arcade-ink);font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .brand{display:flex;align-items:baseline;gap:8px;min-width:0}
-.brand b{color:#9FE1CB;font-size:15px;font-weight:600;white-space:nowrap}
+.brand b{font-family:var(--font-display);color:var(--arcade-neon);font-size:14px;font-weight:700;letter-spacing:.4px;white-space:nowrap}
 .brand span{color:rgba(159,225,203,.6);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.openbtn{margin-left:auto;display:inline-flex;align-items:center;gap:7px;color:#CFEFE3;font-size:13px;font-weight:600;text-decoration:none;border:1px solid rgba(159,225,203,.35);padding:7px 12px;border-radius:8px;transition:background .15s,border-color .15s}
+.openbtn{margin-left:auto;display:inline-flex;align-items:center;gap:7px;color:var(--arcade-neon);font-size:13px;font-weight:600;text-decoration:none;border:1px solid rgba(159,225,203,.35);padding:7px 12px;border-radius:8px;transition:background .15s,border-color .15s}
 .openbtn:hover{background:rgba(159,225,203,.12);border-color:rgba(159,225,203,.6)}
 @media (max-width:560px){.openbtn span{display:none}}
 
@@ -70,7 +80,7 @@ header{position:sticky;top:0;z-index:100;background:var(--gd);height:var(--hdr);
 .toc a:hover{color:var(--tx);background:var(--bg3)}
 .toc a.active{color:var(--gd);background:var(--gl);border-left-color:var(--green);font-weight:600}
 .toc a.active .n{color:var(--green)}
-@media (prefers-color-scheme:dark){.toc a.active{color:#9FE1CB}.toc a.active .n{color:var(--green)}}
+@media (prefers-color-scheme:dark){.toc a.active{color:var(--blue)}.toc a.active .n{color:var(--green)}}
 @media (max-width:900px){.toc{display:none}}
 
 /* mobile toc */
@@ -89,7 +99,7 @@ header{position:sticky;top:0;z-index:100;background:var(--gd);height:var(--hdr);
 article{min-width:0;max-width:760px}
 section{scroll-margin-top:calc(var(--hdr) + 16px);padding-top:.4rem}
 section + section{margin-top:1.6rem;border-top:1px solid var(--bd);padding-top:1.7rem}
-h2{font-size:clamp(1.32rem,3vw,1.62rem);font-weight:700;letter-spacing:-.005em;line-height:1.2;margin-bottom:.7rem;scroll-margin-top:calc(var(--hdr) + 16px)}
+h2{font-family:var(--font-display);font-size:clamp(1.18rem,2.7vw,1.42rem);font-weight:700;letter-spacing:.2px;text-transform:uppercase;line-height:1.2;margin-bottom:.7rem;scroll-margin-top:calc(var(--hdr) + 16px)}
 .anchor{margin-left:.45rem;color:var(--tx3);text-decoration:none;font-weight:400;opacity:0;transition:opacity .12s}
 h2:hover .anchor,.anchor:focus{opacity:1}
 h3{font-size:1.05rem;font-weight:650;margin:1.3rem 0 .5rem}
@@ -145,13 +155,25 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
 
 @media print{
+  /* Print is ALWAYS light mode — re-assert light token values so a dark-mode OS
+     preference cannot leak dark tints / pale text onto the printed page. */
+  :root{
+    --bg:#fff;--bg2:#fff;--bg3:#f0efea;
+    --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
+    --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
+    --gl:#e3f1e3;--bl:#e8f8ff;--al:#fef2e0;--rl:#f9dbd6;
+    --green:#207030;--gd:#207030;
+    --blue:#204090;--bdk:#204090;
+    --amber:#a05030;--red:#a00000;
+    --link:#204090;--code:#207030;--codebg:#e3f1e3;
+  }
   header,.toc,.toc-m,#top,.openbtn,.copy,.anchor{display:none!important}
   body{background:#fff;color:#000;font-size:11.5pt}
   .wrap{display:block;max-width:none;padding:0}
   article{max-width:none}
   .hero{padding:0 0 8px}
   a{color:#000;text-decoration:underline}
-  .disc-in{border:1px solid #b8860b}
+  .disc-in{border:1px solid var(--arcade-ember)}
   section{break-inside:avoid}
   section + section{border-top:1px solid #ccc}
   .code pre,.tablewrap{overflow:visible}
@@ -166,11 +188,12 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
   <div class="logo">V</div>
   <div class="brand"><b>Veeam Advisor</b><span>User Guide</span></div>
   <a class="openbtn" href="index.html" aria-label="Open Veeam Advisor"><span>Open the tool</span> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M9 7h8v8"/></svg></a>
+  <a class="openbtn" style="margin-left:14px" href="mailto:jason@cheekylittlemoney.net?subject=Veeam%20Advisor%20Feedback" aria-label="Send feedback or a bug fix request" title="Feedback &amp; Bug Fix Requests"><span>Feedback &amp; Bug Fix Requests</span> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l9 6 9-6M3 6h18v12H3z"/></svg></a>
 </header>
 
 <div class="hero">
   <div class="eyebrow">User Guide</div>
-  <h1>Veeam Advisor <span class="pill">v1.1.0</span></h1>
+  <h1>Veeam Advisor <span class="pill">v2.0</span></h1>
   <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
   <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
 </div>
@@ -196,9 +219,8 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <li><a href="#results-tabs"><span class="n">9</span>Reading the results</a></li>
       <li><a href="#export-pdf"><span class="n">10</span>Exporting a PDF</a></li>
       <li><a href="#version-toggle"><span class="n">11</span>v12.x vs v13.x</a></li>
-      <li><a href="#fleet-view"><span class="n">12</span>Fleet View</a></li>
-      <li><a href="#troubleshooting"><span class="n">13</span>Troubleshooting &amp; FAQ</a></li>
-      <li><a href="#limitations"><span class="n">14</span>Limitations</a></li>
+      <li><a href="#troubleshooting"><span class="n">12</span>Troubleshooting &amp; FAQ</a></li>
+      <li><a href="#limitations"><span class="n">13</span>Limitations</a></li>
     </ul>
   </aside>
 
@@ -217,9 +239,8 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <li><a href="#results-tabs"><span class="n">9</span>Reading the results</a></li>
       <li><a href="#export-pdf"><span class="n">10</span>Exporting a PDF</a></li>
       <li><a href="#version-toggle"><span class="n">11</span>v12.x vs v13.x</a></li>
-      <li><a href="#fleet-view"><span class="n">12</span>Fleet View</a></li>
-      <li><a href="#troubleshooting"><span class="n">13</span>Troubleshooting &amp; FAQ</a></li>
-      <li><a href="#limitations"><span class="n">14</span>Limitations</a></li>
+      <li><a href="#troubleshooting"><span class="n">12</span>Troubleshooting &amp; FAQ</a></li>
+      <li><a href="#limitations"><span class="n">13</span>Limitations</a></li>
       </ul>
     </details>
 
@@ -332,7 +353,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     </section>
 
     <section id="results-tabs" aria-labelledby="results-tabs-h">
-      <h2 id="results-tabs-h">9. Reading the results: the 15 tabs<a class="anchor" href="#results-tabs" aria-label="Link to this section">#</a></h2>
+      <h2 id="results-tabs-h">9. Reading the results: the 16 tabs<a class="anchor" href="#results-tabs" aria-label="Link to this section">#</a></h2>
 
     <p>Tabs carry small badges/counts when there is something to flag (for example a replication count, a malware count, or the number of BP findings). Tabs in app order:</p>
     <div class="tablewrap">
@@ -354,11 +375,35 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
           <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools) and a single GFS tape-job sizing across LTO-7/8/9.</td></tr>
           <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, plus a security-posture summary (MFA / immutability / encryption).</td></tr>
           <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories. <strong>Perpetual (socket)</strong> licences also show socket consumption (v1.1.0).</td></tr>
+            <tr><td class="c">16</td><td class="t">Resiliency map</td><td>A diagram of every job, the repository it writes to, and the backup copy flows between repositories &mdash; drawn on demand via a <strong>Draw map</strong> button. Repository boxes are coloured by type; replica jobs use a dashed metadata edge because their VM data lands on a host, not the repository. Surfaces idle repositories, missing copy flows and return-copy cycles. Optionally enriched by a PowerShell capture (see &sect;9a).</td></tr>
     </tbody>
   </table>
 </div>
     <p class="callout-inline"><strong>On protection coverage:</strong> the tool compares discovered infrastructure VMs against VMs covered by jobs <strong>and</strong> Veeam Agent backups and flags an estimated unprotected count. Treat it as a prompt to investigate &mdash; for the exact list of unprotected VMs, use the <strong>Veeam ONE Protected VMs</strong> report. <em>(v1.1.0: the agent contribution now counts real agent machines &mdash; managed Server + Workstation + standalone &mdash; rather than an agent-backup operation count, so coverage on agent-heavy estates is more accurate.)</em></p>
     <p class="callout-inline"><strong>New in v1.1.0:</strong> a per-job-type breakout (All jobs &amp; Retention) classifies every job into a friendly name with encryption, GFS and retention shown per type; the Agents tab cross-checks detected agents against the licensed instances (Server = 1, Workstation = 0.33, standalone agents counted); and the Licensing tab surfaces socket consumption for Perpetual licences. The BP Review encryption finding is now per type, so unencrypted Backup <em>copy</em> jobs are flagged too.</p>
+    <p class="callout-inline"><strong>New in v2.0:</strong> the Repositories tab now lists repository types that earlier versions silently dropped &mdash; Veeam Data Cloud (v2), all External repositories, and repositories that were offline when the log was collected (shown as <em>offline</em>). Storage-snapshot-only repositories are listed with <em>n/a</em> capacity, because they hold no backup files. Where the log&rsquo;s own type summary counts a repository that the log never enumerates, the tool reports the gap rather than hiding it. The Network Interfaces panel now also reports each adapter&rsquo;s MTU, flagging reduced (tunnelled), jumbo and mixed MTU configurations. A new <strong>Resiliency map</strong> tab draws where every job writes and how backup copy jobs move data between repositories, and highlights repositories that are configured but receive no jobs at all. The diagram is drawn on demand &mdash; press <em>Draw map</em> on that tab &mdash; so a large estate does not slow down the initial upload.</p>
+    </section>
+
+    <section id="backup-map" aria-labelledby="backup-map-h">
+      <h2 id="backup-map-h">9a. The Resiliency map<a class="anchor" href="#backup-map" aria-label="Link to this section">#</a></h2>
+      <p>The <strong>Resiliency map</strong> tab draws where each job writes and how backup copy jobs move data between repositories. It is drawn on demand: open the tab and press <strong>Draw map</strong>. A large estate can produce a tall diagram, so deferring it keeps the initial upload fast.</p>
+      <ul>
+        <li><strong>Job nodes</strong> sit in a column to the left of the repository they write to, so each arrow is a short hop. Above 40 jobs the individual nodes are replaced by aggregate counts inside the repository boxes, and the per-repository breakdown moves to the table beneath.</li>
+        <li><strong>Repository boxes</strong> are coloured by type &mdash; local/block, object storage, or scale-out.</li>
+        <li><strong>Replica jobs</strong> draw a dashed <em>metadata</em> edge into their repository. A replica writes only metadata and digests there; the replicated VM lands on a target host. <code>VMC.log</code> does not record that host, so the destination is drawn as an explicit &ldquo;not named in VMC.log&rdquo; node unless you enrich the map (below).</li>
+        <li><strong>Backup copy flows</strong> run as arrows between repositories. A return copy (a repository that both sends and receives) is drawn as a dashed amber arrow.</li>
+      </ul>
+      <p><strong>Individual jobs per repository.</strong> Below the diagram, the repository table lists every repository that receives jobs. <strong>Click any row</strong> to expand the individual jobs writing to it, with full per-job detail: job ID (or real name if a PowerShell capture was loaded), type, platform, source data size, retention, encryption, schedule, and last result. This works regardless of the diagram&rsquo;s 40-job threshold &mdash; so on a large estate where the diagram shows only aggregate counts, you can still drill into any repository&rsquo;s jobs. The same per-repository job listing appears in the PDF export.</p>
+      <p>The tab also reports <strong>idle repositories</strong> (configured but targeted by no job), the <strong>absence of any backup copy flow</strong>, and any <strong>return-copy cycles</strong>. The map is included as a page in the PDF export (as tables, so it prints without drawing the diagram).</p>
+
+      <h3>Enriching the map with a PowerShell capture</h3>
+      <p><code>VMC.log</code> cannot record three things the map wants: job <strong>names</strong> (it stores GUIDs only), replica <strong>target hosts</strong> (it stores nothing), and whether a replica points at a host that still <strong>exists</strong>. The companion script <code>VeeamAdvisor-MapCapture.ps1</code> collects exactly these from a live VBR server. It is <strong>read-only</strong> &mdash; it runs only <code>Get-VBR&hellip;</code> cmdlets and changes nothing.</p>
+      <ol>
+        <li>On the Resiliency map tab, click <strong>Download MapCapture.ps1</strong>.</li>
+        <li>Run it on the VBR server (or with the Veeam console open), ideally in the same window as the <code>VMC.log</code> collection so the object IDs line up. It writes a <code>.txt</code> capture file.</li>
+        <li>Back in the tool, click <strong>Upload capture output</strong> and choose that <code>.txt</code>. You can upload the log and the capture in either order.</li>
+      </ol>
+      <p>Once enriched, job nodes show their real names, replica destinations resolve to real hosts (drawn with a solid border), and any replica targeting a <strong>deleted host</strong> is flagged in red with a warning &mdash; a job configured against infrastructure that no longer exists. The capture is matched to the log by job ID, so a capture from a different server is detected and ignored rather than applied to the wrong environment.</p>
     </section>
 
     <section id="export-pdf" aria-labelledby="export-pdf-h">
@@ -380,20 +425,9 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     <p>Set it to match the environment you are actually advising on <strong>before</strong> you calculate.</p>
     </section>
 
-    <section id="fleet-view" aria-labelledby="fleet-view-h">
-      <h2 id="fleet-view-h">12. Fleet View (multiple servers)<a class="anchor" href="#fleet-view" aria-label="Link to this section">#</a></h2>
-
-    <p>Veeam Advisor analyses <strong>one</strong> server in depth. For a whole estate, the repo includes a companion file, <code>Veeam_Advisor_Fleet.html</code> (Fleet View). You upload one <code>VMC.log</code> per server and click <strong>Build fleet view</strong> for:</p>
-    <ul>
-      <li><strong>Fleet Dashboard</strong> &mdash; estate totals, fleet-wide coverage, average BP score, and a per-server table sorted weakest-first.</li>
-      <li><strong>Comparison Matrix</strong> &mdash; servers as columns and BP checks / key values as rows, with inconsistent rows highlighted so you can spot odd-one-out configs.</li>
-      <li><strong>Aggregate Report</strong> &mdash; combined posture and a remediation-priority list, weakest servers first.</li>
-    </ul>
-    <p>Note that Veeam Advisor and Fleet View are separate codebases that parse the same log format. The newest additions (for example Veeam Backup for Azure detection and a few licensing-consumption corrections) currently live in Veeam Advisor first. If a finding appears in one tool but not the other for the same log, that is usually why &mdash; check which tool you are in before assuming a discrepancy is a bug.</p>
-    </section>
 
     <section id="troubleshooting" aria-labelledby="troubleshooting-h">
-      <h2 id="troubleshooting-h">13. Troubleshooting &amp; FAQ<a class="anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+      <h2 id="troubleshooting-h">12. Troubleshooting &amp; FAQ<a class="anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
 
     <dl class="faq">
       <dt>The Export PDF button is greyed out.</dt>
@@ -416,7 +450,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     </section>
 
     <section id="limitations" aria-labelledby="limitations-h">
-      <h2 id="limitations-h">14. Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
+      <h2 id="limitations-h">13. Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
 
     <p>Veeam Advisor is an <strong>unofficial</strong> aid for sizing and best-practice review, not an authoritative source. Its outputs are estimates from a parsed log; NIC speed and a few other values are not in the log and depend on what you enter. Always validate against the <a href="https://www.veeam.com/calculators.html" target="_blank" rel="noopener">official Veeam calculators</a>, the <a href="https://helpcenter.veeam.com/" target="_blank" rel="noopener">Veeam Help Center</a>, and Best Practices documentation, and involve a Veeam SE / Solution Architect for final decisions.</p>
     </section>
@@ -425,7 +459,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <footer>
   <div class="foot">
-    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v1.1.0 &middot; Unofficial community tool</span>
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.0 &middot; Unofficial community tool</span>
     <span><a href="index.html">Open Veeam Advisor</a></span>
   </div>
 </footer>

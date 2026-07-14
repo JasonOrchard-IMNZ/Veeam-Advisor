@@ -11,17 +11,16 @@ Created by **Jason Orchard** · Copyright © 2026 · All Rights Reserved
 > Architect. The application itself carries the same disclaimer in a load-time
 > banner, a persistent footer, and on every PDF export.
 
-Standalone, single-file HTML tools for analysing Veeam `VMC.log` files —
-best-practice sizing recommendations, BP/security compliance review, and a
-multi-server fleet view. Everything runs **entirely client-side**: no server
-runtime, and no log file is ever uploaded or transmitted.
+A standalone, single-file HTML tool for analysing Veeam `VMC.log` files —
+best-practice sizing recommendations and BP/security compliance review.
+Everything runs **entirely client-side**: no server runtime, and no log file
+is ever uploaded or transmitted.
 
 ## Tools
 
 | Tool | File | Use it for |
 |------|------|------------|
 | **Veeam Advisor** | `index.html` | Deep analysis of a **single** VBR server / VSA from one VMC.log |
-| **Fleet View** | `Veeam_Advisor_Fleet.html` | A **whole environment** — upload one VMC.log per server and see them together |
 
 Both parse the same VMC.log format and cover the same core infrastructure
 (VSA/VBR, platform, proxies, repositories, jobs, agents, GFS/retention,
@@ -77,16 +76,6 @@ Highlights:
   data-collection date.
 
 
-## Fleet View (multi-server)
-
-Upload one VMC.log per VBR server / VSA, then **Build fleet view** for three tabs:
-- **Fleet Dashboard** — estate totals (VMs, source TB, proxies, repositories),
-  fleet-wide coverage, average BP score, and a per-server breakdown table sorted
-  weakest-first (with each server's collection date/time).
-- **Comparison Matrix** — servers as columns, BP checks + key values as rows,
-  with **inconsistent rows highlighted** (spot servers configured differently).
-- **Aggregate Report** — combined posture and a remediation-priority list,
-  weakest servers first, with each server's findings.
 
 ## Collection date/time
 
@@ -101,8 +90,7 @@ data is. See Calculations.txt §12 for details.
 | File | Purpose |
 |------|---------|
 | `index.html` | Veeam Advisor — single-server app |
-| `Veeam_Advisor_Fleet.html` | Fleet View — multi-server app |
-| `Veeam_Advisor_v1.0.html` | Locked v1.0 reference (identical to `index.html`) |
+| `Veeam_Advisor_v1.0.2.html` | Retained v1.0.2 snapshot |
 | `Veeam_Advisor_v1.0_Calculations.txt` | Sizing & methodology reference (incl. coverage, orphan, multi-run) |
 | `VeeamAdvisor-PowerShell-QA.ps1` | QA harness — URL + cmdlet + BP-logic validation |
 | `VeeamAdvisor-PowerShell.ps1` | Customer VBR inventory + validation (standalone) |
@@ -110,12 +98,14 @@ data is. See Calculations.txt §12 for details.
 | `robots.txt` | Block all web crawlers |
 | `.github/workflows/azure-static-web-apps.yml` | CI/CD pipeline |
 | `user-guide.html` | In-app User Guide (linked from the tool header) |
-| `Veeam_Advisor_v1.1.0.html` | Locked v1.1.0 snapshot (byte-identical to `index.html`) |
+| `Veeam_Advisor_v2.0.html` | Locked v2.0 snapshot (byte-identical to `index.html`) |
+| `Veeam_Advisor_v1.1.0.html` | Retained v1.1.0 snapshot (CI fixture — do not modify) |
 | `Veeam_Advisor_v1.0.3.html` | Retained v1.0.3 snapshot |
-| `confirm-outputs.js` | Fleet View output assertions |
 | `confirm-bp-findings.js` | Single-server BP Review regression assertions (v1.0.3 + v1.1.0 fixtures + 20-log corpus) |
 | `.github/workflows/tests.yml` | BP Review fixture tests (CI — no customer data) |
 | `CHANGELOG.md` | Version history |
+| `POWERSHELL-REVIEW-v2.0.md` | v2.0 PowerShell review findings (read-only) |
+| `RELEASE-NOTES-v2.0.md` | v2.0 release notes & git package |
 
 ## PowerShell scripts (5.1+ for VBR v12 / 7.4.7+ for VBR v13)
 
@@ -153,8 +143,7 @@ transmitted; log-derived values are HTML-escaped before display.
 Azure Static Web Apps (Free tier). Push to `main` triggers auto-deploy.
 App location `/` · Output location empty · Build preset Custom.
 
-The deployed site serves the single-server `index.html`. The Fleet View
-(`Veeam_Advisor_Fleet.html`) is included in the repo as a standalone file.
+The deployed site serves `index.html`.
 
 ## Author
 
