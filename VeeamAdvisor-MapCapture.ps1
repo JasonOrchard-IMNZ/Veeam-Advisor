@@ -23,7 +23,13 @@
 
 [CmdletBinding()]
 param(
-    [string]$OutFile = ".\VeeamAdvisor-MapCapture-$env:COMPUTERNAME-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
+    [string]$OutFile = ".\VeeamAdvisor-MapCapture-$env:COMPUTERNAME-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt",
+    # Remote VBR host to connect to. Omit to run against the local VBR server (default).
+    [string]$VBRServer,
+    # Port for the remote connection. Default 443 (v13 Identity Service); use 9392 for v12.
+    [int]$Port = 443,
+    # Credential for the remote connection. Omit to use the current Windows identity.
+    [System.Management.Automation.PSCredential]$Credential
 )
 
 $ErrorActionPreference = 'Continue'
@@ -79,22 +85,57 @@ $script:WeConnected = $false
 $existing = $null
 try { $existing = Get-VBRServerSession -ErrorAction Stop } catch { $existing = $null }
 
-if ($null -ne $existing -and "$($existing.Server)" -ne '') {
-    Emit "Active VBR session detected ($($existing.Server)) — reusing it, connecting nothing."
+# Decide whether an existing session can be reused. An explicit -VBRServer takes
+# precedence: reuse only if the current session is ALREADY to that host; otherwise
+# drop it and connect to the requested server. Without -VBRServer, any local session
+# is fine to reuse.
+$existingServer = if ($null -ne $existing) { "$($existing.Server)" } else { '' }
+$reuseOk = $false
+if ($existingServer -ne '') {
+    if (-not $VBRServer) {
+        $reuseOk = $true
+    } else {
+        # match on host or its short name (session may report FQDN/IP)
+        $want = $VBRServer.Split('.')[0]
+        if ($existingServer -ieq $VBRServer -or $existingServer.Split('.')[0] -ieq $want) { $reuseOk = $true }
+    }
+}
+
+if ($reuseOk) {
+    Emit "Active VBR session detected ($existingServer) — reusing it, connecting nothing."
 } else {
-    Emit "No active VBR session — connecting to the local VBR server (read-only)…"
+    if ($VBRServer -and $existingServer -ne '') {
+        Emit "Existing session is to '$existingServer' but -VBRServer '$VBRServer' was requested — disconnecting and reconnecting to the requested host."
+        try { Disconnect-VBRServer -ErrorAction SilentlyContinue } catch {}
+    }
+    if ($VBRServer) { Emit "No active VBR session — connecting to $VBRServer (read-only)…" }
+    else            { Emit "No active VBR session — connecting to the local VBR server (read-only)…" }
     # -ForceAcceptTlsCertificate exists on v13+ only; add it only if supported so
     # the script stays v12-compatible.
     $forceTls = [bool](Get-Command Connect-VBRServer -ErrorAction SilentlyContinue |
                        Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' })
-    # Attempt order: cert-bound machine name on 443 (v13 front door), then localhost
-    # on 443, then the classic localhost:9392 for v12.
     $attempts = @()
-    $a1 = @{ Server = $env:COMPUTERNAME; Port = 443 }; if ($forceTls) { $a1['ForceAcceptTlsCertificate'] = $true }
-    $attempts += ,@{ Desc = "$($env:COMPUTERNAME):443 (v13 Identity Service)"; P = $a1 }
-    $a2 = @{ Server = 'localhost'; Port = 443 };       if ($forceTls) { $a2['ForceAcceptTlsCertificate'] = $true }
-    $attempts += ,@{ Desc = 'localhost:443';           P = $a2 }
-    $attempts += ,@{ Desc = 'localhost:9392 (v12)';    P = @{ Server = 'localhost'; Port = 9392 } }
+    if ($VBRServer) {
+        # Explicit remote target. Try the requested port first; if that is the v13 default
+        # (443) also fall back to 9392 for a v12 remote. Credential is passed when supplied.
+        $base = @{ Server = $VBRServer; Port = $Port }
+        if ($forceTls) { $base['ForceAcceptTlsCertificate'] = $true }
+        if ($Credential) { $base['Credential'] = $Credential }
+        $attempts += ,@{ Desc = "$VBRServer`:$Port (remote)"; P = $base }
+        if ($Port -eq 443) {
+            $alt = @{ Server = $VBRServer; Port = 9392 }
+            if ($Credential) { $alt['Credential'] = $Credential }
+            $attempts += ,@{ Desc = "$VBRServer`:9392 (remote v12)"; P = $alt }
+        }
+    } else {
+        # Local-first (unchanged default): cert-bound machine name on 443, then localhost:443,
+        # then classic localhost:9392 for v12.
+        $a1 = @{ Server = $env:COMPUTERNAME; Port = 443 }; if ($forceTls) { $a1['ForceAcceptTlsCertificate'] = $true }
+        $attempts += ,@{ Desc = "$($env:COMPUTERNAME):443 (v13 Identity Service)"; P = $a1 }
+        $a2 = @{ Server = 'localhost'; Port = 443 };       if ($forceTls) { $a2['ForceAcceptTlsCertificate'] = $true }
+        $attempts += ,@{ Desc = 'localhost:443';           P = $a2 }
+        $attempts += ,@{ Desc = 'localhost:9392 (v12)';    P = @{ Server = 'localhost'; Port = 9392 } }
+    }
 
     $lastErr = $null
     foreach ($att in $attempts) {
@@ -112,7 +153,8 @@ if ($null -ne $existing -and "$($existing.Server)" -ne '') {
             Emit "  (which establishes a session), leave it open, and re-run this script —"
             Emit "  it will reuse that session and connect nothing itself."
         } else {
-            Emit "  Run this ON the VBR server, or open the Veeam console first, then re-run."
+            if ($VBRServer) { Emit "  Check the host is reachable on the port, the VBR service is running, and the credential is valid." }
+            else            { Emit "  Run this ON the VBR server, or open the Veeam console first, then re-run. To target a remote host use -VBRServer <host> [-Port 9392] [-Credential (Get-Credential)]." }
         }
         return
     }
