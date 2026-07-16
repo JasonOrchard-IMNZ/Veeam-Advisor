@@ -335,7 +335,18 @@ foreach ($t in $tenants) {
     foreach ($r in @(Try-Get { $t.Resources })) {
         Emit ("      repo -> {0,-38} friendly: {1}" -f (Try-Get { $r.RepositoryId }), (Try-Get { $r.RepositoryFriendlyName }))
     }
-    Emit ("    Replica resources : " + (Try-Get { ($t.ReplicaResources | Measure-Object).Count }))
+    # Replica resources: the property surface differs by version. Prefer the explicit
+    # ReplicaResources collection; fall back to hardware-plan assignments (what the
+    # console lists under "Replica Resources"). Count and name whichever resolves.
+    $replRes = @(Try-Get { $t.ReplicaResources })
+    if (-not $replRes -or $replRes.Count -eq 0) { $replRes = @(Try-Get { $t.ReplicaResource }) }
+    if (-not $replRes -or $replRes.Count -eq 0) { $replRes = @(Try-Get { Get-VBRCloudTenantResource -Tenant $t }) }
+    Emit ("    Replica resources : " + (@($replRes | Where-Object { $_ }) | Measure-Object).Count)
+    foreach ($rr in @($replRes | Where-Object { $_ })) {
+        $hpName = (Try-Get { $rr.HardwarePlanName }); if (-not $hpName) { $hpName = (Try-Get { $rr.Name }) }
+        $hpId   = (Try-Get { $rr.HardwarePlanId });   if (-not $hpId)   { $hpId   = (Try-Get { $rr.Id }) }
+        Emit ("      hwplan -> {0,-38} name: {1}" -f $hpId, $hpName)
+    }
     Emit ("    Gateway pool      : " + (Try-Get { $t.GatewayPool.Name }))
 }
 

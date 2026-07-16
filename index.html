@@ -650,7 +650,7 @@ function isMapCapture(text){
 }
 
 function parseMapCapture(text){
-  var cap = { jobs:{}, replicaHosts:{}, host:null, captured:null };
+  var cap = { jobs:{}, replicaHosts:{}, repoNames:{}, jobTargets:{}, configBackups:[], cloudConnect:{tenants:[], gateways:[], providers:0}, host:null, captured:null };
   var lines = text.split(/\r?\n/);
 
   var hm = text.match(/^Host:\s*(\S+)\s+Date:\s*(.+)$/m);
@@ -665,6 +665,53 @@ function parseMapCapture(text){
     var id = m[1].toLowerCase();
     cap.jobs[id] = { name:m[2], type:m[3], isReplica:(m[4]==='True') };
   });
+
+  // Section 1: repository GUID -> type + friendly name. Scoped strictly to the
+  // "1. REPOSITORIES" block (Section 2's job lines share the same GUID+token+text
+  // shape, so parsing the whole file would mis-capture them). Within the block a repo
+  // line is: <GUID>  <Type>  <Friendly name to end of line>.
+  (function(){
+    var start=-1, end=lines.length;
+    for(var i=0;i<lines.length;i++){
+      if(/^\s*1\.\s+REPOSITORIES/.test(lines[i])){ start=i; }
+      else if(start>=0 && /^\s*2\.\s+JOB/.test(lines[i])){ end=i; break; }
+    }
+    if(start<0) return;
+    for(var j=start;j<end;j++){
+      if(/hypothesis/i.test(lines[j])) continue;   // skip the summary prose line
+      var m = lines[j].match(/^\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s+(\S+)\s+(.+?)\s*$/);
+      if(!m) continue;
+      cap.repoNames[m[1].toLowerCase()] = { type:m[2], name:m[3] };
+    }
+  })();
+
+  // Section 2: authoritative JobId -> TargetRepositoryId + real size, scoped to the
+  // "2. JOB -> REPOSITORY" block. This is server ground truth for the map's primary
+  // edge and per-job size (VMC.log only lets those be inferred). Header line carries
+  // the GUIDs; the indented 'size :' line that follows carries IncludedSize in bytes.
+  (function(){
+    var start=-1, end=lines.length;
+    for(var i=0;i<lines.length;i++){
+      if(/^\s*2\.\s+JOB\s*->\s*REPOSITORY/.test(lines[i])){ start=i; }
+      else if(start>=0 && /^\s*3\.\s+REPLICA/.test(lines[i])){ end=i; break; }
+    }
+    if(start<0) return;
+    var curId=null;
+    for(var j=start;j<end;j++){
+      var hm = lines[j].match(/^\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s+\S+\s+(True|False)\s+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|n\/a[^\s]*)/);
+      if(hm){
+        curId = hm[1].toLowerCase();
+        var tgt = /^n\/a/i.test(hm[3]) ? null : hm[3].toLowerCase();
+        cap.jobTargets[curId] = { targetRepoId:tgt, size:null };
+        continue;
+      }
+      if(!curId) continue;
+      var sm = lines[j].match(/^\s*size\s*:\s*(\d+)\s*$/);
+      if(sm){ cap.jobTargets[curId].size = parseInt(sm[1],10); continue; }
+      var rm = lines[j].match(/^\s*repo name\s*:\s*(.+?)\s*$/);
+      if(rm && cap.jobTargets[curId]){ cap.jobTargets[curId].repoName = rm[1]; }
+    }
+  })();
 
   // Section 3: replica host blocks. Walk line by line, tracking the current job.
   var curId = null, cur = null;
@@ -690,6 +737,55 @@ function parseMapCapture(text){
     r.resolvedHost = resolved ? r.host : null;
     r.deletedHost  = (!resolved && r.hostId) ? r.hostId : null;
   });
+
+  // Section 4b: configuration backup jobs (own cmdlet; not in Get-VBRJob). Block-scoped.
+  (function(){
+    var s4=-1,e4=lines.length;
+    for(var i=0;i<lines.length;i++){
+      if(/^\s*4b\.\s+CONFIGURATION BACKUP/.test(lines[i])){ s4=i; }
+      else if(s4>=0 && /^\s*4c\.\s+CLOUD CONNECT/.test(lines[i])){ e4=i; break; }
+    }
+    if(s4<0) return;
+    var cur=null;
+    for(var j=s4;j<e4;j++){
+      var hm=lines[j].match(/^\s*Config backup\s+'(.*)'\s+Id:\s*([0-9a-fA-F-]{36})/);
+      if(hm){ cur={ name:hm[1], id:hm[2].toLowerCase() }; cap.configBackups.push(cur); continue; }
+      if(!cur) continue;
+      var rm=lines[j].match(/^\s*Repository Id\s*:\s*([0-9a-fA-F-]{36})/); if(rm){ cur.repoId=rm[1].toLowerCase(); continue; }
+      var em=lines[j].match(/^\s*Encryption\s*:\s*(True|False)/);        if(em){ cur.encryption=(em[1]==='True'); continue; }
+      var lm=lines[j].match(/^\s*LastResult\s*:\s*(\S+)/);              if(lm){ cur.lastResult=lm[1]; continue; }
+      var nm=lines[j].match(/^\s*Enabled\s*:\s*(True|False)/);          if(nm){ cur.enabled=(nm[1]==='True'); }
+    }
+  })();
+
+  // Section 4c/4d: Cloud Connect provider role — tenants this server hosts, and gateways.
+  (function(){
+    var s4=-1,e4=lines.length;
+    for(var i=0;i<lines.length;i++){
+      if(/^\s*4c\.\s+CLOUD CONNECT/.test(lines[i])){ s4=i; }
+      else if(s4>=0 && /^\s*5\.\s+JOB NAME/.test(lines[i])){ e4=i; break; }
+    }
+    if(s4<0) return;
+    var curT=null;
+    for(var j=s4;j<e4;j++){
+      var tm=lines[j].match(/^\s*Tenant\s+'(.*)'\s+Id:\s*([0-9a-fA-F-]{36})/);
+      if(tm){ curT={ name:tm[1], id:tm[2].toLowerCase(), repos:[] }; cap.cloudConnect.tenants.push(curT); continue; }
+      if(curT){
+        var em2=lines[j].match(/^\s*Enabled\s*:\s*(True|False)/);
+        if(em2){ curT.enabled=(em2[1]==='True'); continue; }
+        // backup resource repo line: "repo -> <id-or-n/a>   friendly: <name>"
+        var rr=lines[j].match(/^\s*repo\s*->\s*(\S+.*?)\s+friendly:\s*(.+?)\s*$/);
+        if(rr){ var rid=/^n\/a/i.test(rr[1])?null:rr[1].toLowerCase(); curT.repos.push({ id:rid, name:rr[2] }); continue; }
+        var hp=lines[j].match(/^\s*hwplan\s*->\s*(\S+.*?)\s+name:\s*(.+?)\s*$/);
+        if(hp){ if(!curT.hwplans)curT.hwplans=[]; curT.hwplans.push({ id:/^n\/a/i.test(hp[1])?null:hp[1].toLowerCase(), name:hp[2] }); continue; }
+      }
+      var gm=lines[j].match(/^\s{2}(\S+)\s+host:\s*(\S+)\s+port:/);
+      if(gm){ cap.cloudConnect.gateways.push({ name:gm[1], host:gm[2] }); continue; }
+      var pm=lines[j].match(/^\s*Cloud providers this server backs up to:\s*(\d+)/);
+      if(pm){ cap.cloudConnect.providers=parseInt(pm[1],10); }
+    }
+  })();
+
   return cap;
 }
 
@@ -721,6 +817,60 @@ function applyCaptureToMap(){
       }
     });
   });
+
+  // Repository names from Section 1: match the capture's full-GUID repo entries to
+  // the map's repo nodes (which key on the 8-char short id) and attach the real name.
+  if(cap.repoNames){
+    // Repo nodes key on the full GUID (n.id). Match on that; fall back to short-id
+    // prefix in case a node ever carries only the 8-char form.
+    var byShort = {};
+    Object.keys(cap.repoNames).forEach(function(fid){ byShort[fid.substring(0,8)] = cap.repoNames[fid]; });
+    bm.nodes.forEach(function(n){
+      var full = (n.id||'').toLowerCase();
+      var rn = cap.repoNames[full] || byShort[(n.id||'').substring(0,8)];
+      if(rn){ n.repoName = rn.name; }
+    });
+  }
+
+  // Section 2: authoritative job -> repo + real size. Update each job's size from the
+  // server's IncludedSize, and detect where the log-derived target repo disagrees with
+  // the server's TargetRepositoryId (a genuine placement mismatch worth surfacing).
+  if(cap.jobTargets){
+    bm.targetMismatches = [];
+    bm.nodes.forEach(function(n){
+      n.jobList.forEach(function(j){
+        var t = cap.jobTargets[(j.fullId||'').toLowerCase()];
+        if(!t) return;
+        if(typeof t.size==='number' && t.size>=0){ j.captureSize = t.size; }
+        // n.id is the repo this job is drawn under (from the log). Compare to server.
+        if(t.targetRepoId && n.id && t.targetRepoId !== n.id.toLowerCase()){
+          j.targetMismatch = { logRepo:n.id.substring(0,8), serverRepo:t.targetRepoId.substring(0,8), serverRepoName:t.repoName||null };
+          bm.targetMismatches.push({ job:j.id, jobName:j.jobName||j.id, logRepo:n.id.substring(0,8), serverRepo:t.targetRepoId.substring(0,8), serverRepoName:t.repoName||null });
+        }
+      });
+    });
+  }
+
+  // Section 4b: enrich the config-backup job(s) with real name, encryption, last result.
+  if(cap.configBackups && cap.configBackups.length){
+    bm.nodes.forEach(function(n){
+      n.jobList.forEach(function(j){
+        var cb = cap.configBackups.filter(function(c){ return c.id===(j.fullId||'').toLowerCase(); })[0];
+        if(cb){
+          if(cb.name) j.jobName = cb.name;
+          if(typeof cb.encryption==='boolean') j.enc = cb.encryption;
+          if(cb.lastResult) j.lastResult = cb.lastResult;
+        }
+      });
+    });
+  }
+
+  // Section 4c/4d: attach Cloud Connect provider summary (tenants + gateways) so the
+  // map can note this server hosts tenants. Rendered as a finding for now; a dedicated
+  // provider node is a later enhancement.
+  if(cap.cloudConnect && (cap.cloudConnect.tenants.length || cap.cloudConnect.gateways.length)){
+    bm.cloudConnect = cap.cloudConnect;
+  }
   // Re-derive replica destination groups using real hosts where known.
   var rt = {};
   bm.nodes.forEach(function(n){
@@ -1518,6 +1668,13 @@ function parseLog(raw,fname){
   m=licCtx.match(/Capacity:\s*\{[^}]*?Used:\s*([\d.]+)\s*TB/);if(m)D.licCapUsedTB=parseFloat(m[1]);
   // Cloud Connect provider flag.
   m=licCtx.match(/CCProvider:\s*(\w+)/);if(m)D.licCC=m[1];
+  // Fallback provider detection: a log-export (STARTLOGSEXPORT) or any log lacking the
+  // [Cloud Connect Infrastructure] line still identifies a provider via the license's
+  // CCProvider flag. Only promote (never demote) so an explicit infra line still wins.
+  if(D.licCC==='Yes' && D.cloudConnect && D.cloudConnect.isProvider!==true){
+    D.cloudConnect.isProvider = true;
+    D.cloudConnect.providerFromLicense = true;   // note the weaker source for the UI
+  }
   // Per-workload consumption. Each workload records:
   //   <Name>: { Count: <objects>, Multiplier: <instances-per-object>, Instances: <total> }
   // The Multiplier is the heart of "how licences are consumed" — e.g. a server
@@ -3886,7 +4043,7 @@ function render(d){
       h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
       h+='<span style="font-size:22px">&#9729;</span>';
       h+='<div><p style="font-size:15px;font-weight:700;color:var(--bdk)">Cloud Connect Provider (VCSP)</p>';
-      h+='<p style="font-size:12px;color:var(--tx2)">This server provides hosted backup &amp; replica infrastructure to tenants.</p></div></div>';
+      h+='<p style="font-size:12px;color:var(--tx2)">This server provides hosted backup &amp; replica infrastructure to tenants.'+(cc3.providerFromLicense?' <span style="color:var(--tx3)">(detected from the license CCProvider flag; upload a full VMC.log or run MapCapture.ps1 for tenant &amp; gateway detail)</span>':'')+'</p></div></div>';
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">';
       h+=st(d.vcspGateways!=null?d.vcspGateways:'—','Gateways',false);
       h+=st(d.vcspTenants!=null?d.vcspTenants:'—','Tenants',false);
@@ -5229,8 +5386,8 @@ function buildMapSvg(m){
     if(n.cyc) rdet.push('participates in a return copy cycle');
     svg+='<g><title>'+esc(rdet.join(' \u00b7 '))+'</title>';
     svg+='<rect x="'+p.x+'" y="'+p.y+'" width="'+BW+'" height="'+BH+'" rx="7" fill="'+c.f+'" stroke="'+c.s+'" stroke-width="1.5"/>';
-    svg+='<text x="'+(p.x+10)+'" y="'+(p.y+18)+'" font-size="11" font-weight="700" fill="'+c.s+'">'+esc(clip(n.repo?n.repo.type:'(not enumerated)'))+'</text>';
-    svg+='<text x="'+(p.x+10)+'" y="'+(p.y+32)+'" font-size="10" font-family="monospace" fill="var(--tx2)">'+esc(n.short)+'</text>';
+    svg+='<text x="'+(p.x+10)+'" y="'+(p.y+18)+'" font-size="11" font-weight="700" fill="'+c.s+'">'+esc(clip(n.repoName||(n.repo?n.repo.type:'(not enumerated)')))+'</text>';
+    svg+='<text x="'+(p.x+10)+'" y="'+(p.y+32)+'" font-size="10" font-family="monospace" fill="var(--tx2)">'+esc(n.short)+(n.repoName&&n.repo&&n.repo.type?'  \u00b7  '+n.repo.type:'')+'</text>';
     svg+='<text x="'+(p.x+10)+'" y="'+(p.y+BH-12)+'" font-size="10" fill="var(--tx2)">'+esc(clip(parts.join(' \u00b7 ')||'\u2014', partChars))+'</text>';
     if(!compressed) svg+='<text x="'+(p.x+BW-10)+'" y="'+(p.y+BH-12)+'" font-size="10" font-weight="700" text-anchor="end" fill="'+c.s+'">'+sz+'</text>';
     svg+='</g>';
@@ -5448,7 +5605,11 @@ function mapTab(d){
   h+='<div style="margin-top:14px;padding:12px 14px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)">';
   if(m.enriched && m.captureMatch){
     h+='<div style="font-size:12px;font-weight:700;color:var(--gd);margin-bottom:4px">&#10003; Enriched with PowerShell capture</div>';
-    h+='<p style="font-size:11px;color:var(--tx2);margin:0 0 8px">From <b>'+esc(m.captureMatch.host||'?')+'</b> — '+m.captureMatch.matched+' of '+m.captureMatch.total+' jobs matched. Job names and replica hosts are resolved. Upload a different capture to replace it.</p>';
+    h+='<p style="font-size:11px;color:var(--tx2);margin:0 0 8px">From <b>'+esc(m.captureMatch.host||'?')+'</b> — '+m.captureMatch.matched+' of '+m.captureMatch.total+' jobs matched. Job names, repository names, replica hosts and real job sizes are resolved. Upload a different capture to replace it.</p>';
+
+    if(m.targetMismatches && m.targetMismatches.length){
+      h+='<p style="font-size:11px;color:var(--bad);margin:0 0 8px;padding:6px 8px;border:1px solid var(--bad);border-radius:6px">&#9888; '+m.targetMismatches.length+' job(s) target a different repository on the server than the log indicates: '+m.targetMismatches.slice(0,4).map(function(x){return esc(x.jobName)+' &rarr; '+esc(x.serverRepoName||x.serverRepo);}).join(', ')+(m.targetMismatches.length>4?' +'+(m.targetMismatches.length-4)+' more':'')+'. The map groups jobs by the log\'s target; these differ from server ground truth.</p>';
+    }
   } else {
     h+='<div style="font-size:12px;font-weight:700;color:var(--tx);margin-bottom:4px">&#128279; Enrich this map with a PowerShell capture</div>';
     h+='<p style="font-size:11px;color:var(--tx2);margin:0 0 8px">VMC.log has no job names and no replica target hosts. Run the read-only capture script on the VBR server, then upload its output here to label jobs by name, resolve replica destinations to real hosts, and flag replicas pointing at deleted hosts.</p>';
@@ -5459,6 +5620,56 @@ function mapTab(d){
   h+='<span style="font-size:11px;color:var(--tx3)">read-only · runs on the VBR server</span>';
   h+='</div></div>';
 
+
+  // Cloud Connect provider panel (independent of capture enrichment).
+    // Cloud Connect provider panel. The VMC.log's [Tenants] line is the authoritative
+    // source for each tenant's backup/replica counts and type; the capture (if present)
+    // adds the friendly repository name. Prefer the log; enrich from the capture.
+    var ccCap = m.cloudConnect || null;
+    var logTenants = (d.vcspTenantList && d.vcspTenantList.length) ? d.vcspTenantList : null;
+    var capByShort = {};
+    if(ccCap && ccCap.tenants){ ccCap.tenants.forEach(function(t){ capByShort[(t.id||'').substring(0,8)] = t; }); }
+    var haveProvider = logTenants || (ccCap && (ccCap.tenants.length || ccCap.gateways.length));
+    if(haveProvider){
+      h+='<div style="margin:6px 0 10px;padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)">';
+      h+='<div style="font-size:12px;font-weight:700;color:var(--bdk);margin-bottom:6px">&#9729; Cloud Connect provider</div>';
+      h+='<p style="font-size:11px;color:var(--tx2);margin:0 0 8px">This server hosts backup/replica capacity for tenants. The tenant\'s backup and replica <b>jobs</b> run on the tenant\'s own VBR (not in this log); shown here is each tenant, what they are allocated, and where their data lands.</p>';
+      // Build a unified tenant list: log tenants (authoritative counts) merged with capture repo names.
+      var tlist = logTenants ? logTenants.map(function(lt){
+        var cap = capByShort[(lt.fullId||'').substring(0,8)] || {};
+        return { name:cap.name||('Tenant '+lt.id), type:lt.type, backups:lt.backups, replicas:lt.replicas,
+                 servers:lt.servers, workstations:lt.workstations, maxTasks:lt.maxTasks,
+                 repos:(cap.repos||[]), enabled:cap.enabled };
+      }) : ccCap.tenants.map(function(t){ return { name:t.name, repos:t.repos||[], enabled:t.enabled, backups:null, replicas:null }; });
+
+      tlist.forEach(function(t){
+        var repoLbl = (t.repos&&t.repos.length) ? t.repos.map(function(r){return esc(r.name);}).join(', ') : 'provider repository';
+        // resource summary from the LOG (correct): backups / replicas / servers / workstations
+        var res=[];
+        if(t.backups!=null && t.backups>0) res.push(t.backups+' backup'+(t.backups!==1?'s':''));
+        if(t.replicas!=null && t.replicas>0) res.push(t.replicas+' replica'+(t.replicas!==1?'s':''));
+        if(t.servers!=null && t.servers>0) res.push(t.servers+' server'+(t.servers!==1?'s':''));
+        if(t.workstations!=null && t.workstations>0) res.push(t.workstations+' workstation'+(t.workstations!==1?'s':''));
+        h+='<div style="margin:6px 0;padding:6px 0;border-top:1px solid var(--bd)">';
+        h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">';
+        h+='<span style="font-family:monospace;font-size:11px;padding:3px 8px;border:1px solid var(--pdk);border-radius:6px;background:var(--pl);color:var(--bdk)">Tenant: '+esc(t.name)+(t.type?' <span style="color:var(--tx3)">('+esc(t.type)+')</span>':'')+'</span>';
+        h+='<span style="color:var(--tx3)">&rarr;</span>';
+        h+='<span style="font-size:11px;padding:3px 8px;border:1px solid var(--gd);border-radius:6px;background:var(--gl);color:var(--gd)">'+repoLbl+'</span>';
+        h+='</div>';
+        if(res.length) h+='<p style="font-size:11px;color:var(--tx2);margin:0 0 0 2px">Allocated: '+res.join(' &middot; ')+(t.maxTasks?' &middot; max '+t.maxTasks+' task'+(t.maxTasks!==1?'s':''):'')+'</p>';
+        h+='</div>';
+      });
+
+      // provider infrastructure summary from the log (HW plans, gateways)
+      var infra=[];
+      if(d.vcspGateways!=null) infra.push(d.vcspGateways+' gateway'+(m.vcspGateways!==1?'s':''));
+      if(d.vcspHWPlansHV) infra.push(d.vcspHWPlansHV+' Hyper-V HW plan'+(m.vcspHWPlansHV!==1?'s':''));
+      if(d.vcspHWPlansVi) infra.push(d.vcspHWPlansVi+' VMware HW plan'+(m.vcspHWPlansVi!==1?'s':''));
+      var gwText = (ccCap && ccCap.gateways && ccCap.gateways.length) ? ccCap.gateways.map(function(g){return g.name+' @ '+g.host;}).join(', ') : null;
+      if(infra.length) h+='<p style="font-size:11px;color:var(--tx3);margin:6px 0 0;border-top:1px solid var(--bd);padding-top:6px">Provider infrastructure: '+infra.join(' &middot; ')+(gwText?' ('+esc(gwText)+')':'')+'</p>';
+      else if(gwText) h+='<p style="font-size:11px;color:var(--tx3);margin:6px 0 0">Cloud gateway(s): '+esc(gwText)+'</p>';
+      h+='</div>';
+    }
   h+='<p style="font-size:11px;color:var(--tx3);margin:2px 0 4px">Click a repository row to expand the individual jobs writing to it, with full per-job detail. This works regardless of the diagram\'s 40-job threshold.</p>';
   h+='<div class="tw"><table><tr><th></th><th>Repository</th><th>Type</th><th>Jobs</th><th>Job breakdown</th><th>Primary data</th><th>Copied in</th><th>Inbound flows</th></tr>';
   var _ri=0;
@@ -5471,7 +5682,7 @@ function mapTab(d){
     h+='<tr'+(canExpand?' style="cursor:pointer" onclick="bmToggleRepoJobs(\''+rid+'\',this)"':'')+'>';
     h+='<td style="width:18px;color:var(--tx3);text-align:center">'+(canExpand?'<span class="bmcaret">&#9656;</span>':'')+'</td>';
     h+='<td style="font-family:monospace;font-size:12px">'+esc(n.short)+'</td>';
-    h+='<td style="font-size:12px">'+esc(n.repo?n.repo.type:'not enumerated')+'</td>';
+    h+='<td style="font-size:12px">'+esc(n.repoName||(n.repo?n.repo.type:'not enumerated'))+(n.repoName&&n.repo&&n.repo.type?' <span style="color:var(--tx3);font-size:11px">('+esc(n.repo.type)+')</span>':'')+'</td>';
     h+='<td style="font-weight:700">'+n.jobs+'</td>';
     h+='<td style="font-size:11px;color:var(--tx2)">'+esc(parts.join(' · '))+'</td>';
     h+='<td style="white-space:nowrap">'+(tb>=0.1?tb.toFixed(1)+' TiB':(n.bytes>0?fmtSub(n.bytes):'<span style="color:var(--tx3)">&mdash;</span>'))+'</td>';
@@ -5482,12 +5693,13 @@ function mapTab(d){
       h+='<table style="width:100%;font-size:11px;border-collapse:collapse">';
       h+='<tr style="color:var(--tx3)"><th style="text-align:left;padding:3px 6px">Job ID</th><th style="text-align:left">Name</th><th style="text-align:left">Type</th><th style="text-align:left">Platform</th><th style="text-align:right">Source data</th><th style="text-align:left">Retention</th><th style="text-align:left">Encryption</th><th style="text-align:left">Schedule</th><th style="text-align:left">Last result</th></tr>';
       n.jobList.slice().sort(function(a,b){return b.size-a.size;}).forEach(function(j){
-        var sz = j.size>0 ? (j.size>=1099511627776?(j.size/1099511627776).toFixed(1)+' TiB':fmtSub(j.size)) : '&mdash;';
+        var _js = (typeof j.captureSize==='number') ? j.captureSize : j.size;
+        var sz = _js>0 ? (_js>=1099511627776?(_js/1099511627776).toFixed(1)+' TiB':fmtSub(_js)) : '&mdash;';
         var dash='<span style="color:var(--tx3)">&mdash;</span>';
         h+='<tr style="border-top:1px solid var(--bd)">';
         h+='<td style="font-family:monospace;padding:3px 6px">'+esc(j.id)+'</td>';
         h+='<td>'+(j.jobName?esc(j.jobName):dash)+'</td>';
-        h+='<td>'+esc(j.type)+(j.kind==='replica'?' <span style="color:var(--pdk)">(metadata)</span>':'')+'</td>';
+        h+='<td>'+esc(j.type)+(j.kind==='replica'?' <span style="color:var(--pdk)">(metadata)</span>':'')+(j.targetMismatch?' <span style="color:var(--bad)" title="Server targets '+esc(j.targetMismatch.serverRepo)+', log shows this repo">\u26a0 repo</span>':'')+'</td>';
         h+='<td>'+(j.plat?esc(j.plat):dash)+'</td>';
         h+='<td style="text-align:right;white-space:nowrap">'+sz+'</td>';
         h+='<td>'+(j.ret?esc(j.ret)+(j.gfs?' + GFS':''):dash)+'</td>';
@@ -6232,7 +6444,7 @@ function _exportPDFNow(){
     if(reposWithJobs.length){
       h += '<div class="pdf-h3">Jobs by repository'+(bm.enriched?' (names from PowerShell capture)':'')+'</div>';
       reposWithJobs.slice().sort(function(a,b){return (b.bytes+b.copyBytes)-(a.bytes+a.copyBytes);}).forEach(function(n){
-        h += '<div style="font-weight:700;font-size:11px;margin:8px 0 2px">'+esc(n.short)+' — '+esc(n.repo?n.repo.type:'not enumerated')+' ('+n.jobList.length+' job'+(n.jobList.length>1?'s':'')+')</div>';
+        h += '<div style="font-weight:700;font-size:11px;margin:8px 0 2px">'+esc(n.repoName?n.repoName+' ':'')+esc(n.short)+' — '+esc(n.repo?n.repo.type:'not enumerated')+' ('+n.jobList.length+' job'+(n.jobList.length>1?'s':'')+')</div>';
         h += '<table class="pdf-tbl"><tr><th>Job'+(bm.enriched?' / name':' ID')+'</th><th>Type</th><th>Platform</th><th>Source data</th><th>Retention</th><th>Enc</th><th>Sched</th><th>Last result</th></tr>';
         n.jobList.slice().sort(function(a,b){return b.size-a.size;}).forEach(function(j){
           var jn = j.jobName ? esc(j.jobName) : esc(j.id);
