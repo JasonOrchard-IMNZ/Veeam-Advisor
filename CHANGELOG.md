@@ -2,64 +2,39 @@
 
 Notable changes to the tool are recorded here. Newest first.
 
+
 ## v2.0 — 2026-07-09
 
-### Changed — "Backup map" tab renamed to "Resiliency map"
+### Added
 
-The tab is now called **Resiliency map**, reflecting what it is really for: seeing how well
-protected the estate is — idle repositories, jobs with no second copy, 3-2-1 gaps, copy loops —
-rather than just its structure. Only the user-facing label changed (tab, headings, PDF page,
-guide); the underlying data, capture format, and behaviour are unchanged.
+#### MapCapture.ps1 remote server & credential support
+The capture script now accepts `-VBRServer <host>`, `-Port <n>` and `-Credential` so it can be run
+from a management workstation against a remote VBR server, instead of only locally. With no
+`-VBRServer` it behaves exactly as before (local-first: cert-bound machine name on 443, then
+localhost:443, then localhost:9392). When a remote host is given on the default port 443 it also
+falls back to 9392 for a v12 remote. Still read-only (zero write cmdlets).
 
-Major release. A repository-parsing rebuild grounded in a forensic audit of 22 production
-`VMC.log` files, a full retro arcade re-theme, removal of Fleet View, and a set of
-accessibility fixes. Reconciliation of the repository list against the log's own
-authoritative type summary improved from **9/22 to 17/22 exact matches**.
+#### Cloud Connect provider relationship panel on the map
+When a PowerShell capture shows the server hosts Cloud Connect tenants, the Resiliency map now
+renders a provider panel: each tenant and the provider repository its data lands in (e.g. tenant
+"end" -> SP repository), plus the cloud gateway. It states plainly that the tenant's backup jobs run
+on the tenant's own VBR and are not in this server's data, so it shows the tenant->repository
+relationship rather than implying job-level topology it cannot see. The panel appears only for a
+server that actually hosts tenants.
 
-### Fixed — Repository parser (major)
+#### capture Sections 2 and 4 now enrich the map
+Previously only Sections 1, 3 and 5 of a PowerShell capture were consumed. Now:
+- **Section 2 (job -> repository, ground truth):** each job's real IncludedSize replaces the
+  log-inferred size, and where the log's target repository disagrees with the server's
+  TargetRepositoryId the map flags it (per-job and as a summary warning).
+- **Section 4b (configuration backup):** the config-backup job is enriched with its real name,
+  encryption state and last result.
+- **Sections 4c/4d (Cloud Connect provider):** when the captured server hosts tenants, the map
+  notes it as a Cloud Connect provider with its tenant and gateway counts.
+All parsing is block-scoped to its section and degrades gracefully on older captures that predate
+these sections. Without a capture, behaviour is unchanged.
 
-The repository-definition gate previously required optional companion fields
-(`ConcurrentTaskLimit`, `RepositoryGroupType`, a numeric `TotalSpace`). Repository types that
-legitimately omit them were silently dropped — no error, no warning, just missing rows.
-
-The gate is rebuilt to anchor on the definition line's invariant shape,
-`RepositoryID: <guid>, Type: <type>`, and to accept whatever space field is present. The
-word-boundary anchor excludes `CacheRepositoryID` / `ObjectStorageID` / `GatewayHostID` and
-job-line repository references, so the change is strictly more precise, not merely broader.
-
-Recovered:
-
-- **`VeeamDataCloudObjStgVersion2`** — reports `UsedSpace` and carries
-  `RepositoryGroupType: ArchiveRepository`, but has no `ConcurrentTaskLimit`, which the old
-  gate required. One production log was under-reporting ~106 TiB.
-- **All `*External` types** (`AzureStorageExternal`, `ExternalPlatform`, …) — carry `UsedSpace`
-  and `RepositoryGroupType: ExternalRepository` but no `ConcurrentTaskLimit`.
-- **Offline repositories** — `TotalSpace: null` or `-1`. Now listed and labelled *offline*
-  rather than dropped.
-- **`SanSnapshotOnly`** — carries no space field at all, by design (storage snapshots hold no
-  backup files). Now listed with *n/a* capacity. Guarded by `RepositoryGroupType` so
-  Veeam Agent schema lines (`TotalBackupsSize`) are still correctly skipped.
-
-### Fixed — `LimitStorageConsumption` quota handling on object/archive repositories
-
-`LimitStorageConsumption` always carries a `Value` and `Unit`, **even when `Enabled: False`**.
-Veeam Data Cloud v2 repositories emit `{ Enabled: False, Value: 10, Unit: TB }` on a
-repository holding 106 TiB. Reading `Value` without first testing `Enabled` would cap a
-106 TiB repository at 10 TB. The parser reads the quota only when it is enabled; otherwise the
-repository is treated as having no declared capacity. Across the 22-log corpus there are 155
-disabled and 33 enabled quota declarations, so this distinction is load-bearing.
-
-Where an enabled quota **is** present, `Used` is now read from `UsedSpace` directly rather than
-derived as `total − free`. Because `free` clamps at zero, the derived figure would report the
-quota rather than actual consumption once a repository exceeds its limit — a repository holding
-106 TiB against a 10 TB quota would have displayed `10.0 TB`. Repositories over their configured
-limit are now shown in red with an explanatory tooltip.
-
-The quota regex also tolerates the escaped `\{` brace form for consistency with the summary-line
-parser.
-
-### Added — Backup Map tab
-
+#### Backup Map tab
 A new tab renders the job → repository → repository topology as a diagram, plus a matching
 table and a PDF page.
 
@@ -161,30 +136,7 @@ Declared limits: `VMC.log` never records job names, so nodes are labelled by rep
 GUIDs are shown as 8-character prefixes. In one environment 220 backup copy source references
 name jobs the log never enumerates; those arrows cannot be drawn and the count is reported.
 
-### Fixed — PDF map image missing on large estates unless redrawn; button wording
-
-On a large estate (e.g. ANZCO, 125 jobs) the PDF's Backup map page came out tables-only unless
-the user had pressed the map button first. Two causes: the map raster was never cached during the
-on-screen draw (only an export-time off-screen rasterise existed, which could be tainted or race
-the print), and `window.print()` fired before the embedded image data-URL had decoded. Now the
-draw caches the PNG from the live on-screen SVG (the reliable path), a cold export triggers that
-same draw and waits for it, and printing waits for the embedded image to finish loading (bounded
-by a timeout). The map button now reads **Draw map** consistently rather than switching to
-"Redraw map" after the first draw.
-
-### Fixed — replica destination edges dropped after a capture upload
-
-After a PowerShell capture enriched the map, the arrows from replica jobs to their destination
-nodes disappeared (the destination boxes floated unconnected). The destination-node key was
-derived in two places — the node builder and the edge drawer — with identical logic. Enrichment
-re-keyed the nodes from the platform-based fallback (`onprem|WinServer…`) to a host-based key
-(`host|hv-b`, `deleted|5ec1506e…`), but the edge drawer still computed the old key, so its lookup
-missed and the edges were silently skipped. Both now call a single shared `bmReplicaKey()`, so the
-edges follow the nodes in every enrichment state. Verified: edge count preserved across upload on
-both a tenant (hv-b) and a provider (vbr-sp) capture.
-
-### Added — expandable per-repository job detail
-
+#### expandable per-repository job detail
 The Backup map's repository table is now interactive: click any repository row to expand the
 individual jobs writing to it, each with full detail — job ID or captured name, type, platform,
 source data, retention, encryption, schedule and last result. This is independent of the diagram's
@@ -192,44 +144,7 @@ source data, retention, encryption, schedule and last result. This is independen
 you can still drill into any one repository's jobs. The PDF export now lists jobs grouped by
 repository the same way, replacing the previous flat table that was suppressed above 40 jobs.
 
-### Changed — PDF export now includes the diagram without drawing it first
-
-Previously the PDF's Backup map page only carried the drawn diagram if the user had opened the
-Backup map tab and pressed Draw; otherwise it fell back to tables only. Export now rasterises the
-map itself (off-screen) before building the PDF, so the diagram image is always present. If the
-map is already drawn, the cached image is reused with no re-render; if there is no map, or the
-browser blocks the canvas, it falls back to the tables as before.
-
-### Fixed — PDF export did nothing; PNG export failed silently
-
-Two defects in the map export path, both now fixed:
-
-- **Export PDF button did nothing.** `exportPDF()` referenced `_bmMapPng` (the cached map image
-  for the PDF page), but that global's declaration had been lost in an earlier edit — only its
-  uses remained. Reading an undeclared variable throws a `ReferenceError` before `window.print()`
-  is reached, so the button silently failed. The declaration is restored; all 23 corpus logs now
-  export cleanly.
-- **PNG export flashed an error and produced nothing.** The generated `<svg>` root carried no
-  `xmlns` attribute. It renders on screen (the browser supplies the namespace implicitly) but a
-  namespace-less SVG cannot be parsed by `new Image()`, so rasterising to PNG failed via
-  `onerror`. The same defect would have left the PDF's embedded diagram and the SVG download
-  malformed. `xmlns="http://www.w3.org/2000/svg"` is now emitted on the SVG root, with a
-  serialisation guard in the export path. A PNG failure now shows a persistent, readable message
-  (pointing to the SVG download) instead of a one-second toast.
-
-### Fixed — MapCapture.ps1 console noise and agent-job coverage
-
-A real HV-B run surfaced two script defects (the file output was correct throughout; these were
-console-only or completeness issues). The helper functions `H` and `W` collided with PowerShell's
-built-in `h` alias for `Get-History`, whose first parameter is `-Id [Int64]` — so `H "VERSION"`
-emitted "Cannot bind parameter 'Id'" on the console. Renamed to `Section` and `Emit`. And
-`Get-VBRJob` on v13 warns that it no longer returns computer/agent backup jobs; the script now
-unions `Get-VBRComputerBackupJob` so agent jobs are captured and the warning is pre-empted. A
-worked example (the real HV-B capture, its console transcript, and notes) ships under
-`examples/hv-b-capture/`.
-
-### Added — optional PowerShell capture enrichment for the Backup Map
-
+#### optional PowerShell capture enrichment for the Backup Map
 `VMC.log` cannot record three things the Backup Map wants: job names (it stores GUIDs only),
 replica target hosts (it stores nothing), and whether a replica points at a host that still
 exists. The `VeeamAdvisor-MapCapture.ps1` companion collects exactly these from a live VBR
@@ -253,8 +168,7 @@ it. Job IDs are the join key, so a capture from a different server (no IDs in co
 and ignored with a notice rather than applied. Nothing is fabricated: a field the capture did not
 resolve falls back to the log-only rendering.
 
-### Added — MTU on the Network Interfaces panel
-
+#### MTU on the Network Interfaces panel
 `VMC.log` records `MTU` on an indented continuation line inside each `Network Interface`
 block. It is now parsed and shown as a column alongside adapter, status and inferred speed.
 
@@ -275,33 +189,31 @@ Findings added:
 
 Across the 22-log corpus, 23 of 35 detected interfaces record an MTU; all are 1500.
 
-### Fixed — Repository type summary read the wrong collection pass
+#### Feedback & Bug Fix Requests
+A `mailto:` link is added to the tool header, the User Guide header, and the PDF export header.
 
-`VMC.log` repeats its `Repository types:` summary on every collection pass. The tool matched
-the **first** occurrence, so a repository added between passes was under-counted. It now reads
-the **last** summary, and repository rows are scoped to the final completed enumeration pass so
-repositories removed between passes no longer linger.
 
-### Fixed — Escaped-brace summary lines
+### Changed
 
-Some exported logs escape the summary's opening brace as `\{`, which defeated the regex and
-produced a zero repository-type count. The pattern now tolerates it.
+#### "Backup map" tab renamed to "Resiliency map"
+The tab is now called **Resiliency map**, reflecting what it is really for: seeing how well
+protected the estate is — idle repositories, jobs with no second copy, 3-2-1 gaps, copy loops —
+rather than just its structure. Only the user-facing label changed (tab, headings, PDF page,
+guide); the underlying data, capture format, and behaviour are unchanged.
 
-### Fixed — False-positive immutability findings
+Major release. A repository-parsing rebuild grounded in a forensic audit of 22 production
+`VMC.log` files, a full retro arcade re-theme, removal of Fleet View, and a set of
+accessibility fixes. Reconciliation of the repository list against the log's own
+authoritative type summary improved from **9/22 to 17/22 exact matches**.
 
-The "immutability disabled" finding no longer fires on offline repositories, capacity-less
-repositories, or External repositories. Immutability on an External repository is governed by
-the native cloud tool that created the backups, not by Veeam.
+#### PDF export now includes the diagram without drawing it first
+Previously the PDF's Backup map page only carried the drawn diagram if the user had opened the
+Backup map tab and pressed Draw; otherwise it fell back to tables only. Export now rasterises the
+map itself (off-screen) before building the PDF, so the diagram image is always present. If the
+map is already drawn, the cached image is reused with no re-render; if there is no map, or the
+browser blocks the canvas, it falls back to the tables as before.
 
-### Fixed — Accessibility (pre-existing contrast failures)
-
-- Retention table headers rendered *Monthly* in `var(--amber)` at **2.2:1** and *Yearly* in
-  `var(--purple)`. Both now use text-safe stops.
-- The `DR` job category was hardcoded to `#E24B4A`, byte-identical to the `--red` token it
-  should always have used.
-
-### Changed — Retro arcade colour scheme
-
+#### Retro arcade colour scheme
 The palette is drawn from a supplied 1990s arcade reference. Cabinet-black header with a neon
 accent rule, monospace display font on headings, and borders lifted from 0.5px to 1px.
 
@@ -316,13 +228,164 @@ accent rule, monospace display font on headings, and borders lifted from 0.5px t
   stop. `--bl` uses the supplied `#e8f8ff`.
 - **Zero WCAG AA failures** in light or dark mode. Dark mode is retained and retuned.
 
-### Changed — Sub-terabyte repositories
-
+#### Sub-terabyte repositories
 Repositories under 0.1 TB displayed `0.0 TB`. They now display GB / MB. Empty object-storage
 repositories display *empty* rather than an em dash.
 
-### Fixed — PDF/print output could inherit dark-mode colours
+#### PDF export
+The report header now carries the tool version and the feedback contact. The disclaimer banner
+is restyled to the arcade palette. PDF output remains light mode.
 
+
+### Fixed
+
+#### MapCapture.ps1 ignored -VBRServer when a local session existed
+When run with `-VBRServer <remote>` while a local VBR session was already active (e.g. the Veeam
+console open on the workstation), the script reused that local session — capturing localhost
+instead of the requested remote host. An explicit `-VBRServer` now takes precedence: the existing
+session is reused only if it is already to the requested host; otherwise the script disconnects it
+and connects to the host you asked for. Without `-VBRServer`, any local session is reused as before.
+
+#### provider panel now uses the log's authoritative tenant data; capture replica undercount
+Two related fixes after comparing the map against the VBR console:
+- The Cloud Connect provider panel drew its tenant detail from the PowerShell capture, which
+  under-reported replica resources (showed 0 while the console and the VMC.log both show 1). The
+  panel now reads the VMC.log's [Tenants] line as the authoritative source for each tenant's
+  backup, replica, server and workstation counts and type, and enriches with the capture's
+  friendly repository name where available. It also renders regardless of whether a capture was
+  loaded, so a provider log alone (including STARTLOGSEXPORT exports that carry the [Tenants] line)
+  now shows the panel with backup/replica counts, hardware-plan counts and the gateway.
+- The capture script's tenant "Replica resources" count read a property that returned 0 on this
+  Veeam version. It now probes the ReplicaResources / ReplicaResource collections and falls back
+  to Get-VBRCloudTenantResource, and lists the assigned hardware-plan names — matching the
+  console's Replica Resources view. Still read-only (zero write cmdlets).
+
+#### Cloud Connect provider not detected in log-export files
+A VMC.log produced by "Export Logs" (STARTLOGSEXPORT) stops after the license block and omits the
+[Cloud Connect Infrastructure] line the Cloud Connect tab relied on to set provider status — so a
+genuine provider was shown as "Cloud Connect is not configured". The license block's CCProvider: Yes
+flag was parsed but never used for this. Provider status now falls back to that flag when the
+infrastructure line is absent (promote-only, so an explicit infrastructure line still wins, and a
+CCProvider: No / absent flag never promotes). The tab notes when detection came from the license
+flag alone and points to a full VMC.log or MapCapture.ps1 for tenant and gateway detail.
+
+#### repository boxes not enriched with real names from a capture
+The capture's Section 1 lists each repository's real name (e.g. Default Backup Repository, Veeam
+Vault), but the map only ever read job data from the capture — so repository boxes kept showing
+their type (WinLocal, VeeamDataCloudObjStgVersion2) instead of the real name after an upload. The
+capture parser now reads Section 1, scoped strictly to the REPOSITORIES block so it can't pick up
+Section 2's similarly-shaped job lines, and the map matches those names to the repository nodes on
+full GUID. When enriched, the box heading and the tables show the real name with the type kept as a
+subtitle; without a capture, behaviour is unchanged (type shown as before).
+
+#### Repository parser (major)
+The repository-definition gate previously required optional companion fields
+(`ConcurrentTaskLimit`, `RepositoryGroupType`, a numeric `TotalSpace`). Repository types that
+legitimately omit them were silently dropped — no error, no warning, just missing rows.
+
+The gate is rebuilt to anchor on the definition line's invariant shape,
+`RepositoryID: <guid>, Type: <type>`, and to accept whatever space field is present. The
+word-boundary anchor excludes `CacheRepositoryID` / `ObjectStorageID` / `GatewayHostID` and
+job-line repository references, so the change is strictly more precise, not merely broader.
+
+Recovered:
+
+- **`VeeamDataCloudObjStgVersion2`** — reports `UsedSpace` and carries
+  `RepositoryGroupType: ArchiveRepository`, but has no `ConcurrentTaskLimit`, which the old
+  gate required. One production log was under-reporting ~106 TiB.
+- **All `*External` types** (`AzureStorageExternal`, `ExternalPlatform`, …) — carry `UsedSpace`
+  and `RepositoryGroupType: ExternalRepository` but no `ConcurrentTaskLimit`.
+- **Offline repositories** — `TotalSpace: null` or `-1`. Now listed and labelled *offline*
+  rather than dropped.
+- **`SanSnapshotOnly`** — carries no space field at all, by design (storage snapshots hold no
+  backup files). Now listed with *n/a* capacity. Guarded by `RepositoryGroupType` so
+  Veeam Agent schema lines (`TotalBackupsSize`) are still correctly skipped.
+
+#### `LimitStorageConsumption` quota handling on object/archive repositories
+`LimitStorageConsumption` always carries a `Value` and `Unit`, **even when `Enabled: False`**.
+Veeam Data Cloud v2 repositories emit `{ Enabled: False, Value: 10, Unit: TB }` on a
+repository holding 106 TiB. Reading `Value` without first testing `Enabled` would cap a
+106 TiB repository at 10 TB. The parser reads the quota only when it is enabled; otherwise the
+repository is treated as having no declared capacity. Across the 22-log corpus there are 155
+disabled and 33 enabled quota declarations, so this distinction is load-bearing.
+
+Where an enabled quota **is** present, `Used` is now read from `UsedSpace` directly rather than
+derived as `total − free`. Because `free` clamps at zero, the derived figure would report the
+quota rather than actual consumption once a repository exceeds its limit — a repository holding
+106 TiB against a 10 TB quota would have displayed `10.0 TB`. Repositories over their configured
+limit are now shown in red with an explanatory tooltip.
+
+The quota regex also tolerates the escaped `\{` brace form for consistency with the summary-line
+parser.
+
+#### PDF map image missing on large estates unless redrawn; button wording
+On a large estate (e.g. ANZCO, 125 jobs) the PDF's Backup map page came out tables-only unless
+the user had pressed the map button first. Two causes: the map raster was never cached during the
+on-screen draw (only an export-time off-screen rasterise existed, which could be tainted or race
+the print), and `window.print()` fired before the embedded image data-URL had decoded. Now the
+draw caches the PNG from the live on-screen SVG (the reliable path), a cold export triggers that
+same draw and waits for it, and printing waits for the embedded image to finish loading (bounded
+by a timeout). The map button now reads **Draw map** consistently rather than switching to
+"Redraw map" after the first draw.
+
+#### replica destination edges dropped after a capture upload
+After a PowerShell capture enriched the map, the arrows from replica jobs to their destination
+nodes disappeared (the destination boxes floated unconnected). The destination-node key was
+derived in two places — the node builder and the edge drawer — with identical logic. Enrichment
+re-keyed the nodes from the platform-based fallback (`onprem|WinServer…`) to a host-based key
+(`host|hv-b`, `deleted|5ec1506e…`), but the edge drawer still computed the old key, so its lookup
+missed and the edges were silently skipped. Both now call a single shared `bmReplicaKey()`, so the
+edges follow the nodes in every enrichment state. Verified: edge count preserved across upload on
+both a tenant (hv-b) and a provider (vbr-sp) capture.
+
+#### PDF export did nothing; PNG export failed silently
+Two defects in the map export path, both now fixed:
+
+- **Export PDF button did nothing.** `exportPDF()` referenced `_bmMapPng` (the cached map image
+  for the PDF page), but that global's declaration had been lost in an earlier edit — only its
+  uses remained. Reading an undeclared variable throws a `ReferenceError` before `window.print()`
+  is reached, so the button silently failed. The declaration is restored; all 23 corpus logs now
+  export cleanly.
+- **PNG export flashed an error and produced nothing.** The generated `<svg>` root carried no
+  `xmlns` attribute. It renders on screen (the browser supplies the namespace implicitly) but a
+  namespace-less SVG cannot be parsed by `new Image()`, so rasterising to PNG failed via
+  `onerror`. The same defect would have left the PDF's embedded diagram and the SVG download
+  malformed. `xmlns="http://www.w3.org/2000/svg"` is now emitted on the SVG root, with a
+  serialisation guard in the export path. A PNG failure now shows a persistent, readable message
+  (pointing to the SVG download) instead of a one-second toast.
+
+#### MapCapture.ps1 console noise and agent-job coverage
+A real HV-B run surfaced two script defects (the file output was correct throughout; these were
+console-only or completeness issues). The helper functions `H` and `W` collided with PowerShell's
+built-in `h` alias for `Get-History`, whose first parameter is `-Id [Int64]` — so `H "VERSION"`
+emitted "Cannot bind parameter 'Id'" on the console. Renamed to `Section` and `Emit`. And
+`Get-VBRJob` on v13 warns that it no longer returns computer/agent backup jobs; the script now
+unions `Get-VBRComputerBackupJob` so agent jobs are captured and the warning is pre-empted. A
+worked example (the real HV-B capture, its console transcript, and notes) ships under
+`examples/hv-b-capture/`.
+
+#### Repository type summary read the wrong collection pass
+`VMC.log` repeats its `Repository types:` summary on every collection pass. The tool matched
+the **first** occurrence, so a repository added between passes was under-counted. It now reads
+the **last** summary, and repository rows are scoped to the final completed enumeration pass so
+repositories removed between passes no longer linger.
+
+#### Escaped-brace summary lines
+Some exported logs escape the summary's opening brace as `\{`, which defeated the regex and
+produced a zero repository-type count. The pattern now tolerates it.
+
+#### False-positive immutability findings
+The "immutability disabled" finding no longer fires on offline repositories, capacity-less
+repositories, or External repositories. Immutability on an External repository is governed by
+the native cloud tool that created the backups, not by Veeam.
+
+#### Accessibility (pre-existing contrast failures)
+- Retention table headers rendered *Monthly* in `var(--amber)` at **2.2:1** and *Yearly* in
+  `var(--purple)`. Both now use text-safe stops.
+- The `DR` job category was hardcoded to `#E24B4A`, byte-identical to the `--red` token it
+  should always have used.
+
+#### PDF/print output could inherit dark-mode colours
 `exportPDF()` emits `var(--bdk)`, `var(--pdk)`, `var(--rd)`, `var(--bd)` and `var(--tx3)` into
 the report body, and the `@media print` block forced a white background without resetting the
 token values. A user whose operating system was set to dark mode would therefore export a PDF
@@ -333,17 +396,10 @@ regardless of OS preference. The same reset is applied to `user-guide.html`, whe
 was pre-existing: printing the guide from a dark-mode OS produced dark code blocks and tint
 backgrounds on a white page.
 
-### Changed — PDF export
 
-The report header now carries the tool version and the feedback contact. The disclaimer banner
-is restyled to the arcade palette. PDF output remains light mode.
+### Removed
 
-### Added — Feedback & Bug Fix Requests
-
-A `mailto:` link is added to the tool header, the User Guide header, and the PDF export header.
-
-### Removed — Fleet View
-
+#### Fleet View
 `Veeam_Advisor_Fleet.html` is removed from the package, along with `confirm-outputs.js` (which
 existed solely to load and assert against the Fleet codebase and was not part of CI). All
 references are stripped from `README.md`, `user-guide.html` and
@@ -352,8 +408,10 @@ and 14 renumbered.
 
 Changelog history above this entry is left intact: Fleet View was a real part of those releases.
 
-### Known limitations (unchanged, now reported rather than hidden)
 
+### Known limitations
+
+#### (unchanged, now reported rather than hidden)
 Three of the 22 audited logs count repositories in the type summary that the log never
 enumerates anywhere — no definition line, no `ExtentsIDs` membership, no job reference
 (`WinLocal` ×4 and `ExternalPlatform` ×1 across DRGVMBKP1, Richo and procare). No row can be
@@ -363,13 +421,14 @@ An earlier working theory held that scale-out repository **extents** lacked defi
 This was disproved during the audit: `ExtentsIDs` resolves cleanly to enumerated repository
 rows in every case.
 
-### Notes — PowerShell (review only, no code changes)
 
+### Notes
+
+#### PowerShell (review only, no code changes)
 `VeeamAdvisor-PowerShell.ps1` enumerates repositories with a bare `Get-VBRBackupRepository`,
 which returns neither scale-out repositories (`-ScaleOut`) nor external repositories
 (`Get-VBRExternalRepository`). This is the same class of blind spot corrected in the log
 parser this release. Recorded for a future release; no changes made in v2.0.
-
 
 ## v1.1.0 — 2026-06-26
 
