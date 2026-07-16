@@ -15,7 +15,7 @@
 | Files changed | 8 modified, 2 added, 2 deleted |
 | Repository parse accuracy | 9/22 → **17/22** exact matches against the log's own type summary |
 | New tabs | Backup Map (tab 15) |
-| Repositories recovered across the 22-log corpus | **58** (zero lost) |
+| Repositories recovered across the reference logs | **58** (zero lost) |
 | WCAG AA failures | **0** (light and dark) |
 | CI | `confirm-bp-findings.js` — 30 assertions, all pass |
 
@@ -73,7 +73,7 @@ fixed; print output is now always light.
 between repositories. It reads linkage the log already carried (`BackupRepository` on backup
 jobs; `RepositoryID` plus `SourceBackupJobs` on backup copy jobs) — 496 of 512 storage-bearing
 jobs declare a target, and every real target resolves. The diagram is repository-centric because
-one production environment has 147 jobs against 24 repositories. It surfaces idle repositories
+a large production environment can have well over a hundred jobs across many repositories. It surfaces idle repositories
 (12 of 24 in one estate), missing backup copy flows, and return-copy cycles. Job names are not
 recorded in `VMC.log`, so nodes are labelled by repository.
 
@@ -114,7 +114,7 @@ companion fields. Recovers VeeamDataCloudObjStgVersion2 (which carries
 RepositoryGroupType but no ConcurrentTaskLimit), all *External types, offline
 repositories (TotalSpace: null/-1) and SanSnapshotOnly. Reconciliation against
 the log's authoritative type summary improves from 9/22 to 17/22 across the
-production corpus; 58 repositories recovered, zero lost.
+reference logs; 58 repositories recovered, zero lost.
 
 LimitStorageConsumption is now read only when Enabled is True -- it carries a
 Value/Unit even when disabled, and applying it blindly would cap a 106 TiB
@@ -193,7 +193,7 @@ deleted outside git, confirm with `git status` before committing, or use `git ad
 | Feedback/Bug Fix mailto operational | Pass — header, guide, PDF |
 | Colour scheme approved and implemented | Pass — approved, zero AA failures |
 | No functionality removed | Pass — 62→66 functions, 50→52 ids, 94→94 labels, 18→19 PDF sections, 15→16 tabs; nothing removed |
-| Parser strictly additive | Pass — 0 lost, 58 gained, 0 exceptions across 22 logs |
+| Parser strictly additive | Pass — 0 lost, 58 gained, 0 exceptions across the reference logs |
 | CI green | Pass — 30 assertions |
 | Snapshot byte-identical | Pass |
 | Ready on or before 20 July 2026 | Yes — 11 days early |

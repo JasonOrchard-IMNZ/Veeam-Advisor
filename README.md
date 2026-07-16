@@ -101,7 +101,7 @@ data is. See Calculations.txt §12 for details.
 | `Veeam_Advisor_v2.0.html` | Locked v2.0 snapshot (byte-identical to `index.html`) |
 | `Veeam_Advisor_v1.1.0.html` | Retained v1.1.0 snapshot (CI fixture — do not modify) |
 | `Veeam_Advisor_v1.0.3.html` | Retained v1.0.3 snapshot |
-| `confirm-bp-findings.js` | Single-server BP Review regression assertions (v1.0.3 + v1.1.0 fixtures + 20-log corpus) |
+| `confirm-bp-findings.js` | Single-server BP Review regression assertions (v1.0.3 + v1.1.0 fixtures + reference logs) |
 | `.github/workflows/tests.yml` | BP Review fixture tests (CI — no customer data) |
 | `CHANGELOG.md` | Version history |
 | `POWERSHELL-REVIEW-v2.0.md` | v2.0 PowerShell review findings (read-only) |
@@ -120,7 +120,7 @@ the v13 Identity Service port (443) so they work against both v12 and v13
 # QA harness (VeeamAdvisor-PowerShell-QA.ps1)
 .\VeeamAdvisor-PowerShell-QA.ps1 -SkipModuleB                       # URLs + BP logic only, no VBR
 .\VeeamAdvisor-PowerShell-QA.ps1                                    # full, on the VBR server
-.\VeeamAdvisor-PowerShell-QA.ps1 -VBRServer 10.0.0.50 -ConnectionType VSA   # remote VSA by IP (prompts)
+.\VeeamAdvisor-PowerShell-QA.ps1 -VBRServer <vsa-host> -ConnectionType VSA   # remote VSA by IP (prompts)
 
 # Customer VBR inventory / validation (VeeamAdvisor-PowerShell.ps1)
 .\VeeamAdvisor-PowerShell.ps1

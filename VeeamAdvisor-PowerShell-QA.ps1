@@ -1417,13 +1417,13 @@ if (-not $SkipModuleC) {
         $agentProtected = $endpointBackup + $epAgentBackup
         $agentProtected -eq 67
     }
-    Assert "Mixed VM-job + agent coverage (hv-b: 2 VM + 7 agent of 45)" {
+    Assert "Mixed VM-job + agent coverage (host-A: 2 VM + 7 agent of 45)" {
         $infra = 45; $vmjob = 2; $agent = 7
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
         $cov -eq 20 -and ([Math]::Max(0,$infra-$eff)) -eq 36
     }
-    Assert "No agents: coverage unchanged (CHC-PROD stays 44%)" {
+    Assert "No agents: coverage unchanged (host-B stays 44%)" {
         $infra = 590; $vmjob = 259; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         [Math]::Round($eff / $infra * 100) -eq 44
@@ -1452,7 +1452,7 @@ if (-not $SkipModuleC) {
         -not $replicaSched
     }
     Assert "Orphan count fires Warning when >0" {
-        $orphanCount = 49   # CHC-PROD scenario
+        $orphanCount = 49   # host-B scenario
         $orphanCount -gt 0
     }
 
@@ -1540,7 +1540,7 @@ if (-not $SkipModuleC) {
     # ── C-35: Concurrent job count ───────────────────────────────────────────────
     Write-Sub "C-35: Concurrent job count sweet spot"
     Assert "Concurrent jobs >100 should fire Warning" {
-        $concJ = 132   # CHC-PROD scenario
+        $concJ = 132   # host-B scenario
         $concJ -gt 100
     }
     Assert "Concurrent jobs <=100 should clear Warning" {
@@ -1585,7 +1585,7 @@ if (-not $SkipModuleC) {
     # ── C-38: Failover plans + VBR version gate ──────────────────────────────────
     Write-Sub "C-38: Failover plans + v12/v13 version gate"
     Assert "Failover plans present should fire Info (positive)" {
-        $failoverPlans = 67   # AKL-DR scenario
+        $failoverPlans = 67   # site-1-DR scenario
         $failoverPlans -gt 0
     }
     Assert "VBR v12 should note v13 features unavailable" {

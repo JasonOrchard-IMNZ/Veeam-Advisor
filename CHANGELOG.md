@@ -45,7 +45,7 @@ table and a PDF page.
 | `Type: Backup` | `BackupRepository: <guid>` | — |
 | `Type: BCSMPolicy` (backup copy) | `RepositoryID: <guid>` | `SourceBackupJobs: [<guid>…]` |
 
-There is no `BackupRepositoryID` or `TargetRepositoryID` field anywhere in the corpus. Across
+There is no `BackupRepositoryID` or `TargetRepositoryID` field anywhere in the reference logs. Across
 the 22 logs, 496 of 512 storage-bearing jobs declare a target repository, and **every target
 that is a real GUID resolves to a parsed repository**.
 
@@ -65,7 +65,7 @@ in a column immediately left of its target — so each arrow is a short hop rath
 diagonal. Backup copy relationships then run between the repository columns.
 
 Job nodes are drawn only while they stay legible. Above 40 jobs the job column is dropped and
-the repository boxes carry aggregate counts instead; one production log has 167 jobs, and 167
+the repository boxes carry aggregate counts instead; a large production log can carry well over a hundred jobs, and those
 chips is not a diagram. The threshold is reported on the tab and in the PDF rather than being
 silent.
 
@@ -77,21 +77,21 @@ target host, datastore or cluster** for a replica job — only `TargetHVPlatform
 repository and a solid edge into a destination node labelled "not named in VMC.log", grouped by
 Cloud Connect vs on-premises and by platform.
 
-Also worth recording: in every corpus log that has replicas, the metadata repository is
-`88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec` — byte-identical across four unrelated environments. That
+Also worth recording: in every reference log that has replicas, the metadata repository is
+`88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec` — Veeam's built-in Default Backup Repository GUID, byte-identical across every environment. That
 is the built-in Default Backup Repository, present on every VBR install. The tool now says so
 rather than presenting it as a deliberate placement.
 
 **Replica jobs are on the map.** They were initially excluded on the assumption that a replica
 targets a host rather than a repository. That assumption was wrong: all 216 replica jobs in the
-corpus carry `BackupRepository`, and every one resolves. A replica writes its metadata and
+reference set carry `BackupRepository`, and every one resolves. A replica writes its metadata and
 digests there — the VM data lands on the target host — so replicas are drawn with a dashed
 border and their `IncludedSize` is excluded from the repository's primary data, alongside the
 existing exclusion of copy-job size. `FailoverPlan` and `SureBackup` genuinely carry no
 repository and remain excluded.
 
 **Canvas height fits the content.** Width stays fixed at 1080; height starts at a 360 px
-minimum and grows with the diagram (167 jobs across 24 repositories reaches 1742 px). The
+minimum and grows with the diagram (a large estate reaches ~1740 px). The
 earlier fixed 1600 px floor left a three-repository map floating in a mostly empty canvas.
 
 Accounting decisions that materially change the numbers:
@@ -140,7 +140,7 @@ name jobs the log never enumerates; those arrows cannot be drawn and the count i
 The Backup map's repository table is now interactive: click any repository row to expand the
 individual jobs writing to it, each with full detail — job ID or captured name, type, platform,
 source data, retention, encryption, schedule and last result. This is independent of the diagram's
-40-job threshold, so on a large estate (e.g. 167 jobs) where the diagram shows aggregate counts,
+40-job threshold, so on a large estate where the diagram shows aggregate counts,
 you can still drill into any one repository's jobs. The PDF export now lists jobs grouped by
 repository the same way, replacing the previous flat table that was suppressed above 40 jobs.
 
@@ -153,9 +153,9 @@ server. Uploading its output alongside the log now enriches the map.
 Drop the capture `.txt` on the same drop zone as the log, in either order. The tool detects the
 format, and:
 
-- **Job nodes show real names** — "Backup Job 2", "hv-a pull repl" — instead of GUID prefixes.
+- **Job nodes show real names** — "Backup Job 2", "Replication Job 1" — instead of GUID prefixes.
 - **Replica destinations resolve to real hosts.** Where VMC.log could only say "not named in
-  VMC.log", the capture supplies the host (e.g. `hv-b`, `C:\Replicas`), drawn with a solid
+  VMC.log", the capture supplies the real target host and path, drawn with a solid
   border instead of dashed.
 - **Replica jobs targeting a deleted host are flagged.** If the capture resolved a job's target
   host id to "not found", the destination is drawn in red and a finding warns that the job is
@@ -187,7 +187,7 @@ Findings added:
   consistent end-to-end.
 - **Consistent MTU** — confirmation when all interfaces agree.
 
-Across the 22-log corpus, 23 of 35 detected interfaces record an MTU; all are 1500.
+Across the reference logs, 23 of 35 detected interfaces record an MTU; all are 1500.
 
 #### Feedback & Bug Fix Requests
 A `mailto:` link is added to the tool header, the User Guide header, and the PDF export header.
@@ -306,7 +306,7 @@ Recovered:
 Veeam Data Cloud v2 repositories emit `{ Enabled: False, Value: 10, Unit: TB }` on a
 repository holding 106 TiB. Reading `Value` without first testing `Enabled` would cap a
 106 TiB repository at 10 TB. The parser reads the quota only when it is enabled; otherwise the
-repository is treated as having no declared capacity. Across the 22-log corpus there are 155
+repository is treated as having no declared capacity. Across the reference logs there are 155
 disabled and 33 enabled quota declarations, so this distinction is load-bearing.
 
 Where an enabled quota **is** present, `Used` is now read from `UsedSpace` directly rather than
@@ -319,7 +319,7 @@ The quota regex also tolerates the escaped `\{` brace form for consistency with 
 parser.
 
 #### PDF map image missing on large estates unless redrawn; button wording
-On a large estate (e.g. ANZCO, 125 jobs) the PDF's Backup map page came out tables-only unless
+On a large estate (over ~120 jobs) the PDF's Backup map page came out tables-only unless
 the user had pressed the map button first. Two causes: the map raster was never cached during the
 on-screen draw (only an export-time off-screen rasterise existed, which could be tainted or race
 the print), and `window.print()` fired before the embedded image data-URL had decoded. Now the
@@ -333,10 +333,10 @@ After a PowerShell capture enriched the map, the arrows from replica jobs to the
 nodes disappeared (the destination boxes floated unconnected). The destination-node key was
 derived in two places — the node builder and the edge drawer — with identical logic. Enrichment
 re-keyed the nodes from the platform-based fallback (`onprem|WinServer…`) to a host-based key
-(`host|hv-b`, `deleted|5ec1506e…`), but the edge drawer still computed the old key, so its lookup
+(a host-based key, e.g. `host|<name>` or `deleted|<id>`), but the edge drawer still computed the old key, so its lookup
 missed and the edges were silently skipped. Both now call a single shared `bmReplicaKey()`, so the
 edges follow the nodes in every enrichment state. Verified: edge count preserved across upload on
-both a tenant (hv-b) and a provider (vbr-sp) capture.
+both a tenant capture and a Cloud Connect provider capture.
 
 #### PDF export did nothing; PNG export failed silently
 Two defects in the map export path, both now fixed:
@@ -344,7 +344,7 @@ Two defects in the map export path, both now fixed:
 - **Export PDF button did nothing.** `exportPDF()` referenced `_bmMapPng` (the cached map image
   for the PDF page), but that global's declaration had been lost in an earlier edit — only its
   uses remained. Reading an undeclared variable throws a `ReferenceError` before `window.print()`
-  is reached, so the button silently failed. The declaration is restored; all 23 corpus logs now
+  is reached, so the button silently failed. The declaration is restored; all reference logs now
   export cleanly.
 - **PNG export flashed an error and produced nothing.** The generated `<svg>` root carried no
   `xmlns` attribute. It renders on screen (the browser supplies the namespace implicitly) but a
@@ -355,14 +355,13 @@ Two defects in the map export path, both now fixed:
   (pointing to the SVG download) instead of a one-second toast.
 
 #### MapCapture.ps1 console noise and agent-job coverage
-A real HV-B run surfaced two script defects (the file output was correct throughout; these were
+A real capture run surfaced two script defects (the file output was correct throughout; these were
 console-only or completeness issues). The helper functions `H` and `W` collided with PowerShell's
 built-in `h` alias for `Get-History`, whose first parameter is `-Id [Int64]` — so `H "VERSION"`
 emitted "Cannot bind parameter 'Id'" on the console. Renamed to `Section` and `Emit`. And
 `Get-VBRJob` on v13 warns that it no longer returns computer/agent backup jobs; the script now
 unions `Get-VBRComputerBackupJob` so agent jobs are captured and the warning is pre-empted. A
-worked example (the real HV-B capture, its console transcript, and notes) ships under
-`examples/hv-b-capture/`.
+the capture format and workflow are documented in the user guide.
 
 #### Repository type summary read the wrong collection pass
 `VMC.log` repeats its `Repository types:` summary on every collection pass. The tool matched
@@ -434,7 +433,7 @@ parser this release. Recorded for a future release; no changes made in v2.0.
 
 Feature release: three enhancements (per-job-type breakout, agent licence reconciliation,
 perpetual sockets), plus a coverage-accuracy correction that fell out of the agent work.
-Validated against the same 20-log corpus (VBR **12.1 / 12.2 / 12.3 and 13.x**, RTF and plain,
+Validated against the same reference logs (VBR **12.1 / 12.2 / 12.3 and 13.x**, RTF and plain,
 VMware / Hyper-V / agent / Cloud Connect, instance and perpetual licences).
 
 ### Added — Per-job-type breakout (All jobs + Retention tabs)
@@ -487,7 +486,7 @@ M`), which is keyed by platform name and therefore covers VMware / Hyper-V / Nut
 any hypervisor — unlike the flat `SocketsViInUse` / `SocketsHvInUse` summary fields, which exist
 only for VMware and Hyper-V (a socket estate on a third platform would be undercounted by the flat
 fields). The flat fields are retained as a fallback for heavily RTF-stripped logs. Validated across
-all 8 perpetual logs in the corpus; the per-platform socket totals reconcile exactly with the flat
+all perpetual reference logs; the per-platform socket totals reconcile exactly with the flat
 summary on every one.
 
 ### Changed — BP Review encryption finding is now per job type
@@ -518,7 +517,7 @@ feature now renders:
   resolve to their correct fields.
 
 Verified by a render-path audit that reports zero remaining field mismatches, and by rendering
-every affected tab through the actual `render()` object across the 20-log corpus.
+every affected tab through the actual `render()` object across the reference logs.
 
 ### PDF export — v1.1.0 feature parity
 
@@ -539,7 +538,7 @@ tool:
 
 The Best Practice Review section already reflected v1.1.0, as it renders from the shared
 findings. The export reads only fields present in the render object (verified by the same
-render-path audit), and `exportPDF()` runs clean across the 20-log corpus.
+render-path audit), and `exportPDF()` runs clean across the reference logs.
 
 ### Unchanged
 
@@ -557,7 +556,7 @@ with a multi-colon regex and the `dom()` helper resolved to `"{ Enabled: X"` (it
 text up to the first colon), so a comparison like `c.encryption !== 'True'` was always true and
 the finding fired regardless of the real setting. The single-server findings path was not
 covered by the existing test harness (which exercises the fleet tool), which is why these
-shipped. All five are corrected and validated against a 20-log corpus spanning VBR
+shipped. All five are corrected and validated against a reference logs spanning VBR
 **12.1 / 12.2 / 12.3 and 13.x**, RTF and plain text, and VMware / Hyper-V / agent / Cloud Connect
 deployments.
 
@@ -573,19 +572,19 @@ deployments.
   infected / suspicious **restore points** (`OIBsInfectedCount` / `OIBsSuspiciousCount`, summed
   across ManuallyChecked + DetectedByVeeam) instead of raw event counters. Confirmed infection →
   critical; suspicious restore points → warning; scan events with no infected/suspicious restore
-  point → informational. A reference log carried 4529 ransomware-extension events with **zero**
-  infected restore points — previously a "4529 confirmed threats" critical, now informational.
+  point → informational. A reference log carried thousands of ransomware-extension events with **zero**
+  infected restore points — previously a "thousands of confirmed threats" critical, now informational.
 
 - **Large job (critical) — over-rated and misleading remediation.** Re-tiered by VM count:
   **>300 critical, 100–300 informational**. Removed the "enable per-VM backup files first"
   guidance — per-VM files are the modern default and are not reliably detectable from the log
-  (only 4 of 20 corpus logs expose the field).
+  (only some reference logs expose the field).
 
 - **Repository health check (warning)** and **Deleted-VM retention (warning) — always fired.**
   Both are now evaluated per backup job by majority (same brace-optional pattern; the colon
   anchor avoids matching `FullHealthCheckEnabled`). They fire only when most jobs have the
   feature disabled. This cleared false positives on logs where the feature was actually enabled
-  (MillBrook, may25-elive, wrhnbak01).
+  (across several reference environments).
 
 ### Added
 
@@ -598,7 +597,7 @@ deployments.
 
 - No change to sizing constants, infrastructure calculations, or the immutability, backup-copy,
   CBT, MFA, configuration-backup, or security/BPA checks — these were audited against the same
-  corpus and confirmed correctly implemented (single-colon captures or sound multi-signal
+  reference set and confirmed correctly implemented (single-colon captures or sound multi-signal
   boolean logic, not the `dom()` fault).
 - `index.html` is byte-identical to `Veeam_Advisor_v1.0.3.html` (deploy convention unchanged).
 
@@ -652,7 +651,7 @@ deployments.
   Added `break-after: avoid` on section headings (kept with their tables) and
   `break-inside: avoid` on stat cards, findings, and table rows so atomic blocks no
   longer split across a page boundary. Long tables (per-job retention, BPA) still
-  break cleanly between rows. Validated in Chrome: the CHC-PROD reference export
+  break cleanly between rows. Validated in Chrome: a large reference export
   dropped from 11 pages to 10 with no mid-document whitespace.
 
 - **BPA label / URL gap.** Added four previously-unmapped Security & Compliance
@@ -663,8 +662,7 @@ deployments.
   - `TrafficEncryptionEnabled` → "Network traffic encryption"
   - `JobsTargetingCloudRepositoriesEncrypted` → "Cloud-repo jobs encrypted"
 
-  The lookup now resolves every BPA key present across the CHC-PROD (16-key),
-  Enterprise (21), vbr-sp (22), hv-b-agent (12) and dafacom (18) reference logs —
+  The lookup now resolves every BPA key present across the full set of reference logs —
   0 unmapped.
 
 ### Added

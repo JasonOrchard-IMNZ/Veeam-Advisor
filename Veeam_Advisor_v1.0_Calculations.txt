@@ -725,9 +725,9 @@ SECTION 11 — PROTECTION COVERAGE & ORPHANED JOB DETECTION
     VMC.log:      23 infra, 0 VM-job,  67 agent → effProt=min(67,23)=23
                   → 100% coverage, 0 unprotected
                   (agents alone fully cover the infrastructure)
-    hv-b:         45 infra, 2 VM-job,   7 agent → effProt=9
+    host-A:       (infra + VM-job + agent example) → effProt computed
                   → 20% coverage, 36 potentially unprotected
-    CHC-PROD:    590 infra, 259 VM-job, 0 agent → effProt=259
+    host-B:       (large infra + VM-job example) → effProt computed
                   → 44% coverage, 331 potentially unprotected (Critical)
 
   NOTE: Without the agent term, VMC.log would falsely report 0% / 23
@@ -757,9 +757,9 @@ SECTION 11 — PROTECTION COVERAGE & ORPHANED JOB DETECTION
     or removing the job after confirming nothing depends on it.
 
   WORKED EXAMPLES (from reference logs)
-    CHC-PROD:  49 orphaned/disabled jobs detected
-    AKL-Prod:   8 orphaned/disabled jobs detected
-    vbr-sp:     2 jobs with no VMs assigned
+    host-B:    (orphaned/disabled jobs detected)
+    site-1:   8 orphaned/disabled jobs detected
+    host-L:     (jobs with no VMs assigned)
 
   ───────────────────────────────────────────────────────────────────────────
   PRIVACY NOTE
@@ -808,7 +808,7 @@ SECTION 12 — MULTIPLE COLLECTION RUNS IN ONE VMC.log
     formats), the entire file is parsed as one run.
 
   Worked example:
-    Manux-VMC-CHC-PROD contains 3 runs (24, 25, 26 May 2026). The tool reports
+    A multi-run reference log contains several appended runs. The tool reports
     the 26 May snapshot. VMC.log contains 9 runs; its agent count is taken from
     the final run (63), not the first (67).
 

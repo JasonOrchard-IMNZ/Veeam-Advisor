@@ -122,7 +122,7 @@ const FIXTURES = [
     text: HDR+malLine(50,2,0), expect:{ mal:'crit' } },
   { name:'malware: suspicious only -> warn',
     text: HDR+malLine(800,0,5), expect:{ mal:'warn' } },
-  { name:'malware: events but 0 infected/suspicious -> info (Tatua case)',
+  { name:'malware: events but 0 infected/suspicious -> info (host-F case)',
     text: HDR+malLine(4529,0,0), expect:{ mal:'info' } },
   { name:'malware: no events -> silent',
     text: HDR+job(id(1),'True','True','True',10), expect:{ mal:'silent' } },
@@ -141,12 +141,12 @@ const FIXTURES = [
 
 // ── corpus expectations (only files present in the target folder are asserted) ──
 const EXPECT = {
-  'VMC.log':{enc:'silent',vm:'info'}, 'mdc-VMC.log':{enc:'silent'},
-  'VMC-Tatua.txt':{enc:'crit',mal:'warn'}, 'datacom-VMC.log':{enc:'crit',vm:'crit'},
-  'Manux-VMC-AKL-Prod_may_2026.log':{enc:'crit',mal:'warn'},
-  'MillBrook-VMC.log':{enc:'crit',hc:'ok',dv:'ok'}, 'may25-eliveVMC.log':{enc:'crit',hc:'ok',dv:'ok'},
-  'wrhnbak01-VMC.log':{enc:'crit',dv:'ok'}, 'VSA-VMC.log':{enc:'silent'},
-  'hv-a-VMC.log':{enc:'silent'}, 'vrb-orc-VMC.log':{enc:'silent'},
+  'VMC.log':{enc:'silent',vm:'info'}, 'log-08.log':{enc:'silent'},
+  'log-03.log':{enc:'crit',mal:'warn'}, 'log-05.log':{enc:'crit',vm:'crit'},
+  'log-01.log':{enc:'crit',mal:'warn'},
+  'log-02.log':{enc:'crit',hc:'ok',dv:'ok'}, 'log-07.log':{enc:'crit',hc:'ok',dv:'ok'},
+  'log-10.log':{enc:'crit',dv:'ok'}, 'log-04.log':{enc:'silent'},
+  'log-06.log':{enc:'silent'}, 'log-09.log':{enc:'silent'},
 };
 
 // ── runner ──────────────────────────────────────────────────────────────────────
@@ -173,12 +173,12 @@ function T11(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v1.1.0:
   T11('classify unknown type -> Other', jobRecords11('JobID: d, Type: NasBackup, X\n')[0].common==='Other');
   T11('jobRecords de-dupes by JobID', jobRecords11('JobID: e, Type: Backup, X\nJobID: e, Type: Backup, X\n').length===1);
 
-  // agent reconciliation — hv-b shape: 1 server + 2 workstation managed + 2 standalone, lic 1/1
+  // agent reconciliation — host-A shape: 1 server + 2 workstation managed + 2 standalone, lic 1/1
   const hvb=agentRecon11('JobID: s1, Type: AgentBackup, ComputerType: Server\nJobID: w1, Type: AgentPolicy, ComputerType: Workstation\nJobID: w2, Type: AgentPolicy, ComputerType: Workstation\nJobID: e1, Type: EndpointBackup, X\nJobID: e2, Type: EndpointBackup, X\n',1,1,false);
-  T11('recon hv-b: 1 srv / 2 wks / 2 standalone', hvb.srv===1&&hvb.wks===2&&hvb.standalone===2);
-  T11('recon hv-b: 2 wks -> 1 instance (ceil/3)', hvb.expWksInst===1);
-  T11('recon hv-b: reconciles 1/1', hvb.reconciles===true);
-  T11('recon hv-b: not over-licensed', hvb.overServer===false);
+  T11('recon host-A: 1 srv / 2 wks / 2 standalone', hvb.srv===1&&hvb.wks===2&&hvb.standalone===2);
+  T11('recon host-A: 2 wks -> 1 instance (ceil/3)', hvb.expWksInst===1);
+  T11('recon host-A: reconciles 1/1', hvb.reconciles===true);
+  T11('recon host-A: not over-licensed', hvb.overServer===false);
 
   // workstation rounding: 4 workstations -> 2 instances
   const w4=agentRecon11('JobID: a, Type: AgentPolicy, ComputerType: Workstation\nJobID: b, Type: AgentPolicy, ComputerType: Workstation\nJobID: c, Type: AgentPolicy, ComputerType: Workstation\nJobID: d, Type: AgentPolicy, ComputerType: Workstation\n',0,2,false);
@@ -192,7 +192,7 @@ function T11(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v1.1.0:
   const perp=agentRecon11('JobID: a, Type: AgentBackup, ComputerType: Server\n',0,0,true);
   T11('recon: perpetual covers agents (no over-licence)', perp.reconciles===true && perp.overServer===false);
 
-  // standalone covers a workstation licence (hv-a shape: 0 managed, 1 standalone, lic 0/1)
+  // standalone covers a workstation licence (host-J shape: 0 managed, 1 standalone, lic 0/1)
   const sa=agentRecon11('JobID: e, Type: EndpointBackup, X\n',0,1,false);
   T11('recon: standalone agent covers workstation licence', sa.reconciles===true);
 

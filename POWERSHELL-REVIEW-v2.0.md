@@ -81,4 +81,4 @@ fixes the equivalent parser gap. It was deliberately not fixed here: the roadmap
 the PowerShell work as *"review all PowerShell scripts, confirm whether any updates are
 required, document findings and recommended actions"* — a read-only phase. Changing
 repository enumeration would alter collector output and require re-validation against a
-live VBR server, which is not possible from the log corpus alone.
+live VBR server, which is not possible from the log reference set alone.
