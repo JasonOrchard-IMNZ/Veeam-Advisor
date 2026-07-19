@@ -5,15 +5,15 @@
  * Two layers:
  *   1. SYNTHETIC FIXTURES (always run, no external files) — assert the five corrected
  *      extractors against hand-built log snippets that reproduce the field shapes from the
- *      validated corpus. Safe for CI: contains NO customer data and needs no VMC.log on disk.
- *   2. REAL CORPUS (optional) — pass a folder of VMC.logs as argv[2] to additionally assert
+ *      validated reference set. Safe for CI: contains NO customer data and needs no VMC.log on disk.
+ *   2. REAL REFERENCE LOGS (optional) — pass a folder of VMC.logs as argv[2] to additionally assert
  *      the per-file expected outcomes. Customer logs must NOT be committed to the repo.
  *
  * The extractors below MUST mirror the tool's parse logic in Veeam_Advisor_v1.1.0.html.
  * If you change the tool's logic, change it here too — a divergence is a real regression.
  *
  * Usage:  node confirm-bp-findings.js                 # fixtures only (CI)
- *         node confirm-bp-findings.js <logs-folder>   # fixtures + real corpus
+ *         node confirm-bp-findings.js <logs-folder>   # fixtures + real reference logs
  * Exit:   0 = all passed, 1 = one or more failed
  */
 const fs = require('fs');
@@ -123,7 +123,7 @@ const FIXTURES = [
   { name:'malware: suspicious only -> warn',
     text: HDR+malLine(800,0,5), expect:{ mal:'warn' } },
   { name:'malware: events but 0 infected/suspicious -> info (host-F case)',
-    text: HDR+malLine(4529,0,0), expect:{ mal:'info' } },
+    text: HDR+malLine(4000,0,0), expect:{ mal:'info' } },
   { name:'malware: no events -> silent',
     text: HDR+job(id(1),'True','True','True',10), expect:{ mal:'silent' } },
   // FIX #3 VMs per job
@@ -139,7 +139,7 @@ const FIXTURES = [
     expect:{ hc:'ok', dv:'ok' } },
 ];
 
-// ── corpus expectations (only files present in the target folder are asserted) ──
+// ── reference-log expectations (only files present in the target folder are asserted) ──
 const EXPECT = {
   'VMC.log':{enc:'silent',vm:'info'}, 'log-08.log':{enc:'silent'},
   'log-03.log':{enc:'crit',mal:'warn'}, 'log-05.log':{enc:'crit',vm:'crit'},
@@ -202,7 +202,7 @@ function T11(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v1.1.0:
 })();
 console.log(`v1.1.0:   ${pass-_p0} passed, ${fail-_f0} failed`);
 
-// layer 2 — real corpus (optional)
+// layer 2 — real reference logs (optional)
 const dir = process.argv[2];
 if (dir && fs.existsSync(dir)) {
   let cp=pass, cf=fail, present=0;
@@ -211,9 +211,9 @@ if (dir && fs.existsSync(dir)) {
     let t=fs.readFileSync(fp,'utf8'); if(t.trimStart().startsWith('{\\rtf')) t=stripRTF(t);
     check(fname, evalAll(mostRecentFull(t)), EXPECT[fname]);
   });
-  console.log(`Corpus:   ${pass-cp} passed, ${fail-cf} failed (${present} reference file(s) present)`);
+  console.log(`Reference:   ${pass-cp} passed, ${fail-cf} failed (${present} reference file(s) present)`);
 } else if (dir) {
-  console.log(`Corpus:   folder '${dir}' not found — skipped`);
+  console.log(`Reference:   folder '${dir}' not found — skipped`);
 }
 
 if (fails.length){ console.log('\nFAILURES:'); fails.forEach(f=>console.log(f)); process.exit(1); }

@@ -1282,7 +1282,7 @@ if (-not $SkipModuleC) {
     # ── C-21: Malware — critical event threshold ──────────────────────────────
     Write-Sub "C-21: Malware — critical events"
     Assert "ransomExt + ransomText + encrypted > 0 should fire Critical" {
-        $ransomExt = 4529; $ransomText = 0; $encrypted = 0
+        $ransomExt = 4000; $ransomText = 0; $encrypted = 0
         ($ransomExt + $ransomText + $encrypted) -gt 0
     }
     Assert "Only deleted events should NOT be Critical (not in crit count)" {

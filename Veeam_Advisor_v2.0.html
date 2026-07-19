@@ -82,7 +82,7 @@
   - BP Review accuracy: fixed five false-positive findings caused by a shared field-
     parsing fault — a multi-colon dom() extractor that returned "{ Enabled: X" and so could
     never equal the expected "True", making the check fire regardless of the real setting.
-    Validated across a 20-log corpus spanning VBR 12.1 / 12.2 / 12.3 and 13.x, RTF and plain,
+    Validated across reference logs spanning VBR 12.1 / 12.2 / 12.3 and 13.x, RTF and plain,
     VMware / Hyper-V / agent / Cloud Connect.
     - Encryption (critical): now scoped to VM/disk backup-job lines with a brace-OPTIONAL
       pattern (so RTF-stripped logs, where stripRTF removes braces, still match); excludes
@@ -91,7 +91,7 @@
     - Malware (critical): severity now gated on infected / suspicious RESTORE POINTS
       (OIBsInfectedCount / OIBsSuspiciousCount) rather than raw event counters. Extension-
       pattern matches with no infected restore point are reported as informational, not
-      critical (a real corpus log carried 4529 such events with zero infected points).
+      critical (a real reference log carried thousands of such events with zero infected points).
     - Large job (critical): re-tiered by VM count — >300 critical, 100-300 informational —
       and dropped the inaccurate "enable per-VM files first" guidance (per-VM is the modern
       default and not reliably detectable from the log).
@@ -2023,7 +2023,7 @@ function parseLog(raw,fname){
     // ── Backup Map topology (v2.0) ───────────────────────────────────────
     // Builds the job -> repository -> repository graph.
     //
-    // Field names, byte-verified against the corpus (they are NOT symmetrical):
+    // Field names, byte-verified against the reference set (they are NOT symmetrical):
     //   Type: Backup       -> BackupRepository: <guid>      (target repo)
     //   Type: BCSMPolicy   -> RepositoryID: <guid>          (copy target repo)
     //                      -> SourceBackupJobs: [<guid>...] (the jobs it copies)
@@ -2042,7 +2042,7 @@ function parseLog(raw,fname){
     D.backupMap=null;
     (function(){
       var NULLG='00000000-0000-0000-0000-000000000000';
-      // Verified against the corpus: all 216 Replica jobs carry BackupRepository and
+      // Verified against the reference set: all 216 Replica jobs carry BackupRepository and
       // every one resolves. A replica writes its metadata and digests to that
       // repository -- the VM data lands on the target host -- so replicas belong on
       // the map, but their IncludedSize must never be counted as data stored in the
@@ -2075,7 +2075,7 @@ function parseLog(raw,fname){
         // Replica destination clues. VMC.log records NO target host id, datastore or
         // cluster for a replica -- only the platform and whether it is a Cloud
         // Connect target. 'BackupRepository' on a replica line is the metadata
-        // repository (in every corpus log the built-in default repository), not
+        // repository (in every reference set log the built-in default repository), not
         // where the replicated VM lands.
         var ctm=l.match(/IsCloudTarget:\s*(\w+)/);
         var thv=l.match(/TargetHVPlatform:\s*(\w+)/);
@@ -5207,7 +5207,7 @@ function buildMapSvg(m){
   //
   // Job-level nodes are only drawn while they stay legible. Above JOB_LIMIT the
   // job column is dropped and the repository box carries aggregate counts instead
-  // -- one production log has 167 jobs, and 167 chips is not a diagram.
+  // -- a large production log can carry well over a hundred jobs, and that many chips is not a diagram.
   var W=1080, PAD=20, VGAP=14, JGAP=8, JH=40, BH=64;
   var JOB_LIMIT=40;
 
@@ -5582,7 +5582,7 @@ function drawBackupMap(){
 
 // ── TAB 15: BACKUP MAP ───────────────────────────────────────────────────
 // Repository-centric topology. Job-centric was rejected on evidence: one
-// production log has 147 jobs against 24 repositories, and 147 boxes is not a
+// a large production log can have well over a hundred jobs across many repositories, and that many boxes is not a
 // diagram. Repositories are the nodes; jobs become counts inside them; backup
 // copy relationships become arrows between repositories.
 function mapTab(d){
@@ -6438,7 +6438,7 @@ function _exportPDFNow(){
     });
     h += '</table>';
     // Per-repository job detail. Grouping by repository keeps this readable even on
-    // large estates (e.g. 167 jobs) where a single flat table would be unusable,
+    // large estates (well over a hundred jobs) where a single flat table would be unusable,
     // and it mirrors the expandable rows on-screen. Every job is listed.
     var reposWithJobs = bm.nodes.filter(function(n){ return n.jobList && n.jobList.length; });
     if(reposWithJobs.length){

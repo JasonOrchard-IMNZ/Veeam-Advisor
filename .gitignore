@@ -22,19 +22,8 @@ desktop.ini
 .env
 *.local
 
-# ── Customer / lab data — never commit to the public repo ──
-*VMC*.log
-*-VMC.log
-*_VMC_*.log
-VMC-*.txt
-VeeamAdvisor-MapCapture-*.txt
-*powershell*output*.txt
-*powershell*screen*.txt
-examples/
-examples/**
-*hv-b*
-*hv-a*
-*vbr-sp*
-*-capture-*.txt
-.DS_Store
-Thumbs.db
+# Excluded from releases — booth game, lab demo, dev/test scripts
+otter-escape.html
+veeam-recovery-lab.html
+Test-VeeamAdvisor-Full.ps1
+VeeamAdvisor-PowerShell-AgentCheck.ps1

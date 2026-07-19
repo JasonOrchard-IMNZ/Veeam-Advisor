@@ -3,37 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor &mdash; User Guide (v2.0)</title>
+<title>Veeam Advisor &mdash; User Guide (v2.1)</title>
 <meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
 <meta name="robots" content="noindex">
 <style>
 :root{
-  /* Arcade palette (v2.0) — mirrors index.html. Fill/text stops are literal
+  /* Arcade palette (v2.1) — mirrors index.html. Fill/text stops are literal
      supplied values; tints are lightened and validated to clear WCAG AA. */
   --arcade-ink:#101010;--arcade-jade:#50a850;--arcade-jade-deep:#207030;
   --arcade-azure:#3050b0;--arcade-azure-deep:#204090;--arcade-indigo:#203060;
   --arcade-ember:#f89000;--arcade-umber:#a05030;
   --arcade-crimson:#d82000;--arcade-crimson-deep:#a00000;
   --arcade-neon:#f8e000;--arcade-frost:#e8f8ff;
-  --green:var(--arcade-jade-deep);--gl:#e3f1e3;--gd:var(--arcade-jade-deep);
-  --blue:var(--arcade-azure-deep);--bl:var(--arcade-frost);--bdk:var(--arcade-azure-deep);
-  --amber:var(--arcade-umber);--al:#fef2e0;
-  --red:var(--arcade-crimson-deep);--rl:#f9dbd6;
-  --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
-  --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
-  --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
-  --link:#204090;--code:#207030;--codebg:#e3f1e3;
-  --font-display:ui-monospace,'Cascadia Mono','Segoe UI Mono','Consolas','SF Mono','Menlo',monospace;
-  --r:10px;--rl2:14px;--hdr:58px;
-}
-@media (prefers-color-scheme:dark){:root{
+  --green:#50a850;--gl:#222d20;--gd:#50a850;
+  --blue:#a0d8f8;--bl:#202638;--bdk:#a0d8f8;
+  --amber:#e0a060;--al:#483315;
+  --red:#f08070;--rl:#421d15;
   --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
   --tx:#f0efea;--tx2:#B4B2A9;--tx3:#888780;
   --bd:rgba(255,255,255,0.16);--bd2:rgba(255,255,255,0.28);
-  --gl:#222d20;--bl:#202638;--al:#483315;--rl:#421d15;
-  --green:#50a850;--gd:#50a850;--amber:#e0a060;--red:#f08070;
-  --blue:#a0d8f8;--bdk:#a0d8f8;
   --link:#a0d8f8;--code:#86d9bd;--codebg:#1f2a26;
+  --font-display:ui-monospace,'Cascadia Mono','Segoe UI Mono','Consolas','SF Mono','Menlo',monospace;
+  --r:10px;--rl2:14px;--hdr:58px;
+}
+/* Dark is the unconditional default (matches the tool). Print resets to a light
+   palette so the guide still prints legibly on white paper. */
+@media print{:root{
+  --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
+  --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
+  --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
+  --gl:#e3f1e3;--bl:var(--arcade-frost);--al:#fef2e0;--rl:#f9dbd6;
+  --green:var(--arcade-jade-deep);--gd:var(--arcade-jade-deep);
+  --blue:var(--arcade-azure-deep);--bdk:var(--arcade-azure-deep);
+  --amber:var(--arcade-umber);--red:var(--arcade-crimson-deep);
+  --link:#204090;--code:#207030;--codebg:#e3f1e3;
 }}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -80,7 +83,7 @@ header{position:sticky;top:0;z-index:100;background:var(--arcade-ink);border-bot
 .toc a:hover{color:var(--tx);background:var(--bg3)}
 .toc a.active{color:var(--gd);background:var(--gl);border-left-color:var(--green);font-weight:600}
 .toc a.active .n{color:var(--green)}
-@media (prefers-color-scheme:dark){.toc a.active{color:var(--blue)}.toc a.active .n{color:var(--green)}}
+@media screen{.toc a.active{color:var(--blue)}.toc a.active .n{color:var(--green)}}
 @media (max-width:900px){.toc{display:none}}
 
 /* mobile toc */
@@ -114,7 +117,7 @@ code{font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;font-size:.86em
 /* notes / callouts */
 .note,.callout-inline{background:var(--bg);border:1px solid var(--bd);border-left:3px solid var(--green);border-radius:var(--r);padding:11px 15px;font-size:.94rem}
 .callout-inline{background:var(--gl);border-left-color:var(--gd)}
-@media (prefers-color-scheme:dark){.callout-inline{background:var(--bg3)}}
+@media screen{.callout-inline{background:var(--bg3)}}
 
 /* code block */
 .code{position:relative;margin:0 0 1rem}
@@ -193,7 +196,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <div class="hero">
   <div class="eyebrow">User Guide</div>
-  <h1>Veeam Advisor <span class="pill">v2.0</span></h1>
+  <h1>Veeam Advisor <span class="pill">v2.1</span></h1>
   <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
   <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
 </div>
@@ -213,6 +216,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <li><a href="#input-data"><span class="n">3</span>Getting your data</a></li>
       <li><a href="#quick-start"><span class="n">4</span>Quick start</a></li>
       <li><a href="#interface"><span class="n">5</span>The interface</a></li>
+      <li><a href="#theme"><span class="n">5a</span>Theme &amp; colours</a></li>
       <li><a href="#step-1-import"><span class="n">6</span>Import a VMC.log</a></li>
       <li><a href="#step-2-parameters"><span class="n">7</span>Environment parameters</a></li>
       <li><a href="#step-3-generate"><span class="n">8</span>Generate recommendations</a></li>
@@ -233,6 +237,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <li><a href="#input-data"><span class="n">3</span>Getting your data</a></li>
       <li><a href="#quick-start"><span class="n">4</span>Quick start</a></li>
       <li><a href="#interface"><span class="n">5</span>The interface</a></li>
+      <li><a href="#theme"><span class="n">5a</span>Theme &amp; colours</a></li>
       <li><a href="#step-1-import"><span class="n">6</span>Import a VMC.log</a></li>
       <li><a href="#step-2-parameters"><span class="n">7</span>Environment parameters</a></li>
       <li><a href="#step-3-generate"><span class="n">8</span>Generate recommendations</a></li>
@@ -306,13 +311,45 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     </ul>
     <h3>Left column</h3>
     <ul>
+      <li><strong>Theme buttons</strong> &mdash; three small buttons (<em>Light</em>, <em>Dark</em>, <em>Custom colours</em>) sit above the Import card and control the colour scheme. See <a href="#theme">Theme &amp; colours</a>.</li>
       <li><strong>Import VMC.log</strong> &mdash; the drag-and-drop zone. After a successful parse it shows a &ldquo;VMC.log parsed &mdash; fields populated&rdquo; panel summarising what it found.</li>
       <li><strong>Environment parameters</strong> &mdash; the form that drives sizing, grouped into Infrastructure, Backup policy, GFS retention, and Sizing &amp; deployment. A <strong>Reset</strong> button clears it.</li>
     </ul>
     <h3>Right column</h3>
     <ul>
+      <li><strong>Custom colour scheme panel</strong> &mdash; only visible in <em>Custom colours</em> mode, where it appears above the sizing card (and stacks below it on a narrow screen). See <a href="#theme">Theme &amp; colours</a>.</li>
       <li><strong>Sizing recommendations</strong> &mdash; empty until you calculate; then it holds the headline sizing plus all 15 analysis tabs.</li>
     </ul>
+    </section>
+
+    <section id="theme" aria-labelledby="theme-h">
+      <h2 id="theme-h">5a. Theme &amp; colours<a class="anchor" href="#theme" aria-label="Link to this section">#</a></h2>
+
+    <p>Three buttons above the Import card set the on-screen colour scheme. The tool opens in <strong>Dark</strong> by default. Your choice is remembered for next time where the browser allows it. Whatever you pick, <strong>PDF export always prints light</strong> for legibility &mdash; the theme only affects the screen.</p>
+
+    <h3>The three modes</h3>
+    <ul>
+      <li><strong>Light</strong> &mdash; forces the light palette, ignoring your operating system&rsquo;s light/dark setting.</li>
+      <li><strong>Dark</strong> &mdash; forces the dark palette, ignoring the OS setting. This is the default.</li>
+      <li><strong>Custom colours</strong> &mdash; applies a palette you define, and opens the editor panel. Custom colours ignore light/dark entirely.</li>
+    </ul>
+
+    <h3>Building a custom scheme</h3>
+    <p>In <em>Custom colours</em> mode an editor appears in the right column with the full 18-colour palette &mdash; page and panel surfaces, text, borders, and the green/blue/amber/red/indigo status colours and their tints. Each entry has a live swatch and a <strong>hex-only</strong> text field.</p>
+    <ul>
+      <li>Type a hex value (e.g. <code>#1c1c1a</code>) and leave the field (click away, or press <kbd>Enter</kbd>). The swatch updates and the change previews live.</li>
+      <li><code>#rgb</code> shorthand and a missing leading <code>#</code> are accepted and expanded to <code>#rrggbb</code>; an invalid entry reverts to the last good value.</li>
+      <li><strong>Save &amp; apply</strong> keeps the scheme, <strong>Reset to default</strong> restores the dark seed, and <strong>Close</strong> collapses the editor while leaving the colours applied.</li>
+    </ul>
+
+    <h3>Carrying a scheme between browsers</h3>
+    <p>A saved scheme lives in that one browser &mdash; browser storage does not travel between Chrome, Edge, Firefox, or Safari, or between machines. To move a scheme, use the <strong>scheme code</strong> controls in the editor:</p>
+    <ul>
+      <li><strong>Export code</strong> writes a compact code for the current colours; <strong>Copy</strong> puts it on the clipboard (or selects it so you can copy manually where the browser blocks clipboard access, such as opening the file directly from disk).</li>
+      <li><strong>Import</strong> takes a pasted code, fills the editor, and previews it &mdash; then click <strong>Save &amp; apply</strong> to keep it.</li>
+    </ul>
+    <p>A code looks like <code>VA1-1c1c1a-242422-&hellip;</code> &mdash; the tag <code>VA1</code> followed by the 18 colours in order. Import is forgiving about spaces, line breaks, and upper/lower case, so a code that wrapped across lines in an email still pastes cleanly.</p>
+    <p class="note">If you open the tool as a local file (<code>file://</code>) or in a private window, some browsers will not persist your choice across reloads. It still holds for the session; export a <strong>scheme code</strong> to carry it over, or use the hosted/deployed version for automatic persistence.</p>
     </section>
 
     <section id="step-1-import" aria-labelledby="step-1-import-h">
@@ -446,6 +483,12 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <dd>Yes. Type into <em>Environment parameters</em> and calculate for sizing only; the compliance findings need a log.</dd>
       <dt>Is my customer&rsquo;s data safe?</dt>
       <dd>Yes &mdash; it is processed locally in your browser and never uploaded. Nothing persists after you close the tab, so export a PDF if you need a record.</dd>
+      <dt>My custom colours did not show up in another browser.</dt>
+      <dd>Themes are saved per-browser, so a scheme set in one browser is not visible in another. In the custom editor click <em>Export code</em>, copy the <code>VA1-&hellip;</code> code, then <em>Import</em> and <em>Save &amp; apply</em> it in the other browser. See <a href="#theme">Theme &amp; colours</a>.</dd>
+      <dt>My theme reset when I reopened the file.</dt>
+      <dd>Some browsers do not persist storage when the page is opened as a local <code>file://</code> or in a private window. Your choice still holds for the session; export a <em>scheme code</em> to carry it over, or use the hosted/deployed version where it saves automatically.</dd>
+      <dt>My PDF came out light even though I was in dark mode.</dt>
+      <dd>That is intended. The PDF export is always light for print legibility, regardless of the on-screen theme.</dd>
     </dl>
     </section>
 
@@ -459,7 +502,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <footer>
   <div class="foot">
-    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.0 &middot; Unofficial community tool</span>
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.1 &middot; Unofficial community tool</span>
     <span><a href="index.html">Open Veeam Advisor</a></span>
   </div>
 </footer>
