@@ -52,7 +52,7 @@
   - BP Review accuracy: fixed five false-positive findings caused by a shared field-
     parsing fault — a multi-colon dom() extractor that returned "{ Enabled: X" and so could
     never equal the expected "True", making the check fire regardless of the real setting.
-    Validated across a 20-log corpus spanning VBR 12.1 / 12.2 / 12.3 and 13.x, RTF and plain,
+    Validated across reference logs spanning VBR 12.1 / 12.2 / 12.3 and 13.x, RTF and plain,
     VMware / Hyper-V / agent / Cloud Connect.
     - Encryption (critical): now scoped to VM/disk backup-job lines with a brace-OPTIONAL
       pattern (so RTF-stripped logs, where stripRTF removes braces, still match); excludes
@@ -61,7 +61,7 @@
     - Malware (critical): severity now gated on infected / suspicious RESTORE POINTS
       (OIBsInfectedCount / OIBsSuspiciousCount) rather than raw event counters. Extension-
       pattern matches with no infected restore point are reported as informational, not
-      critical (a real corpus log carried 4529 such events with zero infected points).
+      critical (a real reference log carried thousands of such events with zero infected points).
     - Large job (critical): re-tiered by VM count — >300 critical, 100-300 informational —
       and dropped the inaccurate "enable per-VM files first" guidance (per-VM is the modern
       default and not reliably detectable from the log).

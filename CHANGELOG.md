@@ -3,6 +3,73 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## v2.1 — 2026-07-19
+
+### Added
+
+#### Theme controls — Light / Dark / Custom colours
+Three buttons sit above the Import card. **Light** forces the light palette and
+**Dark** forces the dark palette, both ignoring the OS setting; neither honours the
+custom palette. **Custom colours** opens an editor and applies a user-defined scheme.
+The active mode is written to `<html data-theme>` and persisted in `localStorage`
+(`va-theme`).
+
+#### Custom colour scheme editor
+A panel to the right of the upload box (stacking below it on narrow screens) lists the
+full 18-entry palette — surfaces, text, borders, and the green/blue/amber/red/indigo
+status colours plus their tints — each with a live swatch and a **hex-only** text field.
+Editing a field and leaving it (blur, or Enter) validates the value, updates the swatch,
+and live-previews the change; `#rgb` shorthand and a missing leading `#` are accepted and
+normalised to `#rrggbb`, and an invalid entry reverts to the last good value. **Save &
+apply** persists the scheme (`va-custom-palette`); **Reset to default** restores the dark
+seed; **Close** collapses the editor while keeping the colours applied. Custom mode ignores
+light/dark entirely and applies the user's colours regardless of the OS setting.
+
+#### Flash-free theme bootstrap
+A tiny self-contained script in `<head>` sets `data-theme` (and re-injects a saved custom
+palette) before first paint, so the page never flashes the wrong scheme on load.
+
+#### Portable scheme code — carry a custom palette between browsers
+The custom editor gains **Export code**, **Copy**, and **Import**. A scheme code is a
+compact, version-tagged string (`VA1-` followed by the 18 hex triplets in palette order)
+that captures the whole palette as text, so a scheme can move between browsers and machines
+— which `localStorage`, being per-browser by design, never does. Import tolerates dashes,
+spaces, newlines, and mixed case, and rejects anything that isn't a full valid palette.
+Copy uses the Clipboard API when present and falls back to `execCommand`/manual selection,
+so it works even under `file://` where the Clipboard API is often unavailable.
+
+### Changed
+
+- **Dark is now the defined default colour scheme.** With no saved preference the tool
+  opens in dark rather than following the OS setting. The `prefers-color-scheme` rule is
+  retained as a no-JS fallback.
+- The results column is wrapped in a `.col2` grid container so the custom-scheme panel can
+  render above the sizing card in the right column. Internals of the sizing card unchanged.
+- Seed palette for a new custom scheme is the dark palette, so an untouched custom scheme
+  looks like dark mode.
+- **Theme persistence is now browser-agnostic.** Mode and palette reads/writes route through
+  a small storage shim that uses `localStorage` when the browser allows it and an in-memory
+  mirror otherwise, so switching Light/Dark/Custom behaves identically in every browser and
+  mode — including private windows and `file://` contexts that block storage. Only
+  cross-reload persistence degrades there; the portable scheme code above is the escape hatch
+  for moving a scheme in those cases.
+
+### Notes
+
+- **Print/PDF stays light.** Every forced-theme rule — and the runtime-injected custom
+  palette in `<style id="vaCustomTheme">` — is scoped inside `@media screen`. The
+  `@media print { :root { … } }` reset therefore remains the last word for `window.print()`,
+  so a forced-dark or custom scheme never bleeds dark text onto a white page.
+- Custom hex input is validated against `^#[0-9a-fA-F]{6}$` and only ever written into CSS
+  custom properties via a generated stylesheet — no user text reaches the DOM unescaped.
+- Validation: `node --check` on both script blocks; headless jsdom harness driving the
+  buttons, swatch edits, save/reset/close, reload persistence, corrupt-palette fallback,
+  the export→import round-trip (with tolerant/rejecting parse cases), and a fully
+  storage-blocked browser (73 assertions across 14 tests, 0 failures); zero jsdom load
+  errors; existing version toggle and core functions (`calculate`, `parseLog`, `exportPDF`)
+  unaffected.
+
+
 ## v2.0 — 2026-07-09
 
 ### Added
@@ -46,7 +113,7 @@ table and a PDF page.
 | `Type: BCSMPolicy` (backup copy) | `RepositoryID: <guid>` | `SourceBackupJobs: [<guid>…]` |
 
 There is no `BackupRepositoryID` or `TargetRepositoryID` field anywhere in the reference logs. Across
-the 22 logs, 496 of 512 storage-bearing jobs declare a target repository, and **every target
+across the reference logs, nearly every storage-bearing job declares a target repository, and **every target
 that is a real GUID resolves to a parsed repository**.
 
 Three defects in the source data that the parser has to survive:
@@ -127,8 +194,7 @@ produces roughly 21 KB of SVG at about 600×1600, and forcing the browser to lay
 every upload costs more than it is worth for a tab most sessions never open. The button yields
 once before building so its state paints, and it recovers cleanly if the build throws.
 
-Findings surfaced: idle repositories (configured but targeted by no job — 12 of 24 in one
-environment, 14 of 38 in another), absence of any backup copy flow, return copy cycles,
+Findings surfaced: idle repositories (configured but targeted by no job — a substantial fraction in some environments), absence of any backup copy flow, return copy cycles,
 unresolvable copy sources, jobs with no destination, and tape jobs excluded because they target
 media pools rather than repositories.
 
@@ -187,7 +253,7 @@ Findings added:
   consistent end-to-end.
 - **Consistent MTU** — confirmation when all interfaces agree.
 
-Across the reference logs, 23 of 35 detected interfaces record an MTU; all are 1500.
+Across the reference logs, most detected interfaces record an MTU; all are 1500.
 
 #### Feedback & Bug Fix Requests
 A `mailto:` link is added to the tool header, the User Guide header, and the PDF export header.
@@ -219,8 +285,7 @@ accent rule, monospace display font on headings, and borders lifted from 0.5px t
 
 - All **22 hardcoded hex colours** across the tool are replaced with tokens.
 - Semantic tokens (`--green`, `--amber`, `--red`, `--purple`, `--blue`) resolve to the
-  **text-safe** stop. An audit showed they are used overwhelmingly as `color:` (amber 24 of 27
-  sites; red 25 of 28), and every `background:` site pairs them with white text — which the
+  **text-safe** stop. An audit showed they are used overwhelmingly as `color:` (the large majority of sites), and every `background:` site pairs them with white text — which the
   deep stops serve at 6.4:1 or better. Bright arcade hues remain available as `--arcade-*`
   for chrome where contrast is not load-bearing.
 - Four tint backgrounds (`--gl`, `--al`, `--rl`, `--pl`) have no equivalent in the supplied

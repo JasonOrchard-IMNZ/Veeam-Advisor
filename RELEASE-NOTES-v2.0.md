@@ -71,10 +71,10 @@ fixed; print output is now always light.
 
 **A new Backup Map tab** draws where every job writes and how backup copy jobs move data
 between repositories. It reads linkage the log already carried (`BackupRepository` on backup
-jobs; `RepositoryID` plus `SourceBackupJobs` on backup copy jobs) — 496 of 512 storage-bearing
+jobs; `RepositoryID` plus `SourceBackupJobs` on backup copy jobs) — nearly all storage-bearing
 jobs declare a target, and every real target resolves. The diagram is repository-centric because
 a large production environment can have well over a hundred jobs across many repositories. It surfaces idle repositories
-(12 of 24 in one estate), missing backup copy flows, and return-copy cycles. Job names are not
+(a substantial fraction in some estates), missing backup copy flows, and return-copy cycles. Job names are not
 recorded in `VMC.log`, so nodes are labelled by repository.
 
 **Fleet View has been removed** from the package.
