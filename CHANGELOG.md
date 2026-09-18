@@ -3,6 +3,156 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## v2.1.01 — 2026-07-24
+
+Tape work, in three parts: the original defect fixes to tape parsing and reporting,
+plus two feature additions folded into the same release — a scored tape best-practice
+ruleset, and tape on the Resiliency Map. The feature work extends the parsed data model
+and adds a section to the MapCapture PowerShell companion, so this release is broader
+than a defect-only micro patch despite the patch-level version.
+
+### Fixed
+
+#### Tape generation is read from the drive model instead of assumed
+The LTO generation was matched with `/LTO-?(\d)/`, which never matches a library
+that identifies its drive by Ultrium generation alone — `Ultrium 7` carries no
+`LTO` token. The generation was therefore lost on those libraries and the tape
+sizing silently fell back to LTO-9. `Ultrium <n>` is now matched as well and maps to `LTO-<n>`. The Tape
+tab's generation selector and its opening estimate both start from the detected
+drive, with the detected model shown beneath the selector. Where no generation can
+be determined the previous LTO-9 default is unchanged.
+
+#### PDF export no longer contradicts the Tape tab
+The PDF's tape capacity estimate called `tapeCalc(d,'LTO-9',false)` with the
+generation also hardcoded into its headline, its "Tapes required" row and its
+footnote. Because `recalcTape()` wrote only to the DOM, changing the generation on
+screen left the export on LTO-9 with no way for a reader to tell. The selection is
+now persisted and read back by `exportPDF()` through a single resolver, so the PDF
+always states the generation and capacity basis actually in effect, and names the
+drive detected in the log. Where an older generation is in use the understatement
+is proportional to the capacity difference — roughly threefold between LTO-7 and
+the previously assumed LTO-9.
+
+#### Media pool counts were derived from job records, not pool records
+`gfsMediaPools` and `regularMediaPools` matched `MediaPoolType: <x>`, a field that
+appears only on tape *job* records. The counts therefore described jobs pointing at
+a pool type rather than pools configured: over-counting wherever several jobs share
+a pool, and missing any pool no job currently targets — including a configured GFS
+pool, which would leave the "no GFS media pool" warning firing incorrectly. Both
+counts now come from the `[MediaPools]` records themselves and reconcile against
+`MediaPoolsCount`. Collections with no `[MediaPools]` records fall back to the
+previous behaviour.
+
+#### `ParallelDrivesCount` could be read as the tape drive count
+`/DrivesCount[:\s]*(\d+)/` also matches the `ParallelDrivesCount` media-pool
+setting. It resolved correctly only because the estate-wide line happens to appear
+first in the log. Anchored with `\b`.
+
+#### Tape library count was read from a per-server field
+`TapeLibrariesCount` appears on each `[TapeServers]` record and is scoped to that
+server, so an estate with more than one tape server reported only the first
+server's libraries. Now read from `LibrariesCount` in the estate-wide
+`Tape infrastructure` block.
+
+#### Tape job types linked to the wrong documentation
+Both **File to Tape** and **VM to Tape** in the jobs-by-type reference pointed at
+the Backup Copy help page. They now point at `file_to_tape_jobs.html` and
+`backup_to_tape_jobs.html` respectively.
+
+#### PDF header reported the wrong version
+The exported PDF still carried a `Veeam Advisor v2.0` stamp after the v2.1 release.
+
+### Added
+
+#### Protection coverage reworked — combined protection with a reliability gate
+Coverage previously counted backup jobs only and clamped the total to the discovered VM
+count, which produced confidently-wrong figures in both directions: estates whose job VM
+counts overshot the inventory (overlapping jobs, host/cluster-level jobs) were reported
+as a green ~100%, while replica-first estates were reported as near-zero "unprotected".
+Coverage now counts combined protection — backup + replica + agent — and applies a
+reliability gate: when the inputs are ambiguous (counted protections exceed discovered
+VMs, or an active job holds backup data but does not enumerate its VMs) the percentage is
+withheld and a floor–ceiling range is shown with the reason, at info severity rather than
+a pass/fail badge. When the inputs are clean a real percentage is shown as before. This
+changes the coverage figure in existing reports — an estate that read "100% OK" may now
+read "can't be reliably estimated", which is the intended correction.
+
+The estimate sums VM counts across job lines regardless of platform, so VMware, Hyper-V,
+Proxmox, HPE VME, Nutanix AHV and KVM all feed in. It is validated against real logs for
+VMware and Hyper-V; the Proxmox / HPE VME / Nutanix / KVM paths are built to the
+documented token pattern and covered by synthetic fixtures but are NOT yet validated
+against real logs — re-verify when such a log is available.
+
+#### Coverage cross-checked against the authoritative JOB TYPE COUNTS section
+The log's "Job counts: { VDDKBackup, BackupHV, ReplicaVMware, ReplicaHV, … }" section is
+the collector's own per-type job tally. Coverage now reconciles the jobs it counted
+against this section (for the VMware/Hyper-V types the section keys) and flags a shortfall
+as a reliability reason. This surfaced and fixed a related defect: backup-copy jobs
+(Type: Backup with JobSourceType: Backup, which source from other backups rather than
+protecting new VMs) were being counted as primary backup jobs, inflating both the job
+count and the VM-count sum. Copy jobs are now excluded from the primary-coverage tally
+(still counted for the 3-2-1 / backup-copy checks). After this fix the jobs counted match
+the authoritative section exactly across the validation logs.
+
+#### Media pool inventory — media reported even without an active tape job
+Environments can hold tape media pools and cartridges with no tape server, library,
+drive or backup job configured — decommissioned tape setups, or media imported and
+catalogued from another system. The tool previously counted these pools but showed
+nothing about them and reported "no tape infrastructure", silently dropping the media.
+The Tape tab (and PDF) now list every media pool — type, cartridge count, capacity,
+remaining and used — whenever any pool exists, with a per-pool record deduplicated
+across the log's repeated collection runs. When media exists but nothing writes to it,
+a distinct banner explains that state (rather than a bare "no tape") and an advisory
+flags idle Imported / Unrecognized / Retired media for review. The sizing estimate is
+now labelled a hypothetical planning figure whenever no tape backup job exists, so it
+is not mistaken for a finding about existing tape.
+
+#### Tape best-practice checks (scored)
+The Tape tab's fixed advice table is now a scored best-practice table, matching the
+other BP tabs. Ten checks read the actual configuration from the log and rate it:
+drive cleaning (required, cleaning tapes present, auto-clean), job encryption, air
+gap and offline-media tracking / vault, free-media headroom against media-set and
+retention policy, manual vs scheduled jobs, job notifications, WORM media, parallel
+drive limits against physical drive count, GFS on tape, and hardware compression by
+job type (off for image backups, on for file-to-tape). Each row appears only when the
+log carries the fields it needs, so a partial collection yields fewer checks rather
+than wrong ones. The generic single-GFS-job guidance is retained below as reference.
+The scored results also render in the PDF export.
+
+Severity uses the existing BP-table vocabulary (Pass / Warning / Critical / Info).
+Scoring is Tape-tab-local for this release and is not yet folded into the overall
+Best Practice score, so existing report scores do not move.
+
+#### Tape on the Resiliency Map
+Tape jobs were previously counted and excluded from the map. They now render as a
+terminal "Tape archive" node with an edge from each repository that feeds a VM-to-tape
+job. Source resolution has three cases: edges are drawn from ground truth when the
+MapCapture PowerShell output is present; inferred (and drawn dashed, with a warning)
+from a single VM-to-tape job when it is not; and deliberately not drawn at all when two
+or more VM-to-tape jobs make attribution ambiguous without the capture — the map does
+not guess. File-to-tape jobs are shown as a separate ingress, not a repository edge,
+because they source from files rather than a repository.
+
+`VeeamAdvisor-MapCapture.ps1` gains Section 6 (TAPE): `Get-VBRTapeJob` with its source
+objects — the source backup-job GUIDs the log records only as a count — plus
+`Get-VBRTapeMediaPool` / `Get-VBRTapeLibrary` / `Get-VBRTapeDrive` / `Get-VBRTapeServer`
+for real names. This is the companion change that makes multi-job tape edges exact
+rather than inferred.
+
+### Notes
+
+- The tape estimate still takes its source size from the environment total, which
+  includes replica source data that never reaches tape; scoping that to backup-job
+  source is deferred because it changes figures in existing reports.
+- The estimate still models daily increments even where every tape job reports
+  `IsIncrementProcessingEnabled: False`. Deferred for the same reason.
+- The tape BP checks are Tape-tab-local; folding them into the overall Best Practice
+  score is deferred so existing report scores do not move.
+- The map's inferred tape edge (single VM-to-tape job, no capture) is a best-effort
+  attribution; run MapCapture.ps1 for exact source-job resolution.
+- The QA and full-test PowerShell scripts still validate tape only at the
+  `Get-VBRTapeJob` count level and do not yet assert the new Section 6 fields.
+
 ## v2.1 — 2026-07-19
 
 ### Added
@@ -478,7 +628,7 @@ Changelog history above this entry is left intact: Fleet View was a real part of
 #### (unchanged, now reported rather than hidden)
 Three of the 22 audited logs count repositories in the type summary that the log never
 enumerates anywhere — no definition line, no `ExtentsIDs` membership, no job reference
-(`WinLocal` ×4 and `ExternalPlatform` ×1 across DRGVMBKP1, Richo and procare). No row can be
+(`WinLocal` ×4 and `ExternalPlatform` ×1 across several sample logs). No row can be
 constructed for these. The parser is correct; the source data is incomplete.
 
 An earlier working theory held that scale-out repository **extents** lacked definition lines.
@@ -733,7 +883,7 @@ deployments.
 ### Added
 
 - **Server identity.** The machine / host name parsed from the VMC.log header is
-  now surfaced in the report metadata line (e.g. "Server: FNLCHCA-VBR").
+  now surfaced in the report metadata line (e.g. "Server: <backup-server-name>").
 
 ### Notes
 

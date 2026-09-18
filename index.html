@@ -1,5 +1,5 @@
 <!--
-  Veeam Advisor v2.0 — PRODUCTION RELEASE
+  Veeam Advisor v2.1.01 — PRODUCTION RELEASE
   Released: 2026-07-09  (v1.1.0: 2026-06-26, v1.0.3: 2026-06-24, v1.0.2: 2026-06-21, v1.0.1: 2026-06-20, v1.0: 2026-06-08)
   Build: production
 
@@ -155,7 +155,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor v2.1</title>
+<title>Veeam Advisor v2.1.01</title>
 <style>
 :root{
   /* ── Arcade palette (v2.0) ────────────────────────────────────────────────
@@ -496,7 +496,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
 <header>
   <div class="logo">V</div>
   <div style="display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0;overflow:hidden">
-    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v2.1</span></h1>
+    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v2.1.01</span></h1>
     <div style="font-size:11px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; unofficial community tool, not affiliated with or supported by Veeam</div>
   </div>
   <div class="ver-toggle">
@@ -983,7 +983,7 @@ function isMapCapture(text){
 }
 
 function parseMapCapture(text){
-  var cap = { jobs:{}, replicaHosts:{}, repoNames:{}, jobTargets:{}, configBackups:[], cloudConnect:{tenants:[], gateways:[], providers:0}, host:null, captured:null };
+  var cap = { jobs:{}, replicaHosts:{}, repoNames:{}, jobTargets:{}, configBackups:[], cloudConnect:{tenants:[], gateways:[], providers:0}, tape:{jobs:{}, pools:{}, libraries:{}, drives:{}, servers:{}}, host:null, captured:null };
   var lines = text.split(/\r?\n/);
 
   var hm = text.match(/^Host:\s*(\S+)\s+Date:\s*(.+)$/m);
@@ -1116,6 +1116,43 @@ function parseMapCapture(text){
       if(gm){ cap.cloudConnect.gateways.push({ name:gm[1], host:gm[2] }); continue; }
       var pm=lines[j].match(/^\s*Cloud providers this server backs up to:\s*(\d+)/);
       if(pm){ cap.cloudConnect.providers=parseInt(pm[1],10); }
+    }
+  })();
+
+  // Section 6 (TAPE): resolve the source backup-job GUIDs behind each tape job — the
+  // key thing VMC.log omits (it records SourceBackupJobsCount, a number, not the GUIDs).
+  // Also capture friendly names for pools / libraries / drives / servers. Scoped to the
+  // "6. TAPE" block so job-source GUIDs are read only under their owning tape job.
+  (function(){
+    var start=-1, end=lines.length;
+    for(var i=0;i<lines.length;i++){
+      if(/^\s*6\.\s+TAPE/.test(lines[i])){ start=i; }
+      else if(start>=0 && /^\s*5\.\s+JOB\s+NAME/.test(lines[i])){ end=i; break; }
+    }
+    if(start<0) return;
+    var curJob=null, sub='job';   // sub: which list we're reading
+    for(var j=start;j<end;j++){
+      var l=lines[j];
+      var jm=l.match(/^\s*Tape job\s+'(.*)'\s+Id:\s*([0-9a-fA-F-]{36})/);
+      if(jm){ curJob=jm[2].toLowerCase(); cap.tape.jobs[curJob]={ name:jm[1], type:null, sources:[] }; sub='job'; continue; }
+      if(curJob && sub==='job'){
+        var tm=l.match(/^\s*Type\s*:\s*(\w+)/);        if(tm){ cap.tape.jobs[curJob].type=tm[1]; continue; }
+        var sm=l.match(/^\s{4,}([0-9a-fA-F-]{36})\s+(.+?)\s*$/);
+        if(sm){ cap.tape.jobs[curJob].sources.push({ id:sm[1].toLowerCase(), name:sm[2] }); continue; }
+      }
+      if(/^\s*Tape media pools:/.test(l)){ curJob=null; sub='pools'; continue; }
+      if(/^\s*Tape libraries:/.test(l)){ sub='libraries'; continue; }
+      if(/^\s*Tape drives:/.test(l)){ sub='drives'; continue; }
+      if(/^\s*Tape servers:/.test(l)){ sub='servers'; continue; }
+      if(sub==='pools' || sub==='libraries' || sub==='drives' || sub==='servers'){
+        var rm=l.match(/^\s+([0-9a-fA-F-]{36})\s+(?:(\S+)\s+)?(.+?)\s*$/);
+        if(rm){
+          var id=rm[1].toLowerCase();
+          var tgt = sub==='pools'?cap.tape.pools : sub==='libraries'?cap.tape.libraries : sub==='drives'?cap.tape.drives : cap.tape.servers;
+          if(sub==='pools' && rm[2]) tgt[id]={ type:rm[2], name:rm[3] };
+          else tgt[id]={ name:(rm[2]?rm[2]+' '+rm[3]:rm[3]) };
+        }
+      }
     }
   })();
 
@@ -1308,6 +1345,19 @@ function parseLog(raw,fname){
      vmTapeJobs:0, fileTapeJobs:0, tapeJobs:0,   // tape backup jobs (selected run)
      tapeLibraries:null, tapeDrives:null, mediaPools:null,   // tape infrastructure
      gfsMediaPools:0, regularMediaPools:0, tapeLTO:null,     // media pool detail + LTO gen
+     // v2.1.01 (leg 4): tape best-practice inputs, all read from the selected run.
+     tapeEncOn:0, tapeEncOff:0,          // per-job encryption
+     tapeManual:0, tapeScheduled:0,      // per-job RunManually
+     tapeNotifOn:0, tapeNotifOff:0,      // per-job NotificationsEnabled
+     tapeCompVmOn:0, tapeCompFileOff:0,  // per-job hardware compression MISconfigured (by type)
+     tapeCompOk:0,                       // per-job compression correct for its type
+     tapeCleaningRequired:false, tapeCleaningTapes:null, tapeAutoClean:null,  // drive/library cleaning
+     tapeVaults:null, tapeWormTapes:null, tapeOfflineTracking:null,           // air gap
+     tapeFreeTapes:null, tapeDailyMediaSet:false, tapeProtectRetention:false, // free media headroom
+     tapeParallelLimit:null,             // max ParallelDrives requested vs physical drives
+     tapeGfsCountsSet:false,             // any GFS*Count > 0 on a tape job
+     tapeMediaPoolList:[],               // v2.1.01: per-pool inventory (type/tapes/capacity/remaining)
+     tapeTapesTotal:null,                // total tapes across pools (from infra line)
      cdpPolicies:null,    // CDP policy count
      surebackup:null,     // SureBackup VA lab count
      sobrs:0,             // SOBR count
@@ -1369,6 +1419,10 @@ function parseLog(raw,fname){
      mfaEnabled:null,
      jobGFS:[],
      infraVMs:0, protectedVMs:0, agentProtected:0, unprotectedVMs:null, coveragePct:null,
+     // v2.x (coverage rework): combined protection = backup + replica + agent, with a
+     // reliability gate. When per-job VM membership is unreliable the % is withheld.
+     replicaVMs:0, combinedProtected:0, coverageReliable:true, coverageReasons:[],
+     coverageFloor:null, coverageCeil:null, jobTypeCounts:null, jobCountAuth:null,
      orphanedJobs:[], disabledJobCount:0, collectionTime:_collectionTime,
      replicationJobs:0
   };
@@ -1813,16 +1867,104 @@ function parseLog(raw,fname){
   D.fileTapeJobs = (txt.match(/Type:\s*FileTapeBackup/gi) || []).length;
   D.tapeJobs     = D.vmTapeJobs + D.fileTapeJobs;
   // Tape infrastructure detail.
-  m=txt.match(/TapeLibrariesCount[:\s]*(\d+)/i); if(m)D.tapeLibraries=parseInt(m[1]);
-  m=txt.match(/DrivesCount[:\s]*(\d+)/i);        if(m)D.tapeDrives=parseInt(m[1]);
+  // v2.1.01: read the estate-wide "Tape infrastructure: { LibrariesCount: n, ... }" block.
+  // TapeLibrariesCount appears on each [TapeServers] record and is per-server, so with more
+  // than one tape server it under-reports the estate. LibrariesCount is the estate total.
+  m=txt.match(/\bLibrariesCount[:\s]*(\d+)/i);   if(m)D.tapeLibraries=parseInt(m[1]);
+  // v2.1.01: \b prevents ParallelDrivesCount (a media-pool setting) matching as a drive count.
+  m=txt.match(/\bDrivesCount[:\s]*(\d+)/i);      if(m)D.tapeDrives=parseInt(m[1]);
   m=txt.match(/MediaPools?Count[:\s]*(\d+)/i);   if(m)D.mediaPools=parseInt(m[1]);
   // Media pool types: count GFS vs regular pools (GFS pools enable long-term tape retention).
-  D.gfsMediaPools     = (txt.match(/MediaPoolType[:\s]*GFS/gi)     || []).length;
-  D.regularMediaPools = (txt.match(/MediaPoolType[:\s]*Regular/gi) || []).length;
+  // v2.1.01: derive from the [MediaPools] records themselves. The previous regex matched
+  // "MediaPoolType: <x>" which only ever appears on tape JOB records, so it counted jobs
+  // pointing at a pool type rather than pools configured — over-counting where several jobs
+  // share a pool, and missing any pool no job currently targets.
+  var _mpTypes=[];
+  txt.split(/\r?\n/).forEach(function(_l){
+    if(_l.indexOf('[MediaPools]')===-1)return;
+    var _t=_l.match(/\bType[:\s]*([A-Za-z]+)/);
+    if(_t)_mpTypes.push(_t[1]);
+  });
+  if(_mpTypes.length){
+    D.gfsMediaPools     = _mpTypes.filter(function(t){return /^GFS$/i.test(t);}).length;
+    D.regularMediaPools = _mpTypes.filter(function(t){return !/^GFS$/i.test(t);}).length;
+  }else{
+    // No [MediaPools] records (older/partial collections) — fall back to the job-line inference.
+    D.gfsMediaPools     = (txt.match(/MediaPoolType[:\s]*GFS/gi)     || []).length;
+    D.regularMediaPools = (txt.match(/MediaPoolType[:\s]*Regular/gi) || []).length;
+  }
   // Tape library hardware (LTO/Ultrium generation, if named).
-  var ltoM=txt.match(/LTO-?(\d)/i); if(ltoM)D.tapeLTO='LTO-'+ltoM[1];
+  // v2.1.01: many libraries identify the drive by Ultrium generation only (e.g. "Ultrium 7"),
+  // with no "LTO" token, so the generation was lost and sizing silently fell back to LTO-9.
+  // Ultrium <n> maps 1:1 to LTO-<n>.
+  var ltoM=txt.match(/LTO-?(\d)/i) || txt.match(/Ultrium\s*-?\s*(\d)/i);
+  if(ltoM)D.tapeLTO='LTO-'+ltoM[1];
   else if(/Ultrium/i.test(txt))D.tapeLTO='Ultrium (LTO)';
   m=txt.match(/SureBackup\w*[:\s]*(\d+)/i);if(m&&parseInt(m[1])>0)D.surebackup=parseInt(m[1]);
+
+  // ── v2.1.01 (leg 4): tape best-practice inputs ──────────────────────────────
+  // All read from the selected run. Per-job booleans are aggregated across the tape
+  // job lines; device/library/pool fields come from their [ ] records or the infra line.
+  txt.split(/\r?\n/).forEach(function(_l){
+    var isVm=/Type:\s*VmTapeBackup/i.test(_l), isFile=/Type:\s*FileTapeBackup/i.test(_l);
+    if(isVm||isFile){
+      var enc=_l.match(/IsEncryptionEnabled:\s*(True|False)/i);
+      if(enc){ if(/true/i.test(enc[1]))D.tapeEncOn++; else D.tapeEncOff++; }
+      var man=_l.match(/RunManually:\s*(True|False)/i);
+      if(man){ if(/true/i.test(man[1]))D.tapeManual++; else D.tapeScheduled++; }
+      var nt=_l.match(/NotificationsEnabled:\s*(True|False)/i);
+      if(nt){ if(/true/i.test(nt[1]))D.tapeNotifOn++; else D.tapeNotifOff++; }
+      // Compression: image (VM) jobs should be OFF (Veeam data is pre-compressed);
+      // file-to-tape jobs benefit from hardware compression ON.
+      var cmp=_l.match(/IsHardwareCompressionEnabled:\s*(True|False)/i);
+      if(cmp){ var on=/true/i.test(cmp[1]);
+        if(isVm){ if(on)D.tapeCompVmOn++; else D.tapeCompOk++; }
+        else    { if(on)D.tapeCompOk++;   else D.tapeCompFileOff++; }
+      }
+      if(/GFS(Weekly|Monthly|Quarterly|Yearly)Count:\s*[1-9]/i.test(_l))D.tapeGfsCountsSet=true;
+      var pd=_l.match(/ParallelDriveSettings[^}]*?Limit:\s*(\d+)/i);
+      if(pd){ var v=parseInt(pd[1],10); if(D.tapeParallelLimit==null||v>D.tapeParallelLimit)D.tapeParallelLimit=v; }
+      if(/NewMediaSetSetting:\s*Daily/i.test(_l))D.tapeDailyMediaSet=true;
+      if(/RetentionPolicy[^}]*?Type:\s*Protect/i.test(_l)||/RetentionPolicy[^}]*?Protect/i.test(_l))D.tapeProtectRetention=true;
+    }
+    if(_l.indexOf('[TapeDrives]')!==-1 && /IsCleaningRequired:\s*True/i.test(_l))D.tapeCleaningRequired=true;
+    if(_l.indexOf('[TapeLibrary]')!==-1){
+      var ct=_l.match(/CleaningTapesCount:\s*(\d+)/i); if(ct)D.tapeCleaningTapes=parseInt(ct[1],10);
+      var ac=_l.match(/IsAutoCleaningEnabled:\s*(True|False)/i); if(ac)D.tapeAutoClean=/true/i.test(ac[1]);
+    }
+    if(_l.indexOf('[MediaPools]')!==-1){
+      var pl=_l.match(/\bParallelDrivesCount:\s*(\d+)/i);
+      if(pl){ var pv=parseInt(pl[1],10); if(D.tapeParallelLimit==null||pv>D.tapeParallelLimit)D.tapeParallelLimit=pv; }
+      var ot=_l.match(/IsOfflineMediaTrackingEnabled:\s*(True|False)/i);
+      if(ot&&/true/i.test(ot[1]))D.tapeOfflineTracking=true;
+      else if(ot&&D.tapeOfflineTracking!==true)D.tapeOfflineTracking=false;
+    }
+  });
+  // Estate-wide tape infra counters (Tape infrastructure: { ... } line).
+  m=txt.match(/\bVaultsCount:\s*(\d+)/i);     if(m)D.tapeVaults=parseInt(m[1],10);
+  m=txt.match(/\bWormTapesCount:\s*(\d+)/i);  if(m)D.tapeWormTapes=parseInt(m[1],10);
+  m=txt.match(/Tape infrastructure:[^}]*?\bTapesCount:\s*(\d+)/i); if(m)D.tapeTapesTotal=parseInt(m[1],10);
+  // v2.1.01: per-pool media inventory. Captures every [MediaPools] record — type, tape
+  // count, capacity and remaining — so media that exists without an active tape job
+  // (imported / retired / unrecognised pools) is still reported rather than dropped.
+  // Free-type tapes are also totalled for the free-media BP check.
+  var _seenPool={};
+  txt.split(/\r?\n/).forEach(function(_l){
+    if(_l.indexOf('[MediaPools]')===-1)return;
+    var idm=_l.match(/MediaPoolID:\s*([0-9a-fA-F-]{36})/);
+    var id=idm?idm[1].toLowerCase():null;
+    if(id && _seenPool[id])return;                 // one record per pool (log repeats per run)
+    if(id)_seenPool[id]=1;
+    var tym=_l.match(/\bType:\s*(\w+)/);
+    var tcm=_l.match(/TapesCount:\s*(\d+)/i);
+    var capm=_l.match(/Capacity:\s*(\d+)/i);
+    var remm=_l.match(/Remaining:\s*(\d+)/i);
+    var ty=tym?tym[1]:'Unknown';
+    var tapes=tcm?parseInt(tcm[1],10):0;
+    D.tapeMediaPoolList.push({ type:ty, tapes:tapes,
+      capacity:capm?parseInt(capm[1],10):0, remaining:remm?parseInt(remm[1],10):0 });
+    if(/^Free$/i.test(ty)){ D.tapeFreeTapes=(D.tapeFreeTapes||0)+tapes; }
+  });
   m=txt.match(/SOBRs?[:\s]*(\d+)/i);if(m)D.sobrs=parseInt(m[1]);
   // SOBR tiers
   ['PerformanceTier','CapacityTier','ArchiveTier'].forEach(function(t){
@@ -2275,7 +2417,18 @@ function parseLog(raw,fname){
 
   // ── Per-job GFS + retention table ──────────────────────────────────
   D.jobGFS = [];
-  var jobLines = txt.split('\n').filter(function(l){ return l.indexOf('Type: Backup,')>=0 && l.indexOf('PlatformName:')>=0; });
+  // v2.x (coverage rework): PRIMARY backup jobs only. A "Type: Backup," line whose
+  // JobSourceType is "Backup" (rather than VDDK / HyperV / Agent / etc.) is a BACKUP COPY
+  // job — it sources from other backup jobs (carries SourceBackupJobs), copying existing
+  // restore points rather than protecting new VMs. Counting copies as primary protection
+  // inflates both the job count and the VM-count sum, which was a real contributor to the
+  // coverage overshoot (confirmed on sample logs: seen-count dropping to the authoritative
+  // JOB TYPE COUNTS). Copy jobs are still parsed elsewhere for the 3-2-1 / backup-copy
+  // checks; they are only excluded from the primary-coverage tally here.
+  var jobLines = txt.split('\n').filter(function(l){
+    return l.indexOf('Type: Backup,')>=0 && l.indexOf('PlatformName:')>=0
+        && !/JobSourceType:\s*Backup\b/.test(l);   // exclude backup-copy jobs
+  });
   // Deduplicate by JobID (log repeats each collection run)
   var seenJobs = {};
   jobLines.forEach(function(line){
@@ -2441,10 +2594,36 @@ function parseLog(raw,fname){
       var allJobIds=jobs;
       var repoById={}; (D.repoList||[]).forEach(function(r){ repoById[r.fullId.toLowerCase()]=r; });
       var nodes={}, noTarget=[], tapeJobs=0, unresolvedSrc=0;
+      // v2.1.01 (leg 3): tape terminus. Instead of discarding tape jobs, collect the
+      // repositories that feed them so the map can draw a repo -> tape edge. A
+      // VmTapeBackup sources from backup jobs (each of which targets a repository);
+      // VMC.log gives SourceBackupJobsCount only, so the source job GUIDs come from the
+      // MapCapture Section 6 when present, else are inferred when the topology is
+      // unambiguous (exactly one VM-to-tape job). FileTapeBackup sources from files,
+      // not a repository, so it is a separate ingress rather than a repo edge.
+      var tape={ present:false, vmJobs:0, fileJobs:0, feedRepos:{}, inferredEdges:false, fromCapture:false };
       Object.keys(jobs).forEach(function(jid){
         var j=jobs[jid];
         if(NO_REPO[j.type]) return;          // replicas target hosts, not repositories
-        if(TAPE[j.type]){ tapeJobs++; return; }  // tape targets media pools
+        if(TAPE[j.type]){
+          tapeJobs++; tape.present=true;
+          if(j.type==='FileTapeBackup'){ tape.fileJobs++; return; }
+          tape.vmJobs++;
+          // Prefer capture-resolved source job GUIDs; each resolves to its target repo.
+          var srcIds=[];
+          if(_psCapture && _psCapture.tape && _psCapture.tape.jobs[jid] && _psCapture.tape.jobs[jid].sources.length){
+            _psCapture.tape.jobs[jid].sources.forEach(function(s){ srcIds.push(s.id); });
+            tape.fromCapture=true;
+          } else if(j.src && j.src.length){
+            j.src.forEach(function(s){ srcIds.push(s); });
+          }
+          srcIds.forEach(function(sid){
+            var sj=jobs[sid];
+            if(sj && sj.tgt){ tape.feedRepos[sj.tgt]=(tape.feedRepos[sj.tgt]||0)+1; }
+            else { unresolvedSrc++; }
+          });
+          return;
+        }
         if(!j.tgt){ noTarget.push({id:jid.substring(0,8), type:j.type}); return; }
         var n=nodes[j.tgt];
         if(!n){ n=nodes[j.tgt]={id:j.tgt, short:j.tgt.substring(0,8), repo:repoById[j.tgt]||null,
@@ -2564,9 +2743,19 @@ function parseLog(raw,fname){
           rtMap[key].jobs.push(j.fullId); rtMap[key].bytes+=j.size;
         });
       });
+      // Inference fallback: a single VM-to-tape job with no capture and no explicit
+      // source GUIDs almost certainly archives from the backup repositories. Attribute
+      // it to every repository that holds backup (not copy/replica) restore points, and
+      // flag the edge as inferred so the UI can label it. With two or more VM-to-tape
+      // jobs the attribution is ambiguous and we do NOT guess — the capture is required.
+      if(tape.vmJobs===1 && Object.keys(tape.feedRepos).length===0){
+        Object.keys(nodes).forEach(function(nid){
+          if(nodes[nid].counts.backup>0){ tape.feedRepos[nid]=1; tape.inferredEdges=true; }
+        });
+      }
       var replicaTargets=Object.keys(rtMap).map(function(k){return rtMap[k];});
       D.backupMap={ nodes:list, flows:flows, idle:idle, noTarget:noTarget,
-                    tapeJobs:tapeJobs, unresolvedSrc:unresolvedSrc, cycles:cycles,
+                    tapeJobs:tapeJobs, tape:tape, unresolvedSrc:unresolvedSrc, cycles:cycles,
                     replicaTargets:replicaTargets,
                     totalJobs:list.reduce(function(a,n){return a+n.jobs;},0) };
       // if a PowerShell capture was uploaded first, enrich immediately
@@ -2659,14 +2848,88 @@ function parseLog(raw,fname){
   // wrongly excluded EndpointBackup. D.agentRecon (above) holds the full split and
   // the licence reconciliation; coverage just needs the machine total.
   D.agentProtected = (D.agentRecon.mgdServer + D.agentRecon.mgdWorkstation + D.agentRecon.standalone);
-  // Coverage only meaningful when we know the infra total and have backup jobs.
-  if(D.infraVMs>0 && (D.jobGFS.length>0 || D.agentProtected>0)){
-    // Combined protected estimate: VM-job VMs + agent-protected machines.
-    // Capped at infra total (agents may cover physical machines outside infra,
-    // and jobs overlap), so the gap is never overstated.
-    var effProt = Math.min(protVMs + D.agentProtected, D.infraVMs);
-    D.unprotectedVMs = Math.max(0, D.infraVMs - effProt);
-    D.coveragePct = Math.round(effProt / D.infraVMs * 100);
+  // ── Combined protection coverage with a reliability gate (v2.x) ──────────────
+  // Coverage now counts ALL protection of infra VMs — backup jobs + replica jobs +
+  // agents — not backup alone. Critically, it no longer clamps an overshoot to a
+  // confident 100%: per-job VMsCount is unreliable (jobs targeting whole hosts/clusters
+  // over-count, jobs that don't enumerate members report 0 despite holding data, and a
+  // VM protected several ways is counted several times). When those conditions are
+  // present the percentage is WITHHELD and the reason stated, rather than asserting a
+  // number that is confidently wrong in either direction.
+  //
+  // Platform note: the estimate sums VMsCount across backup/replica job lines regardless
+  // of PlatformName, so VMware, Hyper-V, Proxmox, HPE VME, Nutanix AHV and KVM all feed
+  // in wherever their jobs carry a count. The authoritative JOB TYPE COUNTS section has
+  // dedicated keys only for VMware/Hyper-V, so newer platforms rely on the generic
+  // job-line path here; that path is validated on VMware/Hyper-V and built-to-spec (not
+  // yet validated against real logs) for Proxmox / HPE VME / Nutanix / KVM.
+  // ── A+ : authoritative job tally from the JOB TYPE COUNTS section ─────────────
+  // The collector emits "Job counts: { VDDKBackup: n, BackupHV: n, ReplicaVMware: n,
+  // ReplicaHV: n, ... }" — the definitive per-type JOB count (not VM count). We use it
+  // to cross-check that the coverage estimate actually saw every backup/replica job.
+  // Keys exist only for VMware (VDDKBackup, BackupVMwareCloud) and Hyper-V (BackupHV,
+  // ReplicaHV, ReplicaVMware); there are NO Proxmox / HPE VME / Nutanix / KVM keys, so
+  // the cross-check is meaningful for VMware/Hyper-V only and is skipped otherwise.
+  D.jobTypeCounts = null;
+  (function(){
+    var jc = txt.match(/Job counts:\s*\{([^}]*)\}/g);
+    if(!jc || !jc.length) return;
+    var last = jc[jc.length-1];   // most-recent run
+    var obj = {};
+    last.replace(/(\w+):\s*(\d+)/g, function(_, k, v){ obj[k]=parseInt(v,10); return _; });
+    D.jobTypeCounts = obj;
+  })();
+  var replVMs = 0, replZeroActive = 0;
+  D.replicationList.forEach(function(r){ replVMs += (r.vms||0); if((r.vms||0)===0 && (r.tb||0)>0) replZeroActive++; });
+  D.replicaVMs = replVMs;
+  // Jobs that hold data but enumerate no VMs (VMsCount 0 while IncludedSize > 0) — these
+  // under-count the true protected figure.
+  var backupZeroActive = 0;
+  D.jobGFS.forEach(function(j){ if((j.vms||0)===0 && (j.tb||0)>0) backupZeroActive++; });
+
+  if(D.infraVMs>0 && (D.jobGFS.length>0 || D.replicationList.length>0 || D.agentProtected>0)){
+    var combined = protVMs + replVMs + D.agentProtected;
+    D.combinedProtected = combined;
+    var reasons = [];
+    if(combined > D.infraVMs)
+      reasons.push('counted protections ('+combined+') exceed discovered VMs ('+D.infraVMs+') — overlapping jobs, host/cluster-level jobs, or VMs protected more than one way');
+    if(backupZeroActive + replZeroActive > 0)
+      reasons.push((backupZeroActive+replZeroActive)+' active job(s) hold backup data but do not enumerate VM membership — true coverage is higher than the count');
+    // A+ cross-check: does the estimate's job tally match the authoritative section?
+    // Compares COUNTS of backup/replica jobs seen vs the JOB TYPE COUNTS totals for the
+    // platforms that section covers (VMware + Hyper-V). A shortfall means the estimate
+    // missed jobs — a stronger reliability signal than the VM-count heuristics because
+    // the section is the collector's own count.
+    var jtc = D.jobTypeCounts;
+    if(jtc){
+      var authBackup = (jtc.VDDKBackup||0) + (jtc.BackupHV||0) + (jtc.BackupVMwareCloud||0);
+      var authReplica = (jtc.ReplicaVMware||0) + (jtc.ReplicaHV||0);
+      // Only compare where the section actually reports jobs (avoids false alarms on
+      // platforms it doesn't key). jobGFS is VMware+HV backup jobs; replicationList is
+      // all replica jobs.
+      if(authBackup>0 && D.jobGFS.length < authBackup)
+        reasons.push('estimate saw '+D.jobGFS.length+' backup job(s) but the log\u2019s authoritative Job counts report '+authBackup+' — coverage misses '+(authBackup-D.jobGFS.length)+' backup job(s)');
+      if(authReplica>0 && D.replicationList.length < authReplica)
+        reasons.push('estimate saw '+D.replicationList.length+' replica job(s) but the authoritative Job counts report '+authReplica+' — coverage misses '+(authReplica-D.replicationList.length)+' replica job(s)');
+      D.jobCountAuth = {backup:authBackup, replica:authReplica, seenBackup:D.jobGFS.length, seenReplica:D.replicationList.length};
+    }
+    D.coverageReasons = reasons;
+    D.coverageReliable = (reasons.length === 0);
+    // Floor/ceiling bracket the truth even when the point estimate is unreliable:
+    //  floor = VMs we can positively attribute, capped at infra (never over 100%).
+    //  ceil  = infra when any zero-enumeration job exists (could be fully covered),
+    //          else the capped combined figure.
+    D.coverageFloor = Math.min(combined, D.infraVMs);
+    D.coverageCeil  = (backupZeroActive + replZeroActive > 0) ? D.infraVMs : Math.min(combined, D.infraVMs);
+    if(D.coverageReliable){
+      var effProt = Math.min(combined, D.infraVMs);
+      D.unprotectedVMs = Math.max(0, D.infraVMs - effProt);
+      D.coveragePct = Math.round(effProt / D.infraVMs * 100);
+    } else {
+      // Withhold the point estimate; the tab/PDF explain why and show the range.
+      D.unprotectedVMs = null;
+      D.coveragePct = null;
+    }
   } else {
     D.unprotectedVMs = null;
     D.coveragePct = null;
@@ -3138,12 +3401,16 @@ function fN(n){return n.toLocaleString();}
           logGB:Math.round(vms/100*3*10)/10,
           bsRAMact:D.bsRAM,bsCPUact:D.bsCPU,vbr:D.vbr,vbrV13:VBR_V13,bpa:D.bpa||[],cur:D.cur,
           jobGFS:D.jobGFS||[],
-          infraVMs:D.infraVMs||0,protectedVMs:D.protectedVMs||0,agentProtected:D.agentProtected||0,unprotectedVMs:D.unprotectedVMs,coveragePct:D.coveragePct,collectionTime:D.collectionTime,
+          infraVMs:D.infraVMs||0,protectedVMs:D.protectedVMs||0,agentProtected:D.agentProtected||0,unprotectedVMs:D.unprotectedVMs,coveragePct:D.coveragePct,
+          replicaVMs:D.replicaVMs||0,combinedProtected:D.combinedProtected||0,coverageReliable:D.coverageReliable,coverageReasons:D.coverageReasons||[],coverageFloor:D.coverageFloor,coverageCeil:D.coverageCeil,jobCountAuth:D.jobCountAuth,
+          collectionTime:D.collectionTime,
           orphanedJobs:D.orphanedJobs||[],disabledJobCount:D.disabledJobCount||0,
           plugins:D.plugins||[],agentJobs:D.agentJobs,nasJobs:D.nasJobs,
           agentDetail:D.agentDetail||{epBackup:0,epAgentBackup:0,epPolicy:0,epMgmt:0,legacy:false,jobs:[]},
           jobRecords:D.jobRecords||[], jobsByType:D.jobsByType||[], agentRecon:D.agentRecon, licSockets:D.licSockets,
-          tapeServers:D.tapeServers,vmTapeJobs:D.vmTapeJobs,fileTapeJobs:D.fileTapeJobs,tapeJobs:D.tapeJobs,tapeLibraries:D.tapeLibraries,tapeDrives:D.tapeDrives,mediaPools:D.mediaPools,gfsMediaPools:D.gfsMediaPools,regularMediaPools:D.regularMediaPools,tapeLTO:D.tapeLTO,cdpPolicies:D.cdpPolicies,surebackup:D.surebackup,
+          tapeServers:D.tapeServers,vmTapeJobs:D.vmTapeJobs,fileTapeJobs:D.fileTapeJobs,tapeJobs:D.tapeJobs,tapeLibraries:D.tapeLibraries,tapeDrives:D.tapeDrives,mediaPools:D.mediaPools,gfsMediaPools:D.gfsMediaPools,regularMediaPools:D.regularMediaPools,tapeLTO:D.tapeLTO,
+          tapeEncOn:D.tapeEncOn,tapeEncOff:D.tapeEncOff,tapeManual:D.tapeManual,tapeScheduled:D.tapeScheduled,tapeNotifOn:D.tapeNotifOn,tapeNotifOff:D.tapeNotifOff,tapeCompVmOn:D.tapeCompVmOn,tapeCompFileOff:D.tapeCompFileOff,tapeCompOk:D.tapeCompOk,tapeCleaningRequired:D.tapeCleaningRequired,tapeCleaningTapes:D.tapeCleaningTapes,tapeAutoClean:D.tapeAutoClean,tapeVaults:D.tapeVaults,tapeWormTapes:D.tapeWormTapes,tapeOfflineTracking:D.tapeOfflineTracking,tapeFreeTapes:D.tapeFreeTapes,tapeDailyMediaSet:D.tapeDailyMediaSet,tapeProtectRetention:D.tapeProtectRetention,tapeParallelLimit:D.tapeParallelLimit,tapeGfsCountsSet:D.tapeGfsCountsSet,tapeMediaPoolList:D.tapeMediaPoolList,tapeTapesTotal:D.tapeTapesTotal,
+          cdpPolicies:D.cdpPolicies,surebackup:D.surebackup,
           sobrs:D.sobrs,sobrTiers:D.sobrTiers||[],replicationJobs:D.replicationJobs,
           veeamOne:D.veeamOne,inlineScan:D.inlineScan,yaraScan:D.yaraScan,
           backupWindow:D.backupWindow,licEdition:D.licEdition,licExpiry:D.licExpiry,
@@ -4173,8 +4440,8 @@ function render(d){
     // File/tape
     'FileCopy':       {label:'File Copy',            cat:'File',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'Copies files between hosts. Not a backup — no versioning or dedup. Use sparingly.',detail:'Simple file transfer between managed hosts. No versioning, dedup, or encryption. For backup use cases, use a proper backup job instead.'},
     'VeeamZip':       {label:'VeeamZIP',             cat:'File',        bp:'https://helpcenter.veeam.com/docs/vbr/userguide/veeamzip.html?ver=13', bpNote:'Ad-hoc compressed backups. Not recommended as primary backup method — no scheduling or policy.',detail:'Ad-hoc manual backup to a compressed VBK file. One-off use only. No retention policy, no scheduling, no automation. Should not be used as a primary backup method.'},
-    'FileTapeBackup': {label:'File to Tape',         cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'Archive files to tape for long-term retention. Verify tape hardware and media pool configuration.',detail:'Archive files or folders to tape for long-term retention. Uses media pools for tape rotation. Verify tape library connectivity and media availability regularly.'},
-    'VmTapeBackup':   {label:'VM to Tape',           cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'VM backups archived to tape. Consider using SOBR capacity/archive tier instead.',detail:'Copies existing VM backups to tape. Veeam reads from the backup repository and writes to tape. Consider SOBR Archive Tier (object storage) as a more manageable alternative.'},
+    'FileTapeBackup': {label:'File to Tape',         cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/file_to_tape_jobs.html', bpNote:'Archive files to tape for long-term retention. Verify tape hardware and media pool configuration.',detail:'Archive files or folders to tape for long-term retention. Uses media pools for tape rotation. Verify tape library connectivity and media availability regularly.'},
+    'VmTapeBackup':   {label:'VM to Tape',           cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_to_tape_jobs.html', bpNote:'VM backups archived to tape. Consider using SOBR capacity/archive tier instead.',detail:'Copies existing VM backups to tape. Veeam reads from the backup repository and writes to tape. Consider SOBR Archive Tier (object storage) as a more manageable alternative.'},
     // Config
     'ConfBackup':     {label:'Config Backup',        cat:'System',      bp:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html', bpNote:'CRITICAL: Must target a remote repository. Local config backup is lost if backup server fails.',detail:'Backs up the Veeam configuration database (SQL/PostgreSQL). If stored locally, the config is lost when the backup server fails — defeating its purpose. Target a network share or remote repo.'},
   };
@@ -4803,10 +5070,32 @@ function buildSettings(d){
   if(d.backupWindow!==null) row('Backup window schedule',d.backupWindow?'Enabled':'Disabled','Enabled — prevents backups from impacting business hours',d.backupWindow?'ok':'warn',d.backupWindow?'OK':'Enable backup window in Job → Schedule → Backup window');
   // Protection coverage (estimate) — only when infra VMs known and jobs exist
   var isProvS=d.cloudConnect&&d.cloudConnect.isProvider===true;
-  if(!isProvS && d.coveragePct!=null && d.infraVMs>0){
-    var covOk=d.coveragePct>=90;
-    var covDetail='~'+d.coveragePct+'% ('+Math.min(d.protectedVMs+d.agentProtected,d.infraVMs)+'/'+d.infraVMs+' VMs'+(d.agentProtected>0?', +'+d.agentProtected+' agent':'')+')';
-    row('Protection coverage (est.)',covDetail,'All infrastructure VMs in a backup job or agent policy',covOk?'ok':d.coveragePct<50?'crit':'warn',covOk?'OK — verify with Veeam ONE':'~'+d.unprotectedVMs+' VMs may be unprotected — verify and add to a job');
+  if(!isProvS && d.infraVMs>0 && (d.combinedProtected>0 || d.coveragePct!=null)){
+    // Combined protection: backup + replica + agent. When the estimate is unreliable
+    // (overshoot, or jobs that hold data but enumerate no VMs) the % is withheld and a
+    // range shown instead, rather than asserting a confidently-wrong number.
+    var covParts=[];
+    if(d.protectedVMs>0) covParts.push(d.protectedVMs+' backup');
+    if(d.replicaVMs>0)   covParts.push(d.replicaVMs+' replica');
+    if(d.agentProtected>0) covParts.push(d.agentProtected+' agent');
+    var covMix=covParts.length?' ('+covParts.join(' + ')+')':'';
+    if(d.coverageReliable && d.coveragePct!=null){
+      var covOk=d.coveragePct>=90;
+      row('Protection coverage (est.)','~'+d.coveragePct+'% of '+d.infraVMs+' VMs'+covMix,
+        'All infrastructure VMs protected by backup, replica or agent',
+        covOk?'ok':d.coveragePct<50?'crit':'warn',
+        covOk?'OK — verify with Veeam ONE':'~'+d.unprotectedVMs+' VM'+(d.unprotectedVMs===1?'':'s')+' may be unprotected — verify and add to a job');
+    } else {
+      // Unreliable: show the floor–ceiling range and the reason, severity 'i' (not a
+      // pass/fail — we genuinely can't tell), so no false green and no false alarm.
+      var rng = (d.coverageFloor!=null && d.coverageCeil!=null)
+        ? ('~'+Math.round(d.coverageFloor/d.infraVMs*100)+'–'+Math.round(d.coverageCeil/d.infraVMs*100)+'%')
+        : 'indeterminate';
+      row('Protection coverage (est.)',rng+' of '+d.infraVMs+' VMs'+covMix,
+        'All infrastructure VMs protected by backup, replica or agent',
+        'i',
+        'Can\u2019t be reliably estimated from this log \u2014 '+(d.coverageReasons[0]||'per-job VM counts are ambiguous')+'. Verify in Veeam ONE.');
+    }
   }
   if(d.disabledJobCount>0){
     row('Orphaned/disabled jobs',d.disabledJobCount+' job'+(d.disabledJobCount===1?'':'s'),'No disabled or empty jobs','warn',d.disabledJobCount+' job'+(d.disabledJobCount===1?'':'s')+' create no restore points — re-enable, assign VMs, or remove');
@@ -5091,17 +5380,30 @@ function buildFindings(d){
   // membership (a cluster/host added to a job) and jobs can overlap, so the
   // figure flags a gap to investigate rather than an exact unprotected count.
   // VCSP providers manage tenant data separately, so skip there.
-  if(!isProvider && d.coveragePct!=null && d.infraVMs>0){
-    if(d.unprotectedVMs>0 && d.coveragePct<90){
+  if(!isProvider && d.infraVMs>0 && (d.combinedProtected>0 || d.coveragePct!=null)){
+    var covMixF=[];
+    if(d.protectedVMs>0) covMixF.push('~'+d.protectedVMs+' by backup jobs');
+    if(d.replicaVMs>0)   covMixF.push('~'+d.replicaVMs+' by replica jobs');
+    if(d.agentProtected>0) covMixF.push('~'+d.agentProtected+' by agents');
+    var covMixStr=covMixF.length?covMixF.join(', '):'no protection counted';
+    if(!d.coverageReliable){
+      // Can't estimate reliably — surface it as an info finding with the reason and the
+      // range, so a replica-first or host-level estate is not mislabelled "unprotected".
+      var rngF=(d.coverageFloor!=null&&d.coverageCeil!=null)
+        ? ('~'+Math.round(d.coverageFloor/d.infraVMs*100)+'\u2013'+Math.round(d.coverageCeil/d.infraVMs*100)+'%') : 'indeterminate';
+      add('i','Protection coverage can\u2019t be reliably estimated ('+rngF+' of '+d.infraVMs+' VMs)',
+        'Infrastructure shows '+d.infraVMs+' VMs, protected as: '+covMixStr+'. '+(d.coverageReasons[0]||'Per-job VM counts are ambiguous')+'. Because of this the exact coverage percentage can\u2019t be trusted in either direction \u2014 a replica-first or host/cluster-level estate can look under-protected here when it is not, and overlapping jobs can look like 100% when they are not.',
+        'Run the Veeam ONE \u201CProtected VMs\u201D report for the authoritative list; treat the range above as indicative only.',
+        false,'https://helpcenter.veeam.com/docs/one/reporter/protected_vms.html');
+    } else if(d.unprotectedVMs>0 && d.coveragePct<90){
       var sev = d.coveragePct<50 ? 'crit' : 'warn';
-      var agentNote = d.agentProtected>0 ? ' (includes ~'+d.agentProtected+' agent-protected machine'+(d.agentProtected===1?'':'s')+')' : '';
       add(sev,'Potential unprotected VMs — ~'+d.coveragePct+'% estimated coverage',
-        'Infrastructure shows '+d.infraVMs+' VMs; backup jobs + agents account for ~'+Math.min(d.protectedVMs+d.agentProtected,d.infraVMs)+agentNote+'. An estimated '+d.unprotectedVMs+' VM'+(d.unprotectedVMs===1?'':'s')+' may have no backup. This is an estimate (jobs targeting whole hosts/clusters, overlapping jobs, and agent-vs-VM-job overlap all affect the count) — verify which VMs are actually uncovered.',
-        'Run the Veeam ONE "Protected VMs" report or check Inventory → VMs not in any job to get the exact list, then add genuinely unprotected VMs to a backup job or agent policy.',
+        'Infrastructure shows '+d.infraVMs+' VMs, protected as: '+covMixStr+'. An estimated '+d.unprotectedVMs+' VM'+(d.unprotectedVMs===1?'':'s')+' may have no protection of any kind. Counts still reflect job membership, so verify which VMs are actually uncovered.',
+        'Run the Veeam ONE \u201CProtected VMs\u201D report or check Inventory \u2192 VMs not in any job, then add genuinely unprotected VMs to a backup job, replica or agent policy.',
         false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html');
     } else if(d.unprotectedVMs===0){
-      add('ok','Backup job coverage looks complete',
-        'Backup jobs and agents account for all '+d.infraVMs+' discovered VMs (~100% estimated coverage'+(d.agentProtected>0?', including ~'+d.agentProtected+' agent-protected':'')+'). Verify with the Veeam ONE Protected VMs report.',
+      add('ok','Protection coverage looks complete',
+        'Backup, replica and agent protection account for all '+d.infraVMs+' discovered VMs (~100% estimated: '+covMixStr+'). Verify with the Veeam ONE Protected VMs report.',
         '',false,null);
     }
   }
@@ -5282,12 +5584,30 @@ function tapeCalc(d,gen,useComp){
           wk:wk,mo:mo,yr:yr};
 }
 
+// v2.1.01: resolve the LTO generation to size against — the drive detected in the log where
+// one was named, otherwise LTO-9 as before. Single source of truth for the tab and the PDF.
+function vaTapeGen(d){
+  var g=d&&d.tapeLTO;
+  return (g&&LTO_GENS[g])?g:'LTO-9';
+}
+
+// v2.1.01: the generation/compression actually in effect, preferring an explicit user choice
+// on the Tape tab and falling back to what was detected. exportPDF() reads this so the PDF
+// can never disagree with the screen.
+function vaTapeChoice(d){
+  if(window._vaTapeSel&&LTO_GENS[window._vaTapeSel.gen])return window._vaTapeSel;
+  return {gen:vaTapeGen(d),useComp:false};
+}
+
 // Re-render the tape numbers when the LTO generation / compression toggle changes.
 function recalcTape(){
   if(!window._lastTapeData)return;
   var d=window._lastTapeData;
-  var gen=document.getElementById('ltoGen')?document.getElementById('ltoGen').value:'LTO-9';
+  var gen=document.getElementById('ltoGen')?document.getElementById('ltoGen').value:vaTapeGen(d);
   var useComp=document.getElementById('ltoComp')?document.getElementById('ltoComp').checked:false;
+  // v2.1.01: persist the selection so the PDF export follows it. Previously recalcTape()
+  // only wrote to the DOM, so changing the generation on screen left the PDF on LTO-9.
+  window._vaTapeSel={gen:gen,useComp:useComp};
   var out=document.getElementById('tapeResult');
   if(out) out.innerHTML=tapeResultHTML(tapeCalc(d,gen,useComp));
 }
@@ -5314,15 +5634,130 @@ function tapeResultHTML(t){
   return h;
 }
 
+// ── v2.1.01 (leg 4): tape best-practice checks ────────────────────────────────
+// Returns scored rows {name, cur, rec, sev} for the Tape tab's dynamic BP table.
+// Each check is emitted only when the log carries the fields it needs, so a partial
+// collection yields fewer rows rather than misleading ones. Severity vocabulary is
+// the BP-table convention: 'ok' (Pass), 'warn' (Warning), 'c' (Critical), 'i' (Info).
+function tapeBPChecks(d){
+  var out=[];
+  var jobs=(d.tapeJobs||0);
+  if(!jobs && !(d.tapeServers>0)) return out;   // no tape estate — nothing to score
+
+  // 1. Drive cleaning
+  if(d.tapeCleaningRequired!=null){
+    if(d.tapeCleaningRequired){
+      var noTapes=(d.tapeCleaningTapes===0), noAuto=(d.tapeAutoClean===false);
+      out.push({name:'Drive cleaning',
+        cur:'Cleaning required'+(noTapes?', 0 cleaning tapes':'')+(noAuto?', auto-clean off':''),
+        rec:'Load a cleaning tape and clean the drive; enable auto-cleaning so it is handled unattended.',
+        sev:(noTapes&&noAuto)?'c':'warn'});
+    } else {
+      out.push({name:'Drive cleaning',cur:'Not required',rec:'Drive reports clean; keep a cleaning tape available.',sev:'ok'});
+    }
+  }
+
+  // 2. Job encryption
+  if((d.tapeEncOn+d.tapeEncOff)>0){
+    var encOff=d.tapeEncOff||0;
+    out.push({name:'Tape encryption',
+      cur:encOff===0?('All '+d.tapeEncOn+' job(s) encrypted'):(encOff+' of '+(d.tapeEncOn+d.tapeEncOff)+' job(s) unencrypted'),
+      rec:'Enable encryption on tape jobs — tapes leave site and are the most likely media to be lost or stolen.',
+      sev:encOff===0?'ok':'c'});
+  }
+
+  // 3. Air gap / vault
+  if(d.tapeVaults!=null || d.tapeOfflineTracking!=null){
+    var hasVault=(d.tapeVaults>0), track=(d.tapeOfflineTracking===true);
+    out.push({name:'Air gap / offline media',
+      cur:hasVault?(d.tapeVaults+' vault(s) configured'):(track?'Offline media tracking on, no vault':'No vault, offline tracking off'),
+      rec:'Define a tape vault and enable offline media tracking so exported tapes are a true air-gapped copy.',
+      sev:hasVault?'ok':(track?'warn':'c')});
+  }
+
+  // 4. Free media headroom
+  if(d.tapeFreeTapes!=null){
+    var free=d.tapeFreeTapes, tight=(d.tapeDailyMediaSet&&d.tapeProtectRetention);
+    var sev = free<3 ? (tight?'c':'warn') : (free<8?'warn':'ok');
+    out.push({name:'Free media headroom',
+      cur:free+' free tape(s)'+(tight?' (daily media sets, Protect retention)':''),
+      rec:'Keep enough free tapes for the next media sets; daily media sets with Protect retention consume tapes quickly.',
+      sev:sev});
+  }
+
+  // 5. Manual vs scheduled jobs
+  if((d.tapeManual+d.tapeScheduled)>0){
+    var man=d.tapeManual||0, tot=d.tapeManual+d.tapeScheduled;
+    out.push({name:'Job scheduling',
+      cur:man===0?('All '+tot+' job(s) scheduled'):(man+' of '+tot+' run manually'),
+      rec:'Schedule tape jobs — manual jobs depend on someone remembering and are easily missed.',
+      sev:man===0?'ok':(man===tot?'c':'warn')});
+  }
+
+  // 6. Notifications
+  if((d.tapeNotifOn+d.tapeNotifOff)>0){
+    var off=d.tapeNotifOff||0, tt=d.tapeNotifOn+d.tapeNotifOff;
+    out.push({name:'Job notifications',
+      cur:off===0?('All '+tt+' job(s) notify'):(off+' of '+tt+' have notifications off'),
+      rec:'Enable failure notifications on tape jobs so a missed or failed run is visible.',
+      sev:off===0?'ok':(off===tt?'c':'warn')});
+  }
+
+  // 7. WORM media
+  if(d.tapeWormTapes!=null){
+    var worm=d.tapeWormTapes>0, needLong=(d.gfsMediaPools>0)||d.tapeGfsCountsSet;
+    out.push({name:'WORM media',
+      cur:worm?(d.tapeWormTapes+' WORM tape(s)'):'No WORM tapes',
+      rec:'For immutable long-term retention, use WORM tapes so archived data cannot be overwritten.',
+      sev:worm?'ok':(needLong?'warn':'i')});
+  }
+
+  // 8. Parallel drives vs physical
+  if(d.tapeParallelLimit!=null && d.tapeDrives!=null){
+    var over=(d.tapeParallelLimit>d.tapeDrives);
+    out.push({name:'Parallel processing',
+      cur:d.tapeParallelLimit+' parallel drive(s) requested, '+d.tapeDrives+' physical',
+      rec:'Set parallel drive limits at or below the number of physical drives; excess is queued, not gained.',
+      sev:over?'warn':'ok'});
+  }
+
+  // 9. GFS on tape
+  if(jobs>0){
+    var gfsPool=(d.gfsMediaPools>0), gfsCounts=d.tapeGfsCountsSet;
+    out.push({name:'GFS on tape',
+      cur:gfsPool?('GFS media pool present'+(gfsCounts?', retention set':'')):(gfsCounts?'GFS counts set, no GFS pool':'No GFS media pool'),
+      rec:'Use a GFS media pool with weekly/monthly/yearly (and quarterly) media sets for long-term tape retention.',
+      sev:(gfsPool&&gfsCounts)?'ok':'warn'});
+  }
+
+  // 10. Hardware compression by job type
+  var cmpTotal=d.tapeCompOk+d.tapeCompVmOn+d.tapeCompFileOff;
+  if(cmpTotal>0){
+    var bad=d.tapeCompVmOn+d.tapeCompFileOff;
+    out.push({name:'Hardware compression',
+      cur:bad===0?'Correct for every job type':(bad+' job(s) misconfigured'
+        +(d.tapeCompVmOn?' ('+d.tapeCompVmOn+' image job with compression on)':'')
+        +(d.tapeCompFileOff?' ('+d.tapeCompFileOff+' file job with compression off)':'')),
+      rec:'Disable hardware compression for image backups (already compressed); enable it for file-to-tape.',
+      sev:bad===0?'ok':'warn'});
+  }
+
+  return out;
+}
+
 function tapeTab(d){
   // ── TAB 12: TAPE — sizing a single GFS tape job + best-practice config ──────
   var h='<div>';
+  // v2.1.01: drop any generation chosen against a previous log so a fresh import starts
+  // from what that log actually reports.
+  if(window._lastTapeData!==d)window._vaTapeSel=null;
   window._lastTapeData=d;   // for recalcTape() on dropdown change
 
   h+='<div class="nt ni" style="margin-bottom:16px">&#8505; Estimates the tapes needed to archive this environment to a <b>single GFS tape job</b>, and lists best-practice configuration. Sizing uses the source data and GFS retention parsed from the VMC.log. Figures are planning estimates &mdash; validate against your actual backup sizes.</div>';
 
   // ── Existing tape configuration detected in the log ─────────────────────
   var hasTape = (d.tapeServers>0) || (d.tapeJobs>0);
+  var hasMedia = (d.tapeMediaPoolList && d.tapeMediaPoolList.length>0) || (d.tapeTapesTotal>0);
   if(d.fromLog){
     if(hasTape){
       h+='<div class="nt nok" style="margin-bottom:14px">&#10003; <b>Tape infrastructure detected in this environment.</b> The figures below can be compared against your existing setup.</div>';
@@ -5351,8 +5786,33 @@ function tapeTab(d){
       if(d.tapeJobs>1){
         h+='<div class="nt ni" style="margin-bottom:14px">&#8505; This environment already runs <b>'+d.tapeJobs+' tape job'+(d.tapeJobs===1?'':'s')+'</b> ('+(d.vmTapeJobs||0)+' VM-to-tape, '+(d.fileTapeJobs||0)+' file-to-tape). Best practice favours consolidating onto a <b>single GFS tape job</b> per retention requirement where possible &mdash; fewer jobs are simpler to manage and to rotate media for.</div>';
       }
+    } else if(hasMedia){
+      // v2.1.01: media exists (pools / tapes) but no tape server and no tape job — a
+      // decommissioned or imported tape estate. Report it rather than saying "no tape".
+      h+='<div class="nt nw" style="margin-bottom:14px">&#9888; <b>Tape media present, but no active tape backup.</b> This environment has tape media pools and cartridges recorded, but <b>no tape server, tape library/drive, or tape backup job</b> is configured. Typically this means a tape setup was decommissioned, or media was imported/catalogued from another system. Nothing is currently being written to tape.</div>';
     } else {
-      h+='<div class="nt nw" style="margin-bottom:14px">&#9888; <b>No tape infrastructure detected</b> in this environment (no tape server or tape jobs found in the log). The sizing below is a planning estimate for <b>adding</b> a GFS tape job.</div>';
+      h+='<div class="nt nw" style="margin-bottom:14px">&#9888; <b>No tape infrastructure detected</b> in this environment (no tape server, tape media, or tape jobs found in the log). Any sizing below is a <b>hypothetical planning estimate</b> for adding a GFS tape job &mdash; there is nothing on tape to compare it against.</div>';
+    }
+
+    // v2.1.01: media pool / cartridge inventory — shown whenever any pool exists, so
+    // orphaned or imported media is never silently dropped. "show everything".
+    if(hasMedia && d.tapeMediaPoolList && d.tapeMediaPoolList.length){
+      var TiB=1099511627776;
+      var totT=0, totCap=0, totRem=0;
+      d.tapeMediaPoolList.forEach(function(p){ totT+=p.tapes; totCap+=p.capacity; totRem+=p.remaining; });
+      h+='<h3 style="font-size:13px;font-weight:700;margin:16px 0 8px">Media pool inventory <span style="font-weight:400;font-size:11px;color:var(--tx3)">('+d.tapeMediaPoolList.length+' pool'+(d.tapeMediaPoolList.length===1?'':'s')+', '+totT+' cartridge'+(totT===1?'':'s')+')</span></h3>';
+      h+='<div class="tw" style="margin-bottom:6px"><table><tr><th>Pool type</th><th>Tapes</th><th>Capacity</th><th>Remaining</th><th>Used</th></tr>';
+      d.tapeMediaPoolList.forEach(function(p){
+        var used=p.capacity>0?Math.round((p.capacity-p.remaining)/p.capacity*100):0;
+        h+='<tr><td style="font-weight:500">'+esc(p.type)+'</td><td>'+p.tapes+'</td><td>'+(p.capacity>0?(p.capacity/TiB).toFixed(1)+' TiB':'&mdash;')+'</td><td>'+(p.capacity>0?(p.remaining/TiB).toFixed(1)+' TiB':'&mdash;')+'</td><td>'+(p.capacity>0?used+'%':'&mdash;')+'</td></tr>';
+      });
+      h+='<tr style="font-weight:700;border-top:2px solid var(--bd2)"><td>Total</td><td>'+totT+'</td><td>'+(totCap/TiB).toFixed(1)+' TiB</td><td>'+(totRem/TiB).toFixed(1)+' TiB</td><td>'+(totCap>0?Math.round((totCap-totRem)/totCap*100):0)+'%</td></tr>';
+      h+='</table></div>';
+      // Idle / non-standard media flags.
+      var idleTypes=d.tapeMediaPoolList.filter(function(p){ return /^(Retired|Imported|Unrecognized|Unrecognised|Free)$/i.test(p.type) && p.tapes>0; });
+      if(!hasTape && idleTypes.length){
+        h+='<div class="nt ni" style="margin-bottom:14px;font-size:11px">&#8505; With no active tape job, these cartridges are idle. <b>Imported</b> / <b>Unrecognized</b> media has been catalogued from outside this server; <b>Retired</b> media is retained for restore only. Consider whether this media should be exported, erased and returned to a Free pool, or securely disposed of &mdash; and whether the restore data it holds is still required.</div>';
+      }
     }
   }
 
@@ -5362,22 +5822,58 @@ function tapeTab(d){
     // LTO generation selector + compression toggle
     h+='<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:12px 14px;background:var(--bg2);border-radius:8px">';
     h+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Tape generation</label>';
+    // v2.1.01: default to the generation actually detected in the log, not a fixed LTO-9.
+    // vaTapeGen() falls back to LTO-9 when the drive model does not name a generation.
+    var _gen=vaTapeGen(d);
     h+='<select id="ltoGen" onchange="recalcTape()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--bd2);font-size:13px">';
-    h+='<option value="LTO-7">LTO-7 (6 TB native)</option>';
-    h+='<option value="LTO-8">LTO-8 (12 TB native)</option>';
-    h+='<option value="LTO-9" selected>LTO-9 (18 TB native)</option>';
-    h+='</select></div>';
+    h+='<option value="LTO-7"'+(_gen==='LTO-7'?' selected':'')+'>LTO-7 (6 TB native)</option>';
+    h+='<option value="LTO-8"'+(_gen==='LTO-8'?' selected':'')+'>LTO-8 (12 TB native)</option>';
+    h+='<option value="LTO-9"'+(_gen==='LTO-9'?' selected':'')+'>LTO-9 (18 TB native)</option>';
+    h+='</select>';
+    if(d.tapeLTO&&LTO_GENS[_gen])h+='<div style="font-size:11px;color:var(--tx3);margin-top:4px">Detected from log: '+esc(d.tapeLTO)+'</div>';
+    h+='</div>';
     h+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Capacity basis</label>';
     h+='<label style="font-size:13px;display:flex;align-items:center;gap:6px;padding-top:5px"><input type="checkbox" id="ltoComp" onchange="recalcTape()"> Use compressed capacity</label></div>';
     h+='<div style="flex:1;min-width:200px;font-size:11px;color:var(--tx2)">For Veeam image backups, keep this <b>unchecked</b> &mdash; backups are already compressed, so tape hardware compression adds ~0. Only use compressed capacity for file-to-tape jobs.</div>';
     h+='</div>';
 
+    // v2.1.01: when there is no tape server and no tape job, label the estimate as
+    // hypothetical so it is not mistaken for a finding about existing tape.
+    if(!hasTape){
+      h+='<div class="nt ni" style="margin-bottom:12px;font-size:11px">&#8505; <b>Hypothetical.</b> No tape backup job exists in this environment. The figures below estimate what archiving this data to a <b>new</b> single GFS tape job would require &mdash; they describe a proposed setup, not something currently running.</div>';
+    }
+
     // Result (recalculated on change)
-    h+='<div id="tapeResult">'+tapeResultHTML(tapeCalc(d,'LTO-9',false))+'</div>';
+    h+='<div id="tapeResult">'+tapeResultHTML(tapeCalc(d,_gen,false))+'</div>';
   }
 
-  // Best-practice config for a single GFS tape job (always shown)
-  h+='<h3 style="font-size:13px;font-weight:700;margin:18px 0 8px">Single GFS tape job &mdash; best-practice configuration</h3>';
+  // ── v2.1.01 (leg 4): dynamic, scored tape best-practice checks ───────────────
+  // Reads the actual configuration from the log and scores it, instead of showing
+  // fixed generic advice. Severity vocabulary matches the other BP tables
+  // ('ok' / 'warn' / 'c' / 'i'); scoring is Tape-tab-local and does not (yet) roll
+  // into the overall Best Practice score. Rows only appear where the log carries the
+  // relevant fields, so a partial collection degrades to fewer checks, not wrong ones.
+  var checks=tapeBPChecks(d);
+  if(checks.length){
+    var nC=checks.filter(function(c){return c.sev==='c';}).length;
+    var nW=checks.filter(function(c){return c.sev==='warn';}).length;
+    var nP=checks.filter(function(c){return c.sev==='ok';}).length;
+    h+='<h3 style="font-size:13px;font-weight:700;margin:18px 0 8px">Tape best-practice checks '+
+       '<span style="font-weight:400;font-size:11px;color:var(--tx3)">('+nP+' pass &middot; '+nW+' warning &middot; '+nC+' critical &mdash; from this log)</span></h3>';
+    h+='<div class="tw" style="margin-bottom:6px"><table><tr><th>BP Check</th><th>Current</th><th>Recommendation</th><th>Status</th></tr>';
+    checks.forEach(function(c){
+      var bs=c.sev==='ok'?'bok':c.sev==='warn'?'bwn':c.sev==='c'?'bcr':'bin';
+      var bl=c.sev==='ok'?'Pass':c.sev==='warn'?'Warning':c.sev==='c'?'Critical':'Info';
+      var rowCls=c.sev==='warn'?'bp-warn':c.sev==='c'?'bp-crit':'bp-ok';
+      var curCls=c.sev==='ok'?'val-ok':c.sev==='warn'?'val-warn':c.sev==='c'?'val-crit':'';
+      h+='<tr class="'+rowCls+'"><td style="font-weight:500">'+c.name+'</td><td class="'+curCls+'">'+c.cur+'</td><td style="font-size:12px;color:var(--tx2)">'+c.rec+'</td><td><span class="'+bs+'">'+bl+'</span></td></tr>';
+    });
+    h+='</table></div>';
+    h+='<div class="nt ni" style="margin-bottom:14px;font-size:11px">&#8505; Scored from the fields present in this VMC.log. These checks are shown on the Tape tab and are not yet folded into the overall Best Practice score.</div>';
+  }
+
+  // Generic single-GFS-tape-job guidance (reference — always shown, not scored)
+  h+='<h3 style="font-size:13px;font-weight:700;margin:18px 0 8px">Single GFS tape job &mdash; best-practice configuration <span style="font-weight:400;font-size:11px;color:var(--tx3)">(reference)</span></h3>';
   h+='<div class="tw" style="margin-bottom:6px"><table>';
   h+='<tr><th>Setting</th><th>Recommendation</th><th>Why</th></tr>';
   h+='<tr><td>Job source</td><td>Point the tape job at the <b>backup repository / SOBR</b>, not directly at production</td><td>Tape reads from existing restore points; avoids re-reading production VMs.</td></tr>';
@@ -5748,6 +6244,42 @@ function buildMapSvg(m){
       svg+='</g>';
     });
   }
+  // v2.1.01 (leg 3): tape terminus. A single node representing the tape estate, with
+  // an edge from each repository that feeds a VM-to-tape job. Edges are solid when the
+  // source jobs came from the MapCapture (ground truth) and dashed when inferred from a
+  // lone VM-to-tape job. File-to-tape is noted on the node as a separate ingress.
+  var tp2=m.tape;
+  if(tp2 && tp2.present){
+    var feed=Object.keys(tp2.feedRepos||{}).filter(function(rid){ return pos[rid]; });
+    // Place the tape node centred vertically on the right margin, below the last column.
+    var txp=W-PAD-BW;
+    var tyc=Math.min(H-BH-PAD, Math.max(PAD, H/2 - BH/2));
+    var tapePos={x:txp, y:tyc};
+    var tstroke = tp2.fromCapture ? 'var(--ad)' : 'var(--tx2)';
+    var dash = tp2.inferredEdges ? ' stroke-dasharray="5 4"' : '';
+    // edges repo -> tape
+    feed.forEach(function(rid){
+      var rp=pos[rid]; if(!rp) return;
+      var x1=rp.x+BW, y1=rp.y+BH/2, x2=tapePos.x, y2=tapePos.y+BH/2;
+      var mx=(x1+x2)/2;
+      svg+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2+'" fill="none" stroke="'+tstroke+'" stroke-width="1.4"'+dash+' marker-end="url(#bmArrow)" opacity="0.85"/>';
+    });
+    var tTitle = 'Tape archive tier. '
+      + tp2.vmJobs+' VM-to-tape job'+(tp2.vmJobs===1?'':'s')
+      + (tp2.fileJobs?(' + '+tp2.fileJobs+' file-to-tape job'+(tp2.fileJobs===1?'':'s')):'')
+      + '. '+(tp2.fromCapture
+          ? 'Source jobs resolved from the PowerShell capture.'
+          : (tp2.inferredEdges
+              ? 'Repository edge INFERRED from a single VM-to-tape job — run MapCapture.ps1 to confirm the source jobs.'
+              : 'Source jobs from the log.'))
+      + (tp2.fileJobs?' File-to-tape jobs source from files, not a repository (separate ingress).':'');
+    svg+='<g><title>'+esc(tTitle)+'</title>';
+    svg+='<rect x="'+tapePos.x+'" y="'+tapePos.y+'" width="'+BW+'" height="'+BH+'" rx="7" fill="var(--bg2)" stroke="'+tstroke+'" stroke-width="1.8"'+dash+'/>';
+    svg+='<text x="'+(tapePos.x+10)+'" y="'+(tapePos.y+18)+'" font-size="11" font-weight="700" fill="'+tstroke+'">'+esc('\uD83D\uDCFC Tape archive')+'</text>';
+    svg+='<text x="'+(tapePos.x+10)+'" y="'+(tapePos.y+32)+'" font-size="9" fill="var(--tx3)">'+esc(tp2.fromCapture?'source jobs from capture':(tp2.inferredEdges?'edge inferred — see capture':'from log'))+'</text>';
+    svg+='<text x="'+(tapePos.x+10)+'" y="'+(tapePos.y+BH-12)+'" font-size="10" fill="var(--tx2)">'+esc(clip(tp2.vmJobs+' VM'+(tp2.fileJobs?' + '+tp2.fileJobs+' file':'')+' \u2192 tape', partChars))+'</text>';
+    svg+='</g>';
+  }
   svg+='</svg>';
 
   var lg='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--tx2);margin:8px 0 4px">';
@@ -6074,7 +6606,13 @@ function mapTab(d){
   if(m.cycles) h+=nt('i','&#128279; <b>'+m.cycles+' return copy flow'+(m.cycles===1?'':'s')+'</b> detected — a repository both sends and receives backup copies. Shown as a dashed amber arrow. This is valid (bi-directional DR pairing) but worth confirming it is intentional.');
   if(m.unresolvedSrc) h+=nt('i','&#128279; <b>'+m.unresolvedSrc+' backup copy source reference'+(m.unresolvedSrc===1?'':'s')+' could not be resolved.</b> The copy job names source jobs that this log never enumerates, so those arrows cannot be drawn. The copy job itself is shown against its target repository.');
   if(m.noTarget.length) h+=nt('i','&#128279; '+m.noTarget.length+' job'+(m.noTarget.length===1?'':'s')+' declare no target repository ('+m.noTarget.slice(0,4).map(function(j){return esc(j.type);}).join(', ')+'). Veeam records 00000000-… when a destination is unset.');
-  if(m.tapeJobs) h+=nt('i','&#128279; '+m.tapeJobs+' tape job'+(m.tapeJobs===1?'':'s')+' excluded — tape jobs target media pools, not repositories.');
+  if(m.tape && m.tape.present){
+    var _tn='&#128191; '+m.tape.vmJobs+' VM-to-tape'+(m.tape.fileJobs?' + '+m.tape.fileJobs+' file-to-tape':'')+' job'+((m.tape.vmJobs+m.tape.fileJobs)===1?'':'s')+' shown as a tape archive tier. ';
+    if(m.tape.fromCapture) _tn+='Repository&rarr;tape edges resolved from the PowerShell capture.';
+    else if(m.tape.inferredEdges) _tn+='Repository&rarr;tape edge is <b>inferred</b> from a single VM-to-tape job &mdash; run MapCapture.ps1 to confirm the source jobs. File-to-tape jobs source from files, not a repository.';
+    else _tn+='Source repositories taken from the log.';
+    h+=nt(m.tape.inferredEdges?'warn':'i', _tn);
+  }
   h+=bpRef('https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_repositories/','Repository design — bp.veeam.com');
   h+='</div>';
   return h;
@@ -6396,7 +6934,7 @@ function _exportPDFNow(){
   // ── PAGE 1: Summary & sizing ──────────────────────────────────────────
   h += '<div class="pdf-page">';
   h += '<div class="pdf-h1">Veeam Sizing Advisor — Report</div>';
-  h += '<div class="pdf-meta">Veeam Advisor v2.0 &nbsp;|&nbsp; Feedback &amp; Bug Fix Requests: jason@cheekylittlemoney.net</div>';
+  h += '<div class="pdf-meta">Veeam Advisor v2.1.01 &nbsp;|&nbsp; Feedback &amp; Bug Fix Requests: jason@cheekylittlemoney.net</div>';
   h += '<div class="pdf-meta">Generated: '+now+(serverLabel?' &nbsp;|&nbsp; Server: '+esc(serverLabel):'')+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+esc(d.collectionTime):'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+esc(d.vbr)+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
   h += '<div class="pdf-meta" style="font-size:9px">Veeam Advisor &mdash; Created by Jason Orchard &middot; &copy; 2026 Jason Orchard. All Rights Reserved. Proprietary and confidential.</div>';
   h += '<div style="background:#fef2e0;border:1px solid #f89000;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:10px;line-height:1.5;color:#a05030">'
@@ -6487,12 +7025,15 @@ function _exportPDFNow(){
     h += '</table>';
   }
 
-  // Tape capacity estimate (v1.1.0) — single GFS tape job, native LTO-9
+  // Tape capacity estimate (v1.1.0) — single GFS tape job.
+  // v2.1.01: was hardcoded to native LTO-9. It now follows the generation detected in the
+  // log, or the operator's choice on the Tape tab, so the PDF cannot contradict the screen.
   if(d.dataTB>0){
-    var tp=tapeCalc(d,'LTO-9',false);
+    var _tc=vaTapeChoice(d);
+    var tp=tapeCalc(d,_tc.gen,_tc.useComp);
     h += '<div class="pdf-h2">Tape capacity estimate &mdash; single GFS tape job</div>';
     h += '<div class="pdf-grid">';
-    h += pdfStat(tp.tapes+' &times;','LTO-9 tapes / copy');
+    h += pdfStat(tp.tapes+' &times;',tp.gen+' tapes / copy');
     h += pdfStat(tp.totalTB.toFixed(1)+' TB','Total tape data');
     h += pdfStat(tp.fulls,'Full points (GFS+active)');
     h += pdfStat(tp.cap+' TB','Per-tape (native)');
@@ -6502,9 +7043,43 @@ function _exportPDFNow(){
     h += '<tr><td>Daily increments ('+tp.dailies+'-day retention)</td><td>'+tp.dailies+'</td><td>'+tp.incrTB.toFixed(2)+' TB</td><td><b>'+(tp.dailies*tp.incrTB).toFixed(1)+' TB</b></td></tr>';
     h += '<tr style="background:#e3f1e3"><td><b>Total to tape</b></td><td>&mdash;</td><td>&mdash;</td><td><b>'+tp.totalTB.toFixed(1)+' TB</b></td></tr>';
     h += '<tr><td>Usable per tape (after ~10% End-of-Media)</td><td>&mdash;</td><td>&mdash;</td><td>'+tp.effCap.toFixed(1)+' TB</td></tr>';
-    h += '<tr style="background:#e3f1e3"><td><b>Tapes required (per copy)</b></td><td>&mdash;</td><td>&mdash;</td><td><b>'+tp.tapes+' &times; LTO-9</b></td></tr>';
+    h += '<tr style="background:#e3f1e3"><td><b>Tapes required (per copy)</b></td><td>&mdash;</td><td>&mdash;</td><td><b>'+tp.tapes+' &times; '+tp.gen+'</b></td></tr>';
     h += '</table>';
-    h += '<p style="font-size:9px;color:#777;margin-top:4px">Planning estimate: source data &times;50% per full, ~10% daily change, native LTO-9 capacity (Veeam image backups are pre-compressed). Switch generation / compression on the on-screen Tape tab. Validate against actual backup sizes.</p>';
+    h += '<p style="font-size:9px;color:#777;margin-top:4px">Planning estimate: source data &times;50% per full, ~10% daily change, '+(tp.useComp?'compressed':'native')+' '+tp.gen+' capacity'+(d.tapeLTO?' (drive detected in log: '+esc(d.tapeLTO)+')':'')+'. Veeam image backups are pre-compressed. Switch generation / compression on the on-screen Tape tab. Validate against actual backup sizes.</p>';
+  }
+
+  // v2.1.01: media pool / cartridge inventory in the PDF (shown when any pool exists)
+  if(d.tapeMediaPoolList && d.tapeMediaPoolList.length){
+    var _T=1099511627776, _tt=0,_tcap=0,_trem=0;
+    d.tapeMediaPoolList.forEach(function(p){ _tt+=p.tapes; _tcap+=p.capacity; _trem+=p.remaining; });
+    var _hasTapeInfra=(d.tapeServers>0)||(d.tapeJobs>0);
+    h += '<div class="pdf-h2">Tape media pool inventory &mdash; '+d.tapeMediaPoolList.length+' pool'+(d.tapeMediaPoolList.length===1?'':'s')+', '+_tt+' cartridge'+(_tt===1?'':'s')+'</div>';
+    if(!_hasTapeInfra) h += '<p style="color:#8a6d00;font-weight:600;font-size:11px;margin-bottom:6px">&#9888; Media present but no active tape backup job, server or drive &mdash; idle / imported / retired media.</p>';
+    h += '<table class="pdf-tbl"><tr><th>Pool type</th><th>Tapes</th><th>Capacity</th><th>Remaining</th><th>Used</th></tr>';
+    d.tapeMediaPoolList.forEach(function(p){
+      var u=p.capacity>0?Math.round((p.capacity-p.remaining)/p.capacity*100):0;
+      h += '<tr><td>'+esc(p.type)+'</td><td>'+p.tapes+'</td><td>'+(p.capacity>0?(p.capacity/_T).toFixed(1)+' TiB':'—')+'</td><td>'+(p.capacity>0?(p.remaining/_T).toFixed(1)+' TiB':'—')+'</td><td>'+(p.capacity>0?u+'%':'—')+'</td></tr>';
+    });
+    h += '<tr style="font-weight:700"><td>Total</td><td>'+_tt+'</td><td>'+(_tcap/_T).toFixed(1)+' TiB</td><td>'+(_trem/_T).toFixed(1)+' TiB</td><td>'+(_tcap>0?Math.round((_tcap-_trem)/_tcap*100):0)+'%</td></tr>';
+    h += '</table>';
+  }
+
+  // v2.1.01 (leg 4): scored tape best-practice checks
+  var _tchecks = (typeof tapeBPChecks==='function') ? tapeBPChecks(d) : [];
+  if(_tchecks.length){
+    var _tc = _tchecks.filter(function(c){return c.sev==='c';}).length;
+    var _tw = _tchecks.filter(function(c){return c.sev==='warn';}).length;
+    var _tp = _tchecks.filter(function(c){return c.sev==='ok';}).length;
+    h += '<div class="pdf-h2">Tape best-practice checks &mdash; '+_tp+' pass, '+_tw+' warning, '+_tc+' critical</div>';
+    h += '<table class="pdf-tbl"><tr><th>Check</th><th>Current</th><th>Recommendation</th><th>Status</th></tr>';
+    _tchecks.forEach(function(c){
+      var lab=c.sev==='ok'?'Pass':c.sev==='warn'?'Warning':c.sev==='c'?'Critical':'Info';
+      var st=c.sev==='c'?'color:#b00020;font-weight:700':c.sev==='warn'?'color:#8a6d00;font-weight:600':c.sev==='ok'?'color:#1a7f37':'';
+      var bg=c.sev==='c'?'background:#fdecea;':c.sev==='warn'?'background:#fef7e0;':'';
+      h += '<tr style="'+bg+'"><td><b>'+c.name+'</b></td><td>'+c.cur+'</td><td style="font-size:10px">'+c.rec+'</td><td style="'+st+'">'+lab+'</td></tr>';
+    });
+    h += '</table>';
+    h += '<p style="font-size:9px;color:#777;margin-top:4px">Scored from the fields present in this log. Tape-tab-local &mdash; not folded into the overall Best Practice score.</p>';
   }
 
   // Per-job retention
