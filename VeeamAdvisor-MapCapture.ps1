@@ -423,6 +423,69 @@ foreach ($p in $providers) {
     Emit ("    Replica resources : " + (Try-Get { ($p.ReplicaResources | Measure-Object).Count }))
 }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+Section "6. TAPE  (VMC.log gives GUIDs + source COUNTS only; the source job GUIDs live here)"
+
+# The map's tape edge needs the source backup-job GUIDs behind each VM-to-tape job.
+# VMC.log records SourceBackupJobsCount (a number), never the GUIDs, so a repo->tape
+# edge cannot be drawn from the log alone once more than one VM-to-tape job exists.
+# This section resolves them, plus the media pool / library / drive / server names
+# the tab otherwise shows only as GUIDs.
+
+$tapeJobs = Try-List { Get-VBRTapeJob } 'Get-VBRTapeJob'
+Emit "Tape jobs: $($tapeJobs.Count)"
+foreach ($tj in $tapeJobs) {
+    Emit ""
+    Emit "  Tape job '$($tj.Name)'  Id: $($tj.Id)"
+    Emit ("    Type            : " + (Try-Get { $tj.Type }))
+    Emit ("    GFS media pool  : " + (Try-Get { $tj.FullBackupMediaPool.Name }))
+    Emit ("    Incr media pool : " + (Try-Get { $tj.IncrementalBackupMediaPool.Name }))
+    W  "    --- source objects (the GUIDs VMC.log omits) ---"
+    # VM-to-tape sources are backup jobs; file-to-tape sources are file/NAS objects.
+    $srcJobs = Try-Get { $tj.Object }
+    if ("$srcJobs" -like 'n/a*') { $srcJobs = Try-Get { $tj.GetObject() } }
+    if ("$srcJobs" -like 'n/a*') { $srcJobs = Try-Get { $tj.BackupJob } }
+    if ("$srcJobs" -like 'n/a*') { Emit "      (no Object/GetObject/BackupJob property -- see Section 0 dump)" }
+    else {
+        foreach ($s in $srcJobs) {
+            Emit ("      {0,-38} {1}" -f (Try-Get { $s.Id }), (Try-Get { $s.Name }))
+        }
+    }
+}
+
+Emit ""
+$mediaPools = Try-List { Get-VBRTapeMediaPool } 'Get-VBRTapeMediaPool'
+Emit "Tape media pools: $($mediaPools.Count)"
+foreach ($mp in $mediaPools) {
+    Emit ("  {0,-38} {1,-12} {2}" -f (Try-Get { $mp.Id }), (Try-Get { $mp.Type }), (Try-Get { $mp.Name }))
+}
+
+Emit ""
+$libraries = Try-List { Get-VBRTapeLibrary } 'Get-VBRTapeLibrary'
+Emit "Tape libraries: $($libraries.Count)"
+foreach ($lib in $libraries) {
+    Emit ("  {0,-38} {1}" -f (Try-Get { $lib.Id }), (Try-Get { $lib.Name }))
+    Emit ("      model   : " + (Try-Get { $lib.Model }))
+    Emit ("      state   : " + (Try-Get { $lib.State }))
+}
+
+Emit ""
+$drives = Try-List { Get-VBRTapeDrive } 'Get-VBRTapeDrive'
+Emit "Tape drives: $($drives.Count)"
+foreach ($dr in $drives) {
+    Emit ("  {0,-38} {1}" -f (Try-Get { $dr.Id }), (Try-Get { $dr.Name }))
+    Emit ("      library : " + (Try-Get { $dr.LibraryId }))
+    Emit ("      cleaning: " + (Try-Get { $dr.IsCleaningRequired }))
+}
+
+Emit ""
+$tapeSrv = Try-List { Get-VBRTapeServer } 'Get-VBRTapeServer'
+Emit "Tape servers: $($tapeSrv.Count)"
+foreach ($ts in $tapeSrv) {
+    Emit ("  {0,-38} {1}" -f (Try-Get { $ts.Id }), (Try-Get { $ts.Name }))
+}
+
 Section "5. JOB NAME <-> JOB ID  (join key: VMC.log has the ID, never the name)"
 Emit "JobId,JobName,JobType,IsReplica"
 foreach ($j in $allJobs) { Emit ("{0},{1},{2},{3}" -f $j.Id, $j.Name, $j.JobType, $j.IsReplica) }
