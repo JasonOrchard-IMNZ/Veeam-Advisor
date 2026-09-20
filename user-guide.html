@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor &mdash; User Guide (v2.1)</title>
+<title>Veeam Advisor &mdash; User Guide (v2.1.01)</title>
 <meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
 <meta name="robots" content="noindex">
 <style>
@@ -196,7 +196,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <div class="hero">
   <div class="eyebrow">User Guide</div>
-  <h1>Veeam Advisor <span class="pill">v2.1</span></h1>
+  <h1>Veeam Advisor <span class="pill">v2.1.01</span></h1>
   <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
   <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
 </div>
@@ -318,7 +318,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     <h3>Right column</h3>
     <ul>
       <li><strong>Custom colour scheme panel</strong> &mdash; only visible in <em>Custom colours</em> mode, where it appears above the sizing card (and stacks below it on a narrow screen). See <a href="#theme">Theme &amp; colours</a>.</li>
-      <li><strong>Sizing recommendations</strong> &mdash; empty until you calculate; then it holds the headline sizing plus all 15 analysis tabs.</li>
+      <li><strong>Sizing recommendations</strong> &mdash; empty until you calculate; then it holds the headline sizing plus all 16 analysis tabs. The <strong>tab bar sits at the top of this panel as a sticky toolbar</strong> (v2.1.01) &mdash; it stays pinned while you scroll, so any tab is reachable from anywhere in a long report.</li>
     </ul>
     </section>
 
@@ -409,16 +409,17 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
           <tr><td class="c">10</td><td class="t">Settings</td><td>Configuration findings (warnings) — MFA, config-backup encryption and similar global settings.</td></tr>
           <tr><td class="c">11</td><td class="t">BP Review</td><td>The consolidated best-practice / security review and overall BP score.</td></tr>
           <tr><td class="c">12</td><td class="t">Agents</td><td>Veeam Agent protection with a <strong>licence cross-check</strong> (v1.1.0): managed Server / Workstation agents (Server = 1 instance, Workstation = 0.33) and standalone agents, reconciled against the licensed agent instances. Perpetual (socket) estates are shown as socket-covered.</td></tr>
-          <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools) and a single GFS tape-job sizing across LTO-7/8/9.</td></tr>
+          <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools), a <strong>media pool / cartridge inventory</strong> (shown even when media exists with no active tape job &mdash; imported / retired estates), <strong>scored tape best-practice checks</strong> (cleaning, encryption, air&nbsp;gap, free media, manual jobs, notifications, WORM, parallel drives, GFS, compression), and a single GFS tape-job sizing that defaults to the <strong>LTO generation detected from the drive model</strong> (v2.1.01).</td></tr>
           <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, plus a security-posture summary (MFA / immutability / encryption).</td></tr>
           <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories. <strong>Perpetual (socket)</strong> licences also show socket consumption (v1.1.0).</td></tr>
-            <tr><td class="c">16</td><td class="t">Resiliency map</td><td>A diagram of every job, the repository it writes to, and the backup copy flows between repositories &mdash; drawn on demand via a <strong>Draw map</strong> button. Repository boxes are coloured by type; replica jobs use a dashed metadata edge because their VM data lands on a host, not the repository. Surfaces idle repositories, missing copy flows and return-copy cycles. Optionally enriched by a PowerShell capture (see &sect;9a).</td></tr>
+            <tr><td class="c">16</td><td class="t">Resiliency map</td><td>A diagram of every job, the repository it writes to, and the backup copy flows between repositories &mdash; drawn on demand via a <strong>Draw map</strong> button. Repository boxes are coloured by type; replica jobs use a dashed metadata edge because their VM data lands on a host, not the repository. <strong>Tape jobs now appear as a tape-archive terminus</strong> with an edge from each feeding repository (v2.1.01). Surfaces idle repositories, missing copy flows and return-copy cycles. Optionally enriched by a PowerShell capture (see &sect;9a).</td></tr>
     </tbody>
   </table>
 </div>
-    <p class="callout-inline"><strong>On protection coverage:</strong> the tool compares discovered infrastructure VMs against VMs covered by jobs <strong>and</strong> Veeam Agent backups and flags an estimated unprotected count. Treat it as a prompt to investigate &mdash; for the exact list of unprotected VMs, use the <strong>Veeam ONE Protected VMs</strong> report. <em>(v1.1.0: the agent contribution now counts real agent machines &mdash; managed Server + Workstation + standalone &mdash; rather than an agent-backup operation count, so coverage on agent-heavy estates is more accurate.)</em></p>
+    <p class="callout-inline"><strong>On protection coverage (reworked in v2.1.01):</strong> coverage now counts <strong>combined protection &mdash; backup + replica + agent</strong> &mdash; against the discovered infrastructure VMs, and applies a <strong>reliability gate</strong>. When the per-job VM counts are ambiguous (they exceed the discovered VM total because of overlapping or host/cluster-level jobs, or an active job holds backup data but does not enumerate its VMs) the tool <strong>withholds the percentage and shows a floor&ndash;ceiling range with the reason</strong>, rather than reporting a confidently wrong number in either direction. A replica-first estate is therefore no longer mislabelled &ldquo;unprotected&rdquo;, and overlapping jobs no longer read as a false 100%. Where the log carries the authoritative <em>Job&nbsp;type&nbsp;counts</em> section (VMware / Hyper-V), the estimate is cross-checked against it; backup-<em>copy</em> jobs are excluded from primary coverage (they copy existing restore points rather than protecting new VMs). For the exact list of unprotected VMs, always use the <strong>Veeam ONE Protected VMs</strong> report.</p>
     <p class="callout-inline"><strong>New in v1.1.0:</strong> a per-job-type breakout (All jobs &amp; Retention) classifies every job into a friendly name with encryption, GFS and retention shown per type; the Agents tab cross-checks detected agents against the licensed instances (Server = 1, Workstation = 0.33, standalone agents counted); and the Licensing tab surfaces socket consumption for Perpetual licences. The BP Review encryption finding is now per type, so unencrypted Backup <em>copy</em> jobs are flagged too.</p>
     <p class="callout-inline"><strong>New in v2.0:</strong> the Repositories tab now lists repository types that earlier versions silently dropped &mdash; Veeam Data Cloud (v2), all External repositories, and repositories that were offline when the log was collected (shown as <em>offline</em>). Storage-snapshot-only repositories are listed with <em>n/a</em> capacity, because they hold no backup files. Where the log&rsquo;s own type summary counts a repository that the log never enumerates, the tool reports the gap rather than hiding it. The Network Interfaces panel now also reports each adapter&rsquo;s MTU, flagging reduced (tunnelled), jumbo and mixed MTU configurations. A new <strong>Resiliency map</strong> tab draws where every job writes and how backup copy jobs move data between repositories, and highlights repositories that are configured but receive no jobs at all. The diagram is drawn on demand &mdash; press <em>Draw map</em> on that tab &mdash; so a large estate does not slow down the initial upload.</p>
+    <p class="callout-inline"><strong>New in v2.1.01:</strong> the <strong>Tape</strong> tab gains a media pool / cartridge inventory (reported even when tape media exists with no active job), a set of scored tape best-practice checks, and a capacity estimate that defaults to the LTO generation detected from the drive model &mdash; with the PDF export following the on-screen generation. Tape jobs now render on the <strong>Resiliency map</strong> as a tape-archive terminus. <strong>Protection coverage</strong> was reworked to count combined backup + replica + agent protection with a reliability gate that withholds the figure when per-job counts are ambiguous (see the note under &sect;9). The tab bar is now a sticky toolbar at the top of the results panel.</p>
     </section>
 
     <section id="backup-map" aria-labelledby="backup-map-h">
@@ -429,12 +430,13 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
         <li><strong>Repository boxes</strong> are coloured by type &mdash; local/block, object storage, or scale-out.</li>
         <li><strong>Replica jobs</strong> draw a dashed <em>metadata</em> edge into their repository. A replica writes only metadata and digests there; the replicated VM lands on a target host. <code>VMC.log</code> does not record that host, so the destination is drawn as an explicit &ldquo;not named in VMC.log&rdquo; node unless you enrich the map (below).</li>
         <li><strong>Backup copy flows</strong> run as arrows between repositories. A return copy (a repository that both sends and receives) is drawn as a dashed amber arrow.</li>
+        <li><strong>Tape archive</strong> (v2.1.01) appears as a terminus node with an edge from each repository that feeds a VM-to-tape job. The edge is solid when a PowerShell capture resolved the source jobs, and dashed (with a warning) when it was inferred from a single VM-to-tape job. File-to-tape jobs are shown as a separate ingress, since they source from files rather than a repository. With two or more VM-to-tape jobs and no capture the tool does <em>not</em> guess the repository edges &mdash; run the capture for exact resolution.</li>
       </ul>
       <p><strong>Individual jobs per repository.</strong> Below the diagram, the repository table lists every repository that receives jobs. <strong>Click any row</strong> to expand the individual jobs writing to it, with full per-job detail: job ID (or real name if a PowerShell capture was loaded), type, platform, source data size, retention, encryption, schedule, and last result. This works regardless of the diagram&rsquo;s 40-job threshold &mdash; so on a large estate where the diagram shows only aggregate counts, you can still drill into any repository&rsquo;s jobs. The same per-repository job listing appears in the PDF export.</p>
       <p>The tab also reports <strong>idle repositories</strong> (configured but targeted by no job), the <strong>absence of any backup copy flow</strong>, and any <strong>return-copy cycles</strong>. The map is included as a page in the PDF export (as tables, so it prints without drawing the diagram).</p>
 
       <h3>Enriching the map with a PowerShell capture</h3>
-      <p><code>VMC.log</code> cannot record three things the map wants: job <strong>names</strong> (it stores GUIDs only), replica <strong>target hosts</strong> (it stores nothing), and whether a replica points at a host that still <strong>exists</strong>. The companion script <code>VeeamAdvisor-MapCapture.ps1</code> collects exactly these from a live VBR server. It is <strong>read-only</strong> &mdash; it runs only <code>Get-VBR&hellip;</code> cmdlets and changes nothing.</p>
+      <p><code>VMC.log</code> cannot record several things the map wants: job <strong>names</strong> (it stores GUIDs only), replica <strong>target hosts</strong> (it stores nothing), whether a replica points at a host that still <strong>exists</strong>, and the <strong>source backup jobs behind each VM-to-tape job</strong> (it stores a count, not the job IDs, so multi-job tape edges cannot be drawn from the log alone). The companion script <code>VeeamAdvisor-MapCapture.ps1</code> collects exactly these from a live VBR server. It is <strong>read-only</strong> &mdash; it runs only <code>Get-VBR&hellip;</code> cmdlets and changes nothing.</p>
       <ol>
         <li>On the Resiliency map tab, click <strong>Download MapCapture.ps1</strong>.</li>
         <li>Run it on the VBR server (or with the Veeam console open), ideally in the same window as the <code>VMC.log</code> collection so the object IDs line up. It writes a <code>.txt</code> capture file.</li>
@@ -477,8 +479,12 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <dd>NIC link speed is not recorded in <code>VMC.log</code>. Set <strong>Proxy NIC speed</strong> manually to match your hardware, then recalculate.</dd>
       <dt>It says VSA is not available.</dt>
       <dd>You are in <strong>v12.x</strong> mode. Toggle to <strong>v13.x</strong> (VSA is v13-only), or size with the <em>VBR Windows</em> tab for your current version.</dd>
-      <dt>The unprotected-VM count surprises me.</dt>
-      <dd>It is an estimate based on parsed jobs and agents. Confirm against the Veeam ONE <em>Protected VMs</em> report before acting.</dd>
+      <dt>Protection coverage shows a range or &ldquo;can&rsquo;t be reliably estimated&rdquo; instead of a percentage.</dt>
+      <dd>That is intended (v2.1.01). Coverage counts combined backup + replica + agent protection, and when the per-job VM counts are ambiguous &mdash; they exceed the discovered VM total (overlapping or host/cluster-level jobs), or an active job holds data but does not list its VMs &mdash; the tool shows a floor&ndash;ceiling range and the reason rather than a number it cannot stand behind. For the exact list, use the Veeam ONE <em>Protected VMs</em> report.</dd>
+      <dt>The Tape tab says &ldquo;media present but no active tape backup&rdquo;.</dt>
+      <dd>The environment has tape media pools and cartridges recorded but no tape server, drive or job &mdash; typically a decommissioned tape setup or media imported from another system. The inventory is shown so the idle media is not overlooked; the sizing below it is a hypothetical estimate for adding a tape job.</dd>
+      <dt>The tape capacity estimate uses the wrong LTO generation.</dt>
+      <dd>It defaults to the generation detected from the drive model in the log (e.g. an <em>Ultrium 7</em> drive sizes as LTO-7). If no generation is named it falls back to LTO-9. Change it with the dropdown on the Tape tab; the PDF export follows your choice.</dd>
       <dt>Can I use it without a log?</dt>
       <dd>Yes. Type into <em>Environment parameters</em> and calculate for sizing only; the compliance findings need a log.</dd>
       <dt>Is my customer&rsquo;s data safe?</dt>
@@ -502,7 +508,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <footer>
   <div class="foot">
-    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.1 &middot; Unofficial community tool</span>
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.1.01 &middot; Unofficial community tool</span>
     <span><a href="index.html">Open Veeam Advisor</a></span>
   </div>
 </footer>

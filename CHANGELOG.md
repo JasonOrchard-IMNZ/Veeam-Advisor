@@ -153,6 +153,28 @@ rather than inferred.
 - The QA and full-test PowerShell scripts still validate tape only at the
   `Get-VBRTapeJob` count level and do not yet assert the new Section 6 fields.
 
+### Changed
+
+#### Tab row moved to the top of the results panel as a sticky toolbar
+The tab navigation (VSA, Repository, BP Review, Tape, Resiliency map, …) was
+previously rendered below the summary stat cards and infrastructure overview. It now
+renders at the top of the results panel and stays pinned while scrolling, so any tab
+is reachable from anywhere in a long report. The results card's corner-clipping
+(`overflow:hidden`, which silently disables `position:sticky`) is overridden only for
+that card via a scoped class, leaving every other card's clipping intact; tab-switch
+behaviour is unchanged. The toolbar is not shown in print/PDF export (that output is
+built separately), so exports are unaffected.
+
+#### User guide brought up to v2.1.01
+`user-guide.html` updated to match this release: version stamps (title, hero, footer);
+the Tape tab description (media inventory, scored best-practice checks, detected LTO
+generation); tape on the Resiliency map (terminus node, capture-resolved vs inferred
+edges, source-job limitation of the log); the reworked protection-coverage note
+(combined backup + replica + agent, reliability gate, Job-type-counts cross-check,
+backup-copy exclusion); the sticky tab toolbar; a "New in v2.1.01" callout; and four
+new FAQ entries (coverage range, orphaned tape media, LTO generation, and coverage
+withholding).
+
 ## v2.1 — 2026-07-19
 
 ### Added
