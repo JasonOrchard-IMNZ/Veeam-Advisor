@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor &mdash; User Guide (v2.1.01)</title>
+<title>Veeam Advisor &mdash; User Guide (v2.2)</title>
 <meta name="description" content="User guide for Veeam Advisor: parse a VBR VMC.log into sizing recommendations and a best-practice review, entirely in your browser.">
 <meta name="robots" content="noindex">
 <style>
@@ -25,6 +25,34 @@
   --link:#a0d8f8;--code:#86d9bd;--codebg:#1f2a26;
   --font-display:ui-monospace,'Cascadia Mono','Segoe UI Mono','Consolas','SF Mono','Menlo',monospace;
   --r:10px;--rl2:14px;--hdr:58px;
+  color-scheme:dark;
+}
+/* Dark is the default, but the guide now follows the viewer's setting: a light OS/browser
+   preference (or an explicit data-theme="light") switches to the light palette, while an
+   explicit data-theme="dark" keeps dark even on a light OS. Print always resets to light. */
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
+    --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
+    --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
+    --gl:#e3f1e3;--bl:var(--arcade-frost);--al:#fef2e0;--rl:#f9dbd6;
+    --green:var(--arcade-jade-deep);--gd:var(--arcade-jade-deep);
+    --blue:var(--arcade-azure-deep);--bdk:var(--arcade-azure-deep);
+    --amber:var(--arcade-umber);--red:var(--arcade-crimson-deep);
+    --link:#204090;--code:#207030;--codebg:#e3f1e3;
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#fff;--bg2:#f7f7f5;--bg3:#f0efea;
+  --tx:#1a1a18;--tx2:#5F5E5A;--tx3:#888780;
+  --bd:rgba(0,0,0,0.18);--bd2:rgba(0,0,0,0.30);
+  --gl:#e3f1e3;--bl:var(--arcade-frost);--al:#fef2e0;--rl:#f9dbd6;
+  --green:var(--arcade-jade-deep);--gd:var(--arcade-jade-deep);
+  --blue:var(--arcade-azure-deep);--bdk:var(--arcade-azure-deep);
+  --amber:var(--arcade-umber);--red:var(--arcade-crimson-deep);
+  --link:#204090;--code:#207030;--codebg:#e3f1e3;
+  color-scheme:light;
 }
 /* Dark is the unconditional default (matches the tool). Print resets to a light
    palette so the guide still prints legibly on white paper. */
@@ -196,7 +224,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <div class="hero">
   <div class="eyebrow">User Guide</div>
-  <h1>Veeam Advisor <span class="pill">v2.1.01</span></h1>
+  <h1>Veeam Advisor <span class="pill">v2.2</span></h1>
   <p class="lede">Parse a VBR <code>VMC.log</code> into sizing recommendations and a best-practice / security review &mdash; entirely in your browser, with nothing uploaded.</p>
   <p class="meta">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; Unofficial community tool, not affiliated with or supported by Veeam.</p>
 </div>
@@ -410,7 +438,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
           <tr><td class="c">11</td><td class="t">BP Review</td><td>The consolidated best-practice / security review and overall BP score.</td></tr>
           <tr><td class="c">12</td><td class="t">Agents</td><td>Veeam Agent protection with a <strong>licence cross-check</strong> (v1.1.0): managed Server / Workstation agents (Server = 1 instance, Workstation = 0.33) and standalone agents, reconciled against the licensed agent instances. Perpetual (socket) estates are shown as socket-covered.</td></tr>
           <tr><td class="c">13</td><td class="t">Tape</td><td>Existing tape infrastructure (servers, drives, libraries, media pools), a <strong>media pool / cartridge inventory</strong> (shown even when media exists with no active tape job &mdash; imported / retired estates), <strong>scored tape best-practice checks</strong> (cleaning, encryption, air&nbsp;gap, free media, manual jobs, notifications, WORM, parallel drives, GFS, compression), and a single GFS tape-job sizing that defaults to the <strong>LTO generation detected from the drive model</strong> (v2.1.01).</td></tr>
-          <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, plus a security-posture summary (MFA / immutability / encryption).</td></tr>
+          <tr><td class="c">14</td><td class="t">Infrastructure</td><td>One-screen inventory mapping Veeam BP design areas to what was parsed, a security-posture summary (MFA / immutability / encryption), and an <strong>Encryption posture</strong> section (v2.2) covering at-rest and in-transit encryption across three tiers &mdash; infrastructure summary, per backup job with retention, and per repository &mdash; with remediation KB links.</td></tr>
           <tr><td class="c">15</td><td class="t">Licensing</td><td>Licences consumed vs available with a headroom gauge, per-workload breakdown, capacity (VUL) usage, and renewal/expiry advisories. <strong>Perpetual (socket)</strong> licences also show socket consumption (v1.1.0).</td></tr>
             <tr><td class="c">16</td><td class="t">Resiliency map</td><td>A diagram of every job, the repository it writes to, and the backup copy flows between repositories &mdash; drawn on demand via a <strong>Draw map</strong> button. Repository boxes are coloured by type; replica jobs use a dashed metadata edge because their VM data lands on a host, not the repository. <strong>Tape jobs now appear as a tape-archive terminus</strong> with an edge from each feeding repository (v2.1.01). Surfaces idle repositories, missing copy flows and return-copy cycles. Optionally enriched by a PowerShell capture (see &sect;9a).</td></tr>
     </tbody>
@@ -420,6 +448,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
     <p class="callout-inline"><strong>New in v1.1.0:</strong> a per-job-type breakout (All jobs &amp; Retention) classifies every job into a friendly name with encryption, GFS and retention shown per type; the Agents tab cross-checks detected agents against the licensed instances (Server = 1, Workstation = 0.33, standalone agents counted); and the Licensing tab surfaces socket consumption for Perpetual licences. The BP Review encryption finding is now per type, so unencrypted Backup <em>copy</em> jobs are flagged too.</p>
     <p class="callout-inline"><strong>New in v2.0:</strong> the Repositories tab now lists repository types that earlier versions silently dropped &mdash; Veeam Data Cloud (v2), all External repositories, and repositories that were offline when the log was collected (shown as <em>offline</em>). Storage-snapshot-only repositories are listed with <em>n/a</em> capacity, because they hold no backup files. Where the log&rsquo;s own type summary counts a repository that the log never enumerates, the tool reports the gap rather than hiding it. The Network Interfaces panel now also reports each adapter&rsquo;s MTU, flagging reduced (tunnelled), jumbo and mixed MTU configurations. A new <strong>Resiliency map</strong> tab draws where every job writes and how backup copy jobs move data between repositories, and highlights repositories that are configured but receive no jobs at all. The diagram is drawn on demand &mdash; press <em>Draw map</em> on that tab &mdash; so a large estate does not slow down the initial upload.</p>
     <p class="callout-inline"><strong>New in v2.1.01:</strong> the <strong>Tape</strong> tab gains a media pool / cartridge inventory (reported even when tape media exists with no active job), a set of scored tape best-practice checks, and a capacity estimate that defaults to the LTO generation detected from the drive model &mdash; with the PDF export following the on-screen generation. Tape jobs now render on the <strong>Resiliency map</strong> as a tape-archive terminus. <strong>Protection coverage</strong> was reworked to count combined backup + replica + agent protection with a reliability gate that withholds the figure when per-job counts are ambiguous (see the note under &sect;9). The tab bar is now a sticky toolbar at the top of the results panel.</p>
+    <p class="callout-inline"><strong>New in v2.2:</strong> a three-tier <strong>Encryption posture</strong> section on the Infrastructure tab &mdash; an at-rest / in-transit summary, per backup job (paired with retention, so an unencrypted long-retention job stands out), and per repository (immutability). Each item that is off links to the fix in the Veeam KB. In-transit is reported only as Disabled or Not-flagged, never a confirmed &ldquo;on&rdquo;, because the log records it only when Veeam&rsquo;s BPA flags it off; per-repository shows immutability because VMC.log carries no per-repository storage-encryption field.</p>
     </section>
 
     <section id="backup-map" aria-labelledby="backup-map-h">
@@ -479,6 +508,12 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <dd>NIC link speed is not recorded in <code>VMC.log</code>. Set <strong>Proxy NIC speed</strong> manually to match your hardware, then recalculate.</dd>
       <dt>It says VSA is not available.</dt>
       <dd>You are in <strong>v12.x</strong> mode. Toggle to <strong>v13.x</strong> (VSA is v13-only), or size with the <em>VBR Windows</em> tab for your current version.</dd>
+      <dt>Where do I see whether backups are encrypted?</dt>
+      <dd>The <strong>Infrastructure</strong> tab, in the Encryption posture section (v2.2). It shows at-rest encryption (per backup job, and per repository as immutability) and in-transit encryption, with a KB link on anything that is off.</dd>
+      <dt>In-transit encryption shows &ldquo;Not flagged&rdquo; &mdash; is it on or off?</dt>
+      <dd>Unknown. The log records in-transit (proxy traffic) encryption only when Veeam&rsquo;s BPA flags it <em>off</em>; absence of that flag is not confirmation it is on. Check the job&rsquo;s Advanced &rarr; Network setting to be sure.</dd>
+      <dt>The per-repository encryption column shows immutability, not encryption. Why?</dt>
+      <dd>VMC.log does not record a per-repository storage-encryption field, so the tool reports the repository&rsquo;s real at-rest protection &mdash; immutability &mdash; instead of an encryption value it cannot read.</dd>
       <dt>Protection coverage shows a range or &ldquo;can&rsquo;t be reliably estimated&rdquo; instead of a percentage.</dt>
       <dd>That is intended (v2.1.01). Coverage counts combined backup + replica + agent protection, and when the per-job VM counts are ambiguous &mdash; they exceed the discovered VM total (overlapping or host/cluster-level jobs), or an active job holds data but does not list its VMs &mdash; the tool shows a floor&ndash;ceiling range and the reason rather than a number it cannot stand behind. For the exact list, use the Veeam ONE <em>Protected VMs</em> report.</dd>
       <dt>The Tape tab says &ldquo;media present but no active tape backup&rdquo;.</dt>
@@ -508,7 +543,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
 
 <footer>
   <div class="foot">
-    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.1.01 &middot; Unofficial community tool</span>
+    <span>&copy; 2026 Jason Orchard &middot; Veeam Advisor v2.2 &middot; Unofficial community tool</span>
     <span><a href="index.html">Open Veeam Advisor</a></span>
   </div>
 </footer>

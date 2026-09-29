@@ -3,6 +3,83 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## v2.2 — 2026-09-29
+
+Adds an encryption-posture surface and promotes the tape-map and coverage work that
+was staged under v2.1.01 into a proper minor release. Everything from v2.1.01 ships
+here unchanged; v2.2 adds the encryption surface on top and bumps the version stamps.
+
+### Added
+
+#### Encryption posture (Infrastructure tab) — three tiers
+A new Encryption section on the Infrastructure tab, below Security posture, reporting
+encryption at rest and in transit across three tiers:
+
+- **Infrastructure summary** — a two-panel at-rest / in-transit block. At-rest shows a
+  headline state (Encrypted / Partial / Not encrypted) with the encrypted-job count,
+  repository immutability, and config-backup encryption. In-transit shows Disabled or
+  Not-flagged.
+- **Per backup job (with retention)** — each job's encryption state beside its retention,
+  sorted unencrypted-first, so an unencrypted long-retention job (the highest exposure)
+  leads. Job names show as IDs unless a MapCapture is loaded.
+- **Per repository** — repository immutability, the repository's real at-rest protection.
+
+Each off / unencrypted item carries a remediation line and a KB link
+(`data_encryption.html?ver=13`; `hardened_repository.html` for immutability;
+`config_backup_encrypted.html` for config backup).
+
+The encryption posture is also included in the **PDF export**, on the Infrastructure
+page below Security posture: the at-rest / in-transit summary, the per-job tier (with
+retention, unencrypted rows highlighted) and the per-repository immutability tier, with
+the same BPA in-transit caveat.
+
+Honesty constraints, deliberate: in-transit is recorded by the log only when Veeam's BPA
+flags it off, so it is never shown as a confirmed "on" — only Disabled or Not-flagged.
+VMC.log carries no per-repository storage-encryption field (StorageEncryptionEnabled
+appears only on config-backup records), so Tier 3 reports immutability rather than an
+encryption field that does not exist. Per-job encryption is read once per distinct job
+(the first Encryption:{Enabled} block), not per storage sub-block, to avoid the
+over-counting that inflated earlier drafts.
+
+#### PowerShell scripts — encryption / immutability / tape validation
+All three companion scripts updated for v2.2:
+- `VeeamAdvisor-MapCapture.ps1` sections 1 and 2 now emit per-repository immutability and
+  storage encryption, and per-job encryption and retention, so the encryption tables show
+  real names and can be confirmed against live VBR.
+- `VeeamAdvisor-PowerShell.ps1` (cmdlet validation) B-4 and B-5 now assert the
+  immutability and job-options APIs the encryption posture reads, and B-11 validates the
+  tape media-pool / library / drive / server cmdlets behind the tape features.
+- `VeeamAdvisor-PowerShell-QA.ps1` (scoring-logic validation) adds C-5b covering the
+  three-tier posture states (at-rest on/partial/off, in-transit off-vs-not-flagged, and
+  per-repo immutability), and its encryption KB link is corrected to the ver=13 URL.
+
+### Fixed
+
+#### Repository immutability missed in the Value/Unit log format
+Immutability was parsed only from `ImmutabilitySettings: { Enabled: ... }` and
+`BackupImmutability: { Enabled: ... }`. A third, common format —
+`ImmutabilitySettings: { Value: 7, Unit: Days }`, emitted by LinuxHardened / Veeam
+appliance repositories, which has no `Enabled` key (a `Value` > 0 is itself the enabled
+signal) — was missed, so those repositories were shown as **not immutable / "Not set"**
+on the Repository and Encryption tabs and were dragging the Best Practice score. All
+three formats are now recognised, the lock-period days are extracted from the Value form,
+and the estate-wide immutability minimum falls back to the per-repository days when the
+`ImmutabilityDays` token is absent.
+
+### Changed
+
+- Version stamps bumped to v2.2 (title, hero pill, PDF footer, header comment).
+- The tape Resiliency-map work and the combined-protection coverage rework, previously
+  staged in the v2.1.01 working copy, are now released as part of v2.2.
+
+### Notes
+
+- The Proxmox / HPE VME / Nutanix / KVM coverage paths remain built-to-spec and are not
+  yet validated against real logs.
+- The PowerShell scripts validate the cmdlets and scoring states the v2.2 features rely
+  on; they are not a substitute for running against a live VBR server before release.
+
+
 ## v2.1.01 — 2026-07-24
 
 Tape work, in three parts: the original defect fixes to tape parsing and reporting,

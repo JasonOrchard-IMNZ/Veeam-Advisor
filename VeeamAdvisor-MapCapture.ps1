@@ -247,6 +247,10 @@ Emit "Simple repositories: $($simple.Count)"
 foreach ($r in $simple) {
     $repoIndex["$($r.Id)"] = $r.Name
     Emit ("  {0,-38} {1,-28} {2}" -f $r.Id, $r.Type, $r.Name)
+    # v2.2: per-repository at-rest protection (immutability) + any storage encryption,
+    # so the encryption posture tab can show real repo names and confirm log values.
+    Emit ("      immutable     : " + (Try-Get { $r.GetImmutabilitySettings().IsEnabled }) + "  days: " + (Try-Get { $r.GetImmutabilitySettings().IntervalDays }))
+    Emit ("      encryption    : " + (Try-Get { $r.EncryptionEnabled }))
 }
 
 $sobrs = Try-List { Get-VBRBackupRepository -ScaleOut } 'Get-VBRBackupRepository -ScaleOut'
@@ -293,6 +297,11 @@ foreach ($j in $allJobs) {
     Emit ("{0,-38} {1,-22} {2,-9} {3,-38} {4}" -f $j.Id, $j.JobType, $j.IsReplica, $repoId, $j.Name)
     Emit ("    repo name : $repoNm")
     Emit ("    size      : " + (Try-Get { $j.Info.IncludedSize }))
+    # v2.2: per-job encryption + retention, so the encryption posture tab pairs each
+    # job's encryption state with its retention (unencrypted long-retention = top risk)
+    # and shows real job names instead of GUIDs.
+    Emit ("    encryption: " + (Try-Get { $j.GetOptions().BackupStorageOptions.StorageEncryptionEnabled }))
+    Emit ("    retention : " + (Try-Get { $j.GetOptions().BackupStorageOptions.RetainCycles }) + " cycles / " + (Try-Get { $j.GetOptions().GfsPolicy.IsEnabled }) + " GFS")
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

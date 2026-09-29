@@ -298,4 +298,60 @@ function mapCaptureTape(tapeJobs) {
   return L.join('\n') + '\n';
 }
 
-module.exports = { tapeLog, noTapeLog, orphanMediaLog, coverageLog, mapLog, mapCaptureTape, guid };
+module.exports = { tapeLog, noTapeLog, orphanMediaLog, coverageLog, encryptionLog, mapLog, mapCaptureTape, guid };
+
+/**
+ * Encryption-posture fixture (v2.2). Emits the exact tokens the encryption aggregation
+ * reads: backup jobs with `Encryption: { Enabled: ... }` and a retention, repositories
+ * with immutability, a config-backup `StorageEncryptionEnabled`, and an optional
+ * in-transit BPA violation.
+ *   jobsEnc / jobsUnenc — counts of encrypted / unencrypted backup jobs
+ *   reposImmut / reposPlain — counts of immutable / non-immutable repositories
+ *   configEncrypted — ConfBackup StorageEncryptionEnabled (default true)
+ *   transitOff — emit ViProxyTrafficEncrypted BPA violation (default true)
+ */
+function encryptionLog(o) {
+  o = o || {};
+  const je = o.jobsEnc !== undefined ? o.jobsEnc : 2;
+  const ju = o.jobsUnenc !== undefined ? o.jobsUnenc : 0;
+  const ri = o.reposImmut !== undefined ? o.reposImmut : 1;
+  const rp = o.reposPlain !== undefined ? o.reposPlain : 0;
+  const cfg = o.configEncrypted === false ? 'False' : 'True';
+  const L = header();
+  L.push(line('VMware Infrastructure: { VirtualMachines: 40, Hosts: 2, Clusters: 1 }'));
+  // CURRENT REPOSITORIES block
+  L.push(line('=======================CURRENT REPOSITORIES=========================='));
+  let ridx = 0;
+  for (let i = 0; i < ri; i++, ridx++) {
+    L.push(line('RepositoryID: ' + guid(200 + ridx) + ', Type: LinuxHardened, Name: Repo' + ridx +
+      ', TotalSpace: 10000000000000, FreeSpace: 5000000000000' +
+      ', BackupImmutability: { Enabled: True, Days: 14 }'));
+  }
+  for (let i = 0; i < rp; i++, ridx++) {
+    L.push(line('RepositoryID: ' + guid(200 + ridx) + ', Type: WinLocal, Name: Repo' + ridx +
+      ', TotalSpace: 10000000000000, FreeSpace: 5000000000000' +
+      ', BackupImmutability: { Enabled: False }'));
+  }
+  L.push(line('REPOSITORY TYPE COUNTS'));
+  // Backup jobs with Encryption:{Enabled} + retention
+  let jidx = 0;
+  for (let i = 0; i < je; i++, jidx++) {
+    L.push(line('PlatformName: VMware, JobID: ' + guid(300 + jidx) +
+      ', Type: Backup, JobSourceType: VDDK, ScheduleEnabled: True, VMsCount: 5' +
+      ', IncludedSize: 500000000000, RetentionPolicy: { Value: 30, Unit: Days }' +
+      ', Encryption: { Enabled: True, EncryptionType: Password }'));
+  }
+  for (let i = 0; i < ju; i++, jidx++) {
+    L.push(line('PlatformName: VMware, JobID: ' + guid(300 + jidx) +
+      ', Type: Backup, JobSourceType: VDDK, ScheduleEnabled: True, VMsCount: 5' +
+      ', IncludedSize: 500000000000, RetentionPolicy: { Value: 90, Unit: Days }' +
+      ', Encryption: { Enabled: False, EncryptionType: null }'));
+  }
+  // Config backup encryption (ConfBackup record)
+  L.push(line('Type: ConfBackup, PlatformName: EConf, RetentionPolicy: 10, StorageEncryptionEnabled: ' + cfg));
+  // In-transit BPA violation
+  if (o.transitOff !== false) {
+    L.push(line('"RecommendationName": "ViProxyTrafficEncrypted", "Status": "Violation"'));
+  }
+  return L.join('\n') + '\n';
+}
