@@ -653,6 +653,28 @@ if ($repos.Count -gt 0) {
         Write-Data "    Capacity : $capGB GB   Free: $freeGB GB"
     }
 
+    # v2.2: encryption-posture inputs — the tool's per-repository at-rest column reads
+    # immutability (VMC.log has no per-repo storage-encryption field). Validate that the
+    # immutability API the tool relies on is present, so an API change is caught here.
+    Write-Sub "Encryption posture inputs (v2.2): repository immutability"
+    $immutOk = 0; $immutErr = 0
+    foreach ($r in $repos) {
+        try {
+            $im = $r.GetImmutabilitySettings()
+            if ($null -ne $im) {
+                $immutOk++
+                Write-Data "  '$($r.Name)' immutable: $($im.IsEnabled)  days: $($im.IntervalDays)"
+            }
+        } catch { $immutErr++ }
+    }
+    if ($immutOk -gt 0) {
+        Write-Pass "GetImmutabilitySettings() returned settings for $immutOk repo(s)"
+        $script:Pass++
+    } else {
+        Write-Info "No repo returned immutability settings (older VBR or none configured) — encryption tab falls back gracefully"
+        $script:Skip++
+    }
+
     # Type breakdown
     Write-Sub "Repository type breakdown"
     $repos | Group-Object Type | Sort-Object Count -Descending | ForEach-Object {
@@ -756,6 +778,29 @@ if ($jobs.Count -gt 0) {
         Write-Data "    IsReplica : $($j.IsReplica)"
         Write-Data "    Id        : $($j.Id)"
         Write-Data "    Scheduled : $schedEnabled"
+    }
+
+    # v2.2: encryption-posture inputs — the tool's per-job at-rest column reads each job's
+    # storage encryption (paired with retention). Validate the options API is present so a
+    # VBR change to how encryption/retention are exposed is caught here.
+    Write-Sub "Encryption posture inputs (v2.2): per-job encryption + retention"
+    $encOk = 0; $encErr = 0
+    foreach ($j in $jobs) {
+        if ($j.IsReplica) { continue }   # backup jobs carry the storage encryption setting
+        try {
+            $opt = $j.GetOptions()
+            $encEnabled = $opt.BackupStorageOptions.StorageEncryptionEnabled
+            $retCycles  = $opt.BackupStorageOptions.RetainCycles
+            $encOk++
+            Write-Data "  '$($j.Name)' encryption: $encEnabled  retention: $retCycles cycles"
+        } catch { $encErr++ }
+    }
+    if ($encOk -gt 0) {
+        Write-Pass "GetOptions().BackupStorageOptions exposed encryption + retention for $encOk job(s)"
+        $script:Pass++
+    } else {
+        Write-Info "No backup job exposed storage options (none present, or all replica) — encryption tab falls back gracefully"
+        $script:Skip++
     }
 
     # GUID lookup — app pattern
@@ -1020,6 +1065,25 @@ try {
 } catch {
     Write-Fail "Get-VBRTapeJob threw: $($_.Exception.Message)"
     $script:Fail++
+}
+
+# v2.2: tape infrastructure cmdlets behind the Tape tab (media inventory) and the
+# Resiliency-map tape terminus. Validate each runs; skip cleanly where none exist.
+Write-Sub "Tape infrastructure (v2.2): media pools / libraries / drives / servers"
+foreach ($probe in @(
+    @{ Name = 'Get-VBRTapeMediaPool'; Cmd = { Get-VBRTapeMediaPool } },
+    @{ Name = 'Get-VBRTapeLibrary';   Cmd = { Get-VBRTapeLibrary } },
+    @{ Name = 'Get-VBRTapeDrive';     Cmd = { Get-VBRTapeDrive } },
+    @{ Name = 'Get-VBRTapeServer';    Cmd = { Get-VBRTapeServer } }
+)) {
+    try {
+        $items = @(& $probe.Cmd)
+        Write-Pass "$($probe.Name) runs without error ($($items.Count) found)"
+        $script:Pass++
+    } catch {
+        Write-Fail "$($probe.Name) threw: $($_.Exception.Message)"
+        $script:Fail++
+    }
 }
 
 

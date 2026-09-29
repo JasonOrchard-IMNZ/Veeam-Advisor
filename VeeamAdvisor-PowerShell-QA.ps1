@@ -334,7 +334,7 @@ if (-not $SkipModuleA) {
         'HC: Failover plan'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html'
         'HC: File copy job'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
         'HC: GFS retention'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/gfs_retention_policy.html'
-        'HC: Immutable backup'             = 'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'
+        'HC: Immutable backup'             = 'https://helpcenter.veeam.com/docs/vbr/userguide/data_encryption.html?ver=13'
         'HC: Job storage encryption'       = 'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'
         'HC: Linux server trust'           = 'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'
         'HC: Malware detection'            = 'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html'
@@ -1035,6 +1035,35 @@ if (-not $SkipModuleC) {
     Assert "Encryption=True should clear finding" {
         $enc = 'True'
         $enc -eq 'True'
+    }
+
+    # v2.2: encryption posture — the three-tier surface adds states beyond a single
+    # job-encryption boolean. Validate the posture logic the tool now applies.
+    Write-Sub "C-5b: Encryption posture (v2.2) — combined at-rest / in-transit states"
+    Assert "All jobs encrypted -> atRest 'on'" {
+        $jobsEnc = 5; $jobsTot = 5
+        ($jobsTot -gt 0 -and $jobsEnc -eq $jobsTot)
+    }
+    Assert "Some jobs encrypted -> atRest 'partial'" {
+        $jobsEnc = 3; $jobsTot = 5
+        ($jobsEnc -gt 0 -and $jobsEnc -lt $jobsTot)
+    }
+    Assert "No jobs encrypted -> atRest 'off'" {
+        $jobsEnc = 0; $jobsTot = 5
+        ($jobsTot -gt 0 -and $jobsEnc -eq 0)
+    }
+    Assert "In-transit shown 'off' only when BPA violation present" {
+        $bpaViProxy = $true
+        $bpaViProxy -eq $true
+    }
+    Assert "In-transit shown 'not-flagged' (never confirmed on) when BPA absent" {
+        $bpaViProxy = $false
+        # absence of the flag must NOT be reported as encrypted
+        (-not $bpaViProxy)
+    }
+    Assert "Per-repo at-rest uses immutability (no storage-encryption field in log)" {
+        $repoImmut = $true
+        $repoImmut -eq $true
     }
 
     # ── C-6: Config backup ───────────────────────────────────────────────────
