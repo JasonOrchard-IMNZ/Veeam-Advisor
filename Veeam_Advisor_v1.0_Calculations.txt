@@ -10,13 +10,31 @@
   VEEAM ADVISOR v1.0 — SIZING CALCULATION REFERENCE
   For third-party validation against Veeam official recommendations
 ================================================================================
+
+  STATUS (v2.2.1) — READ FIRST
+  Sections 1-9 describe the ORIGINAL v1.0 formulas. Several have since been
+  replaced; each replaced item is marked "SUPERSEDED" below and the current
+  formula is in "V13 ACCURACY REVIEW" and "V2.2.1 ACCURACY CORRECTIONS" at the
+  end of this document. In particular, values tagged [SR] in the v1.0 sections
+  were NOT all Veeam system requirements — the Help Center figures are:
+    Backup server v13 : 8 cores, 16 GB RAM + 500 MB per concurrent job
+    Backup server v12 : 4 cores recommended, 8 GB RAM + 500 MB per concurrent job
+    VMware proxy      : 2 GB RAM + 1 GB per task; 2 concurrent tasks per core
+    Hyper-V proxy     : 2 GB RAM + 500 MB per task
+    Workers (Proxmox, AHV, KVM ...) : 6 vCPU / 6 GB for 4 tasks, +1 vCPU & +1 GB per task
+    Repository        : 4 GB RAM + at least 1 GB per concurrently processed disk
+    VSA Disk 1        : 240 GB minimum (480 GB recommended for small environments)
+  Hyper-V, like VMware, creates one task per VM DISK, not per VM.
+================================================================================
   Sources used:
     [BP]  bp.veeam.com/vbr  — Veeam Best Practices Guide
-    [HC]  helpcenter.veeam.com/docs/backup/vsphere/
+    [HC]  helpcenter.veeam.com/docs/vbr/userguide/  (v13 User Guide)
     [SS]  Veeam Sizing & Scoping Tool (internal reference values)
     [CB]  Veeam Cookbook — veeamcookbook.com
     [KB]  Broadcom KB321259 — NIC selection guide
     [SR]  helpcenter.veeam.com/docs/vbr/userguide/system_requirements.html?ver=13
+          (NOTE: several v1.0 values tagged [SR] below are not in the system
+           requirements — see the STATUS box above)
 ================================================================================
 
 
@@ -69,6 +87,8 @@ SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
   RATIONALE (VMware): Veeam processes one virtual disk per task, not one VM.
   The average VMware VM has 2 disks (system + data). [BP: proxy design]
   HyperV proxies work at the VM level — each VM = one task. [BP: HV proxy]
+  SUPERSEDED (V13 review item 2): Hyper-V also creates one task per VM disk,
+  so HyperV taskUnit = vms x 2 as well. Worker platforms use vms.
 
   CODE:
     var taskUnit = (platform === 'VMware') ? vms * 2 : vms;
@@ -140,12 +160,13 @@ SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
 
   tasksPerProxy = (nicGbE > 0) ? min(12, nicTaskCap) : 12
 
-  RATIONALE: Veeam Best Practice recommends a maximum of 12 concurrent tasks
-  per virtual proxy server. This is a vCPU/RAM constraint — each task requires
-  ~1 vCPU and ~2 GB RAM. [BP: vmware_proxies.html]
+  RATIONALE: 12 tasks is this tool's standard virtual-proxy size (6 vCPU at the
+  Help Center's 2 concurrent tasks per core). It is not a Veeam maximum.
+  (v1.0 text said "~1 vCPU and ~2 GB RAM per task" — SUPERSEDED: Help Center
+  is 2 tasks per core, and 1 GB RAM per task for VMware / 0.5 GB for Hyper-V.)
 
-  Physical proxies can support more tasks (1 core per task), but virtual
-  proxies should not exceed 8 vCPU to avoid VMware/HV co-stop penalty. [BP]
+  Physical proxies scale with core count (2 tasks per core per Help Center);
+  virtual proxies are kept at 8 vCPU or fewer per bp.veeam.com guidance.
   12 tasks maps to 6 vCPU × 2 tasks/vCPU — standard virtual proxy config.
 
   CODE:
@@ -184,9 +205,13 @@ SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
 
     14 GB RAM = 2 GB per task × 6 tasks + 2 GB OS overhead.
     Veeam requires 2 GB RAM per concurrent task. [SR]
+    SUPERSEDED: this was never the Veeam requirement. Help Center: VMware
+    proxy 2 GB + 1 GB per task (12 tasks = 14 GB — same total, different
+    basis); Hyper-V proxy 2 GB + 0.5 GB per task; workers 6 GB for 4 tasks.
 
   Physical proxy: pCPU = tasksNeeded cores, pRAM = 2 + pCPU × 2 GB
   Physical allows 1 task per core (no vCPU sharing overhead). [BP]
+  SUPERSEDED: physical = ceil(tasks / 2) cores, RAM by the platform rate.
 
 ─── 2.7 Minimum Recommended Proxy Count (cluster-based) ────────────────────────
 
@@ -196,9 +221,11 @@ SOURCE: [BP] bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/
                ? max(2, clusters × 2)          — HV: 2 per cluster
                : max(2, ceil(hosts / 4))       — VMware: 1 per 4 hosts
 
-  RATIONALE: For Hyper-V, deploy at least one proxy per cluster node to
-  enable HotAdd (on-host) mode and avoid cross-host NBD traffic. Minimum
-  2 for redundancy. [BP: hyperv_proxies.html]
+  RATIONALE: Minimum 2 for redundancy. These ratios are this tool's
+  heuristics, not Veeam figures.
+  CORRECTION: HotAdd and NBD are VMware transport modes. Hyper-V uses
+  on-host backup (the Hyper-V host itself is the proxy) or off-host
+  backup (a physical proxy with access to the shared storage).
 
   For VMware, one proxy per 4 hosts is a common starting point, scaled
   by backup window calculation above. [BP: vmware_proxies.html]
@@ -224,6 +251,8 @@ SECTION 3 — BACKUP SERVER SIZING
   RATIONALE: Not all jobs run simultaneously, but there is always some
   overlap (job chains, log backup subs, copy jobs). 15% overlap factor
   gives a realistic peak estimate. [SS]
+  SUPERSEDED (v2.2.1): concJ = jobs. Multiplying by 1.15 produced more
+  concurrent jobs than exist.
 
   CODE:
     var concJ = Math.ceil(jobs * 1.15);
@@ -234,6 +263,8 @@ SECTION 3 — BACKUP SERVER SIZING
 
   RATIONALE: Veeam recommends 1 CPU core per 10 concurrent jobs.
   Minimum 2 cores. [BP: backup_server_introduction.html, SR]
+  SUPERSEDED: not the Help Center figure. v13 = 8 cores minimum;
+  v12 = 4 cores recommended.
 
   EXAMPLE: 50 jobs
     concJ = ceil(50 × 1.15) = 58
@@ -253,8 +284,9 @@ SECTION 3 — BACKUP SERVER SIZING
   EXAMPLE: 58 concurrent jobs
     bsR = max(8, 4 + ceil(58/10) × 4) = max(8, 4 + 6×4) = max(8, 28) = 28 GB
 
-  VALIDATION NOTE: Veeam SR states minimum 8 GB for up to 5 jobs; above this,
-  add 4 GB per additional 10 jobs. Our formula matches this exactly.
+  SUPERSEDED — the v1.0 validation note here was incorrect. The Help Center
+  states 8 GB + 500 MB per concurrent job (v12) and 16 GB + 500 MB per
+  concurrent job (v13); it does not say "4 GB per 10 jobs".
 
   CODE:
     var bsR = Math.max(8, 4 + Math.ceil(concJ / 10) * 4);
@@ -326,6 +358,10 @@ SECTION 4 — REPOSITORY SIZING
     RATIONALE: One active full at creation, then weekly synthetic fulls
     (no extra storage — synthesised in-place). Only the most recent synthetic
     full + retention window of incrementals is stored. [HC]
+    SUPERSEDED (V13 review item 3): a synthetic full is a NEW full backup
+    file, so the chain holds multiple fulls (same formula as active full).
+    Block cloning on ReFS/XFS can reduce the physical space, which this tool
+    does not model.
 
     EXAMPLE: 14-day retention
       retGB = 5,120 + 256 × (14-1)
@@ -420,8 +456,10 @@ SECTION 4 — REPOSITORY SIZING
 SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  SOURCE: [SR] helpcenter.veeam.com/docs/vbr/userguide/system_requirements_via.html?ver=13
-          [HC] helpcenter.veeam.com/docs/backup/vsphere/veeam_backup_appliance.html
+  SOURCE: [SR] helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html
+          (Linux-Based Backup Server — Veeam Software Appliance)
+          (v1.0 cited system_requirements_via.html, which is the Veeam
+           Infrastructure Appliance, not the VSA)
 
   The VSA is an all-in-one Linux appliance: backup server + proxy + repo.
   Available in v13+ only. Combines bsC/bsR + proxy (pVCPU/pRAM).
@@ -429,6 +467,7 @@ SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
 ─── 5.1 VSA vCPU ───────────────────────────────────────────────────────────────
 
   vsaC = max(8, bsC + pVCPU)
+  SUPERSEDED (V13 review item 6): vsaC = max(8, bsC + pVCPU + vsaRepoCPU)
 
   RATIONALE: VSA minimum is 8 vCPU per Veeam requirements. [SR]
   Combined backup server + proxy vCPU, with 8 vCPU floor.
@@ -439,6 +478,7 @@ SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
 ─── 5.2 VSA RAM ────────────────────────────────────────────────────────────────
 
   vsaR = max(16, bsR + pRAM)
+  SUPERSEDED (V13 review item 6): vsaR = max(16, bsR + pRAM + vsaRepoRAM)
 
   RATIONALE: VSA minimum is 16 GB RAM per Veeam requirements. [SR]
   Combined backup server + proxy RAM, with 16 GB floor.
@@ -451,6 +491,9 @@ SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
   vD1 = max(480, bsR × 4)
 
   RATIONALE: Veeam requires minimum 480 GB for OS disk on VSA. [SR]
+  SUPERSEDED: the Help Center minimum is 240 GB; 480 GB is the recommendation
+  for small environments (up to a few hundred workloads), 960 GB for medium,
+  multi-TB for large. See V2.2.1 item C.
   The 4× RAM multiplier accounts for swap space, Veeam database, logs,
   and component installation. For large RAM configs this may grow.
 
@@ -464,9 +507,10 @@ SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
 
   vD2 = max(240, ceil(totGB / 1024) × 1024)
 
-  RATIONALE: Repository disk is rounded up to the nearest TB. Minimum 240 GB
-  as a practical lower bound. VSA uses LVM — additional disks can be added
-  and merged into the pool online. [HC, SR]
+  RATIONALE: Repository disk is rounded up to the nearest TB. 240 GB is the
+  Help Center minimum for Disk 2. Disks present at deployment are joined to
+  Disk 2 in one LVM volume. CORRECTION: resizing existing local disks is not
+  supported after deployment; only Fibre Channel / iSCSI devices can be added.
 
   EXAMPLE: totGB = 10,445 GB
     vD2 = max(240, ceil(10,445/1024) × 1024) = max(240, 11×1024) = 11,264 GB
@@ -479,6 +523,11 @@ SECTION 5 — VSA (VEEAM SOFTWARE APPLIANCE) SIZING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 6 — WORKED EXAMPLE (end-to-end validation)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  SUPERSEDED: this example uses the v1.0 formulas. With v2.2.1 (v13 mode) the
+  same scenario gives: taskUnit 400 (Hyper-V per disk), 50 tasks, 5 Hyper-V
+  proxies of 6 vCPU / 8 GB, backup server 8 cores / 41 GB (16 + 0.5 x 50),
+  VSA Disk 1 480 GB. Repository figures are unchanged.
 
   Scenario: 200 Hyper-V VMs, 20 TB source, 5% change, 14-day retention,
             4 weekly + 12 monthly GFS, 8-hour window, FFI mode, 10 GbE NIC,
@@ -555,22 +604,22 @@ SECTION 8 — CONSTANTS AND ASSUMPTIONS SUMMARY
   Change rate default     5%      Industry average for typical environments [SS]
   NIC utilisation cap     60%     Veeam BP recommendation for NBD [BP]
   MB/s per backup task    52      ~400 Mbps/task from sizing tool [SS]
-  Tasks per virtual proxy 12      Veeam BP max for virtual proxy [BP]
-  Max virtual proxy vCPU  8       Co-stop penalty threshold [BP]
-  RAM per task            2 GB    Veeam system requirement [SR]
+  Tasks per virtual proxy 12      Tool standard (6 vCPU x 2 tasks/core) [HC]
+  Max virtual proxy vCPU  8       bp.veeam.com guidance [BP]
+  RAM per task            2 GB    SUPERSEDED - VMware 1 GB, Hyper-V 0.5 GB [HC]
   Overhead factor         1.20    Repository free space + metadata [BP]
-  BS core per 10 jobs     1       Veeam system requirement [SR]
-  BS base RAM             4 GB    Veeam system requirement [SR]
-  BS RAM per 10 jobs      4 GB    Veeam system requirement [SR]
-  Minimum BS RAM          8 GB    Veeam system requirement [SR]
+  BS core per 10 jobs     1       SUPERSEDED - v13 8 cores, v12 4 cores [HC]
+  BS base RAM             4 GB    SUPERSEDED - v13 16 GB, v12 8 GB [HC]
+  BS RAM per 10 jobs      4 GB    SUPERSEDED - 0.5 GB per concurrent job [HC]
+  Minimum BS RAM          8 GB    v12 base (v13: 16 GB) [HC]
   VSA minimum vCPU        8       Veeam appliance requirement [SR]
   VSA minimum RAM         16 GB   Veeam appliance requirement [SR]
-  VSA minimum OS disk     480 GB  Veeam appliance requirement [SR]
+  VSA minimum OS disk     480 GB  SUPERSEDED - 240 GB min, 480 GB small env [HC]
   VMware avg disks/VM     2       Veeam proxy design guidance [BP]
   Disk per task (VMware)  1       Veeam VDDK transport model [BP]
   Fulls per week (active) 1       Active Full mode — weekly [HC]
   Min proxies             2       Resilience/HA requirement [BP]
-  Job overlap factor      1.15    15% concurrency buffer [SS]
+  Job overlap factor      1.15    SUPERSEDED - removed in v2.2.1
 
   ─────────────────────────────────────────────────────────────────────────────
   CODE IMPLEMENTATION NOTE
@@ -591,8 +640,10 @@ SECTION 8 — CONSTANTS AND ASSUMPTIONS SUMMARY
     PROXY_VCPU         = 6      (virtual proxy vCPU)
     PROXY_RAM          = 14     (virtual proxy RAM, GB)
 
-  All formulas in this document remain accurate; e.g. "fullGB = dataTB × 1024 ×
-  0.5" is implemented as "fullGB = dataTB * 1024 * COMPRESSION_RATIO".
+  The formulas in sections 1-9 were accurate to the v1.0 code; items marked
+  SUPERSEDED have since changed (see the STATUS box and the correction sections
+  at the end). e.g. "fullGB = dataTB × 1024 × 0.5" is still implemented as
+  "fullGB = dataTB * 1024 * COMPRESSION_RATIO".
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -698,6 +749,11 @@ SECTION 11 — PROTECTION COVERAGE & ORPHANED JOB DETECTION
                      by JobID)
     agentProtected = EndpointBackup + EpAgentBackup
                      (from the "[Agents]" summary line)
+    SUPERSEDED (v1.1.0): EpAgentBackup is a backup-session count, not a
+    machine count. agentProtected = managed Server + Workstation agents
+    (AgentBackup + AgentPolicy jobs) + standalone EndpointBackup agents.
+    v2.1.01 also adds replica-protected VMs and a reliability gate that shows
+    a floor-ceiling range instead of a % when per-job VM counts are ambiguous.
 
   FORMULA
     effProt        = min(protectedVMs + agentProtected, infraVMs)
@@ -730,8 +786,8 @@ SECTION 11 — PROTECTION COVERAGE & ORPHANED JOB DETECTION
     host-B:       (large infra + VM-job example) → effProt computed
                   → 44% coverage, 331 potentially unprotected (Critical)
 
-  NOTE: Without the agent term, VMC.log would falsely report 0% / 23
-  unprotected. Including agent backups corrects this.
+  NOTE: The first example used the v1.0 agent figure (67), which was a
+  session count; under the v1.1.0 model the real agent machine count is used.
 
   ───────────────────────────────────────────────────────────────────────────
   11.2  ORPHANED / DISABLED JOBS
@@ -812,18 +868,12 @@ SECTION 12 — MULTIPLE COLLECTION RUNS IN ONE VMC.log
     the 26 May snapshot. VMC.log contains 9 runs; its agent count is taken from
     the final run (63), not the first (67).
 
-  This collection-run-selection behaviour is implemented the same way in both
-  the tool, since the parser handles multi-run
-  logs the same way. The two parsers are separate codebases overall, though
-  (not byte-identical), so this describes this specific behaviour only, not
-  a guarantee that every other parsing rule is identical between the two.
 
   DISPLAYING THE COLLECTION TIME
     The selected run's start time is captured (as "DD Mon YYYY, HH:MM") and shown
     to the user so they know how current the data is:
-      Single-server tool — in the loaded-file label, the parsed-detail grid
-        ("Collected" row), and the exported PDF header ("Data collected: ...").
-        column, plus a collection-window note in the estate-totals header.
+      In the loaded-file label, the parsed-detail grid ("Collected" row), and
+      the exported PDF header ("Data collected: ...").
     The time shown is when the most recent collection run BEGAN (i.e. when the
     snapshot was taken), not the last line written within that run.
 
@@ -883,7 +933,8 @@ Test validation: 160+ assertions (Module C, 39 BP-logic scenarios) across 11 rea
   1. VBR v13 BACKUP SERVER CPU/RAM
      v13: bsC = 8 (fixed minimum)
           bsR = round((16 + 0.5*concurrentJobs) * 10) / 10
-     v12: unchanged — bsC=max(2,ceil(concJ/10)), bsR=max(8,4+ceil(concJ/10)*4)
+     v12: bsC=max(2,ceil(concJ/10)), bsR=max(8,4+ceil(concJ/10)*4)
+          SUPERSEDED in v2.2.1 — see item B below (4 cores, 8 GB + 0.5 GB/job)
      Detected-hardware floor (D.bsCPU/D.bsRAM) still applies on top of either.
      Ref: helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html
 
@@ -911,6 +962,7 @@ Test validation: 160+ assertions (Module C, 39 BP-logic scenarios) across 11 rea
   5. VSA DISK 1
      VD1_HARD_MIN=240, VD1_SMALL_REC=480, VD1_MEDIUM_REC=960
      vD1 = vms<=50 ? 480 : vms<=250 ? 960 : max(960, ceil(bsR*4/480)*480)
+     SUPERSEDED in v2.2.1 — see item C below
      vD1 = max(240, vD1)   // hard floor always enforced
      Previously: vD1=max(480,bsR*4) — made 480GB an unconditional floor.
 
@@ -939,6 +991,7 @@ Test validation: 160+ assertions (Module C, 39 BP-logic scenarios) across 11 rea
      VMware:  pRAM = 2 + 1*pTasks    = 14 GB   ("2 GB + 1 GB/task")
      HyperV:  pRAM = 2 + 0.5*pTasks  =  8 GB   ("2 GB + 0.5 GB/task")
      other:   pRAM = 4 + 4*pTasks    = 52 GB   ("4 GB + 4 GB/task", general-purpose/unstructured)
+     SUPERSEDED in v2.2.1 — see item D below (workers: 6 GB for 4 tasks)
      Old flat constant PROXY_RAM=14 superseded but left declared (unused) for
      reference. All UI text describing proxy RAM now shows pRAMFormulaNote,
      the actual formula that ran, rather than a static "2 GB/task" claim.
@@ -946,3 +999,40 @@ Test validation: 160+ assertions (Module C, 39 BP-logic scenarios) across 11 rea
   Each item validated against real parsed VMC.log data (not formula-only
   checks) before being committed; see git log for full validation detail
   per commit.
+
+
+================================================================================
+  V2.2.1 ACCURACY CORRECTIONS — supersede the matching items above
+================================================================================
+
+  A. CONCURRENT JOBS (supersedes the 1.15 overlap factor in sections above)
+     concJ = jobs        // worst case: every configured job runs at once
+     The 1.15 multiplier produced more concurrent jobs than exist and is removed.
+
+  B. BACKUP SERVER, v12 MODE (supersedes V13 review item 1, v12 branch)
+     bsC = 4                         // v12 Help Center: 4 cores recommended
+     bsR = 8 + 0.5 * concJ           // v12 Help Center: 8 GB + 500 MB per concurrent job
+     v13 unchanged: bsC = 8, bsR = 16 + 0.5 * concJ.
+
+  C. VSA DISK 1 (supersedes V13 review item 5)
+     vD1 = vms<=500 ? 480 : vms<=3000 ? 960 : 2000     // GB
+     Help Center: 480 GB "up to a few hundred workloads", 960 GB "up to a few
+     thousand", multi-TB for large. 240 GB hard minimum still enforced.
+
+  D. PROXY / WORKER SIZING (supersedes V13 review item 8)
+     VMware:  6 vCPU, 12 tasks, pRAM = 2 + 1*tasks    = 14 GB
+     HyperV:  6 vCPU, 12 tasks, pRAM = 2 + 0.5*tasks  =  8 GB
+     Worker platforms (Proxmox, Nutanix AHV, oVirt KVM, Scale, XCP-ng, Sangfor,
+     HPE VME): 6 vCPU / 6 GB for 4 tasks; +1 vCPU and +1 GB per extra task.
+     The 4 GB + 4 GB/task rate applies to general-purpose proxies for NAS /
+     unstructured data only, not hypervisor VM backup.
+     Tasks per core = 2 for every row (Help Center: 4-core CPU -> 8 tasks).
+     Ref: helpcenter.veeam.com/docs/vbr/userguide/system_requirements_workers.html
+
+  E. TAPE INCREMENTS
+     incrTB = fullTB * changeRate    // was a fixed 10%
+
+  F. REPOSITORY FALLBACK
+     repoTotalCPU = max(2, round(pCnt * pVCPU / 3))  // uses the platform's
+     proxy/worker vCPU rather than the VMware/Hyper-V constant.
+

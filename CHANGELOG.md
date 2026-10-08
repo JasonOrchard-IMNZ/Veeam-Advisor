@@ -3,6 +3,300 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## Maintenance — 2026-10-01 (repository tooling; the tool itself is unchanged)
+
+### Added — automatic refresh of the patch & vulnerability data
+- `.github/workflows/refresh-advisories.yml`: daily GitHub Actions job that runs
+  `tools/release-refresh.mjs` and opens or updates one pull request
+  (`auto/refresh-advisories`) when Veeam publishes a new security advisory or build. The
+  PR lists the new advisories (KB, CVSS, affected builds) and latest builds, and flags any
+  parser warning, table drift or broken link for a maintainer. Tests and `audit.sh` run
+  first; the version snapshot mirroring `index.html` is kept identical.
+- `tools/build-advisories.mjs --stamp-after=N` (forwarded by `release-refresh.mjs`): if no
+  advisory or build changed, keep the existing data date unless it is N days old, so the
+  daily run produces a pull request only for real changes or a monthly re-verification.
+  Prints `CHANGE:` lines summarising what changed.
+- The page still makes no network requests: data changes arrive through reviewed pull
+  requests and are embedded at deploy time.
+
+### Changed — hosting
+- `staticwebapp.config.json`: `routes` return 404 for `/tools/*` and Markdown files
+  (`/*.{md,markdown}`), so the release scripts, README, CHANGELOG and release notes are
+  not served by the Azure Static Web App.
+
+
+## v3.0 — 2026-10-01 (major release)
+
+Completes the enhancement plan. v2.3–v2.6 added security advisories, v13 upgrade readiness,
+full Analyzer coverage and the resilience scorecard; v3.0 adds the remaining items and the
+release tooling that keeps the embedded data accurate. See `RELEASE-NOTES-v3.0.md`.
+
+### Added — Fast Clone sizing (Repository tab, PDF)
+- Repositories that report Fast Clone (`IsReFsSyntheticEnabled`: ReFS block cloning, XFS
+  reflink, supported dedup appliances) get a second total, **with Fast Clone**, next to the
+  logical size. Per the v13 Help Center *Fast Clone* page, synthetic fulls — including
+  synthetic GFS fulls — reference existing blocks; each is counted as the changes since the
+  previous full, capped at a full (an upper bound for its unique blocks). Active fulls, and
+  GFS points assigned to them, read the source again and stay full size.
+- The logical size remains the planning figure; the 1.2× overhead is unchanged. The note
+  explains the limits (only Fast Clone repositories, rehydration when copied, Windows dedup
+  disables Fast Clone).
+
+### Added — Platform support (Infrastructure tab, BP Review, PDF)
+- VMC.log records no ESXi, vCenter or Hyper-V versions, so `VeeamAdvisor-MapCapture.ps1`
+  gains a read-only **Section 7**: `Get-VBRServer` (Type, ApiVersion, Info) and
+  `Get-VBRBackupServerInfo` (build, patch level).
+- Hosts are compared with ranges embedded from the Help Center supported-platform pages:
+  v13 ESXi / vCenter 7.x–9.1 and Hyper-V 2016–2025; v12 6.x–9.0 and 2012–2025. Versions that
+  cannot be read, newer than listed, Azure Local, SCVMM and Cloud Director are **Check** —
+  never guessed. A BP Review finding (critical) lists unsupported hosts.
+- Without a MapCapture, the section says how to get the versions.
+- The captured **patch level** is passed to the security-advisory check when its build
+  matches the log, settling fixes that do not change the build number (e.g. P20230223).
+
+### Changed — Version-correct Help Center links
+- With the toggle on **v12**, links to current topics point at Veeam's archived v12 copy of
+  the same topic (`helpcenter.veeam.com/archive/backup/120/<guide>/`), choosing the Hyper-V
+  guide on Hyper-V estates. Topics with no v12 copy keep their current link. Upgrade-
+  checklist and platform links always stay on v13 (they describe the v13 target).
+- 17 legacy links (`docs/backup/vsphere/*`, `docs/backup/agents/`, `docs/one/deployment/`,
+  `docs/one/reporter/…`) normalised to their current topics.
+
+### Added — Release tooling (maintainer's machine only; the page never fetches anything)
+- `tools/build-links.mjs` — checks every Help Center and Veeam KB link against the
+  knowledge-service topic index (Help Center returns 403 to automated requests, so HTTP
+  checks cannot tell good links from broken ones), lists each link's topic title to catch
+  wrong-page links (`--titles`), and writes the `VA_LINKS12` map. Current result: 75 Help
+  Center links and 13 KB links, all valid.
+- `tools/release-refresh.mjs` — runs `build-advisories.mjs` and `build-links.mjs`, then
+  reports drift between the hand-maintained tables and current Help Center content: the
+  platform matrix (`VA_PLAT`), Analyzer keys (`VA_SCA`), and the v13 upgrade minimum build
+  and Cloud Connect tenant minimum (`VA_UPG`). `--check` writes nothing.
+- `VeeamAdvisor-PowerShell-QA.ps1` Module A no longer requests Help Center / KB pages (a
+  403 was recorded as "page exists"); it defers those links to `build-links.mjs`.
+
+### Tests
+- `confirm-bp-findings.js` layer 1g (15 assertions): Fast Clone arithmetic, v12 and v13
+  platform matrices, patch-level hookup, MapCapture Section 7 parsing, and the v12 link
+  rewrite — each against the real function in `index.html`. 86 assertions in total.
+- Validate against your reference logs (`node confirm-bp-findings.js <logs-folder>`) and a
+  live MapCapture run before deploying.
+
+
+## v2.6 — 2026-10-01
+
+Adds a resilience scorecard: one view of checks the tool already makes.
+
+### Added — Resilience scorecard (BP Review tab and PDF)
+- Seven areas, judged against the 3-2-1 rule (Help Center: *Planning and Preparation*,
+  step 4) and the Security & Compliance Analyzer: offsite copy, immutable or offline
+  media, backup encryption, configuration backup, MFA for the backup console, malware
+  detection, and recovery verification (SureBackup).
+- Each row says what the log shows — **Met**, **Partly met**, **Not met** or **Not in
+  log** — and links to the BP Review finding that covers it, plus the Help Center topic.
+- Tape jobs or a scale-out capacity / archive tier without a backup copy job, and tape
+  without an immutable repository, are *Partly met*: the Help Center counts them, but the
+  log cannot show that they hold a copy of every backup or that tapes are offline.
+- Service providers get *Partly met* (verify) rather than *Not met* for copy, immutability
+  and inline scan, matching the existing findings.
+- It is a summary, not a new score: the BP score is unchanged.
+- Four-eyes authorization (v13) is not recorded in VMC.log, so it is listed as a console
+  check with a Help Center link.
+- BP Review findings now carry anchors (`#bpf-N`) so the scorecard can link to them.
+- `confirm-bp-findings.js` layer 1f (9 assertions) drives the real `vaResilience()`.
+
+
+## v2.5 — 2026-10-01
+
+Full Security & Compliance Analyzer coverage, worded the way Veeam words it.
+
+### Changed — one rule map for the BP Review tab and the PDF
+- The tab and the PDF used two separate maps (29 and 35 keys) that disagreed on labels and
+  links. Both now use one map, `VA_SCA`, covering all **70** `VBRBestPracticeType` keys in
+  the v13 Veeam PowerShell reference (plus two older key names the tool already knew).
+- Each check shows Veeam's own **title**, **what Veeam checks** (the check condition) and
+  **why it matters**, from the v13 Help Center *Security & Compliance Analyzer* page, with
+  a link to the relevant Help Center topic.
+- Each check shows which Analyzer **list** it belongs to — *Windows*, *Linux / appliance*
+  or both — and the section says which list applies to this backup server.
+- Checks are grouped as Veeam groups them: Backup infrastructure security, Product
+  configuration, plus Earlier-version checks for keys retired in v13.
+
+### Added
+- Linux / Veeam Software Appliance checks: Secure Boot, SELinux, auditd with log
+  forwarding, FIPS mode, ASLR, TCP syncookies, world-writable directories, legacy services
+  (rlogin / telnet / rsh), local password policy, audit binary ownership.
+- Newer product checks: hardened repository SSH disabled and not used as a proxy,
+  Compliance mode for immutable object storage, HA cluster, reverse incremental, backup
+  server outside the production domain, saved-credential and encryption-password complexity.
+- **Every status is read**, not just violations: *Suppressed* checks (excluded from the
+  Analyzer) and *Unable to detect* checks are listed for review; passed checks are counted.
+- Keys not in the map are shown with their raw name and a note, never dropped.
+- `confirm-bp-findings.js` layer 1e (7 assertions) checks the map against the v13 enum.
+
+
+## v2.4 — 2026-10-01
+
+Adds a v12 → v13 upgrade readiness check, run offline against the Veeam v13 Upgrade
+Checklist.
+
+### Added — Upgrade readiness (v12 servers only)
+- **Blockers**: a build below 12.3.1.1139 (v13 needs 12.3.1 or later — update within v12
+  first); a support contract that ends before the release date of the latest v13 build (the
+  installer requires support active on the build's release date).
+- **Actions**: backup server below the v13 minimum of 8 cores and 16 GB RAM; upgrade order
+  for Veeam ONE, Enterprise Manager (on the same machine: upgrade VBR straight after, no
+  restart) and Veeam Backup for Microsoft 365 on the same machine; Cloud Connect provider
+  tenant minimums (VBR 12.3.2.3617, Agent for Windows / Linux 6.3.2, Agent for Mac 2.3.1);
+  CDP policies to disable; enterprise application plug-ins below 12.3.2.4165, which stop
+  working; an encrypted configuration backup immediately before upgrading.
+- **Checks** the log cannot confirm: agent versions (Windows / Linux below 6.3.1, Mac below
+  2.3.1, AIX / Solaris below 4.6.1 stop working), Cloud Connect tenant (the provider must
+  upgrade first), vSphere 7.0+ / Cloud Director 10.4+, file copy jobs targeting the backup
+  server, file to tape sources migrating to inventory objects, reverse incremental
+  (deprecated for new jobs), SOBR immutable extent settings.
+- A list of items the log does not record (supported OS, disk space, port 443,
+  certificates, PowerShell 7, legacy backup formats, nested paths, Hardened Repository /
+  FIPS, NTLM, trusted hosts, pre-upgrade job state).
+- Shown on the Infrastructure tab, as a BP Review summary finding, and in the PDF. Nothing
+  appears for a v13 server.
+- `confirm-bp-findings.js` layer 1d (12 assertions) drives the real `vaUpgradeReadiness()`
+  with synthetic data.
+
+
+## v2.3 — 2026-10-01
+
+Adds an offline security-advisory check and makes "nothing leaves the browser" a rule the
+browser enforces.
+
+### Added — Security advisories for the detected build
+- The full build number in the VMC.log (e.g. `12.3.2.4165`) is checked against the Veeam
+  Backup & Replication v12 and v13 security advisories — CVE, CVSS score and fixed build —
+  and against the latest build per release line from KB2680.
+- **BP Review finding**: critical when any applicable CVE scores CVSS 9.0 or higher, a
+  warning otherwise, and a passing (or informational, if a newer build exists) result when
+  no advisory applies.
+- **Infrastructure tab**: a Security advisories table (advisory, CVE, CVSS, issue, fixed
+  build) with a link to each KB article. **PDF**: matching section.
+- CVEs are filtered by **deployment type** (Windows-based server vs Veeam Software
+  Appliance) using each advisory's "Affected Deployment Type".
+- Fixes the log cannot show are flagged for verification: the KB4724 hotfix for
+  12.3.0.310 (build number unchanged) and patch P20230223 for 12.0.0.1420.
+- Data older than 90 days triggers a warning that newer advisories may exist.
+- Enterprise Manager advisories are not included (the EM build is not in VMC.log).
+
+### Added — `tools/build-advisories.mjs`
+Release-time script (Node 18+, no dependencies) that reads the public advisories and KB2680
+from knowledge.veeamiq.com and rewrites the dated `VA-ADVISORIES` block in `index.html`.
+It warns and exits with code 2 for any v12/v13 advisory it cannot parse; irregular articles
+go in a small `MANUAL` table with the KB cited (currently KB4424). The browser never runs it.
+Data in this release: 11 advisory entries, as of 2026-10-01; latest builds 12.3.2.4854 and
+13.1.1.18.
+
+### Changed — Network lockdown
+- `index.html` and `user-guide.html` carry `<meta http-equiv="Content-Security-Policy"
+  content="connect-src 'none'">`, so the browser blocks any fetch/XHR/WebSocket from the
+  page — including when opened as a local file.
+- `staticwebapp.config.json`: `connect-src 'self' https://api.anthropic.com` →
+  `connect-src 'none'` (nothing in the tool used it).
+
+### Tests
+- `confirm-bp-findings.js` layer 1c: loads the real `vaBuildCheck()` from `index.html` and
+  drives it with fixed synthetic advisories (affected range, deployment-type filter,
+  same-build patch handling, latest-build flag, non-v12/v13 builds), plus a shape check of
+  the embedded data. 13 assertions; total 43.
+- `audit.sh`: v12/v13 build numbers in the advisory data are recognised as builds, not IPs.
+
+### Files
+- `index.html` and `Veeam_Advisor_v2.3.html` (new locked snapshot) carry v2.3;
+  `Veeam_Advisor_v2.2.1.html` is the retained v2.2.1 snapshot.
+- `tools/build-advisories.mjs` added; `user-guide.html`, `README.md`, `audit.sh` and
+  `.github/workflows/tests.yml` updated.
+
+## v2.2.1 — 2026-09-30
+
+Accuracy release. Every sizing figure, finding and UI path was re-checked against the
+Veeam Backup & Replication v13 Help Center (and the v12 Help Center for v12 mode). No new
+features; findings that were wrong or unsourced are corrected, softened or removed.
+
+### Fixed — findings that were wrong
+- **Remove deleted items data** was reported backwards. The setting *deletes* data for
+  VMs no longer processed after N days; when it is off, that data stays in the repository
+  indefinitely. The "Deleted VM retention disabled" warning is gone; when the setting is
+  on, an informational item advises keeping N at 7 days or more (Help Center guidance).
+- **WAN accelerators** are no longer described as deprecated — they remain a supported
+  feature for off-site backup copy and replication in v12 and v13.
+- **Agent licensing on socket licences.** A per-socket licence allows at most 6 agent
+  instances (or the socket count if fewer); only agents inside VMs on socket-licensed
+  hosts are covered by sockets. The Agents tab and PDF now say so, and a new BP Review
+  finding fires when detected agents exceed the allowance.
+- **Security & Compliance Analyzer descriptions** now match the real checks:
+  `ViProxyTrafficEncrypted` = host-to-proxy encryption in NBD mode (NBDSSL);
+  `ManualLinuxHostAuthentication` = *Add unknown hosts to the list manually*;
+  `LossProtectionEnabled` = Enterprise Manager encryption **password** loss protection;
+  `LinuxServersUsingSSHKeys` = password-based authentication on Linux servers.
+  MFA and auto-logoff paths corrected to *Users and Roles → Security*.
+- **Inline malware scan** is a global setting (Malware Detection → Encryption Detection),
+  not a per-job option. **YARA** is used in scan backup / SureBackup, so it is now
+  informational rather than a "disabled" warning.
+- **VSA finding inverted.** "VSA deployment requires v13 — upgrade to v13" was shown to
+  v13 Windows servers; removed. The v12 finding no longer claims hardened repositories or
+  immutability are v13-only.
+- **Backup Map PNG / PDF image** failed silently under the deployed CSP
+  (`img-src 'self' data:` blocks `blob:` images). The rasteriser now uses a `data:` URL.
+
+### Fixed — sizing
+- **Proxmox / Nutanix AHV / KVM and other worker platforms** are sized as workers
+  (6 vCPU / 6 GB for 4 tasks, +1 vCPU and +1 GB per extra task) instead of the
+  general-purpose NAS rate (4 GB + 4 GB/task), which overstated RAM roughly 4x.
+- **Concurrent jobs** are no longer `jobs × 1.15` (more concurrent jobs than exist);
+  worst case is all configured jobs. The unsourced "80–100 concurrent jobs optimal"
+  warning is removed.
+- **v12 backup server** uses the v12 Help Center formula: 4 cores, 8 GB + 0.5 GB per job.
+- **VSA Disk 1** follows the Help Center bands — 480 GB up to a few hundred workloads,
+  960 GB up to a few thousand, multi-TB above (applied as ≤500 / ≤3,000 VMs / 2 TB).
+- **Proxy tables** use 2 tasks per core throughout (Help Center) and the platform RAM rate;
+  the Virtual/Physical comparison rows and the per-proxy RAM check now agree with the
+  headline proxy figure. Hyper-V placement advice corrected (on-host or off-host; HotAdd
+  is VMware-only).
+- **Tape sizing** uses the entered daily change rate instead of a fixed 10%.
+- **Windows sizing table:** Windows Server 2016–2025 supported; PostgreSQL 17 is the v13
+  default; SQL Server Express limit 50 GB (2025) / 10 GB (earlier); disk and log figures
+  without a Veeam source are labelled as tool estimates.
+
+### Changed — unsourced or misleading guidance
+- 14-day immutability "minimum" → informational (Veeam sets no minimum).
+- Removed: StoreOnce "up to 90%" efficiency loss, "1 gateway per 200 connections",
+  "1 NAS proxy per 10 TB", "≤30 VMs per job" (now one ≤300 rule), GFS "minimum".
+- Block size: 1 MB and 4 MB are both accepted; smaller blocks are informational.
+- Compression: no "Auto" level exists; Dedupe-friendly is accepted on dedupe appliances.
+- UI paths corrected: health check (Storage → Advanced → Maintenance), storage latency
+  (General Options → I/O Control), malware review (Inventory → Malware Detection),
+  encryption (Storage → Advanced → Storage), email notifications (Options → E-mail).
+- CDP described as an RPO of seconds (not sub-second). VSA text no longer says it
+  "eliminates OS patching" or that local disks can be added online.
+- Help Center links that pointed at unrelated pages now point at the matching v13 topics.
+
+### Files
+- `index.html` and `Veeam_Advisor_v2.2.1.html` (new locked snapshot) carry v2.2.1;
+  `Veeam_Advisor_v2.2.html` is the retained v2.2 snapshot.
+- `user-guide.html`, `README.md`, `Veeam_Advisor_v1.0_Calculations.txt` and `audit.sh`
+  updated to match.
+- `confirm-outputs.js` removed (it loads the Fleet tool removed in v2.0 and could not run; the
+  v2.0 release notes already listed it as deleted).
+- `VeeamAdvisor-PowerShell-QA.ps1`: Module A URL list corrected to the pages the tool links to
+  (several labels pointed at unrelated pages), 404s now fail correctly under PowerShell 7, and
+  the connection falls back between ports 9392 and 443.
+- PowerShell version notes updated: Veeam PowerShell v13 requires PowerShell 7 (current docs:
+  7.6.3 or later), not 7.4.7.
+- Remaining wrong links in the tool fixed (Cloud Connect pages pointed at Enterprise Manager,
+  guest processing at the storage-snapshot page, config backup at Credentials Manager, File Copy
+  at Backup Copy), and the All jobs agent note no longer says standalone agents are free.
+- `README.md`, `user-guide.html`, `Veeam_Advisor_v1.0_Calculations.txt`,
+  `POWERSHELL-REVIEW-v2.0.md` and `RELEASE-NOTES-v2.0.md` corrected for stale or incorrect
+  statements (tab count, Fleet references, agent model, NIC speed, port behaviour, repository
+  cmdlets, superseded v1.0 formulas).
+
 ## v2.2 — 2026-09-29
 
 Adds an encryption-posture surface and promotes the tape-map and coverage work that
@@ -778,7 +1072,8 @@ the licence**:
   previous build assumed they were free, which was wrong (an estate with zero managed agents but a
   consumed Workstation instance is accounted for by its standalone agent).
 - **Perpetual (socket)** estates are shown as socket-covered; the per-instance agent check is
-  skipped because sockets cover agents.
+  skipped because sockets cover agents. *(Corrected in v2.2.1: a socket licence allows at most
+  6 agent instances — or the socket count if fewer — so sockets do not cover all agents.)*
 - **BP Review** gains a warning when more server agents are detected than licensed (instance
   licences only).
 
@@ -826,6 +1121,7 @@ feature now renders:
 - **Infrastructure tab**: "Backup proxies" now shows the proxy count (`d.proxies` →
   `detectedProxies`) and "Replication" shows the job count (`d.replJobs` → `replicationJobs`).
 - **BP Review**: the "WAN Accelerators deprecated" advisory now fires (`d.v13` → `vbrV13`).
+  *(Corrected in v2.2.1: WAN accelerators are not deprecated; the finding is now informational.)*
 - **Cloud Connect** provider label (`d.isProvider` → `d.cloudConnect.isProvider`) and the
   appliance "sized vCPU / RAM" suffix (`d.bsCPU` / `d.bsRAM` → `bsCPUact` / `bsRAMact`) now
   resolve to their correct fields.
@@ -895,6 +1191,8 @@ deployments.
   (only some reference logs expose the field).
 
 - **Repository health check (warning)** and **Deleted-VM retention (warning) — always fired.**
+  *(Corrected in v2.2.1: "Remove deleted items data" deletes data for removed VMs; leaving it off
+  keeps that data, so its absence is not a protection gap. It is now informational.)*
   Both are now evaluated per backup job by majority (same brace-optional pattern; the colon
   anchor avoids matching `FullHealthCheckEnabled`). They fire only when most jobs have the
   feature disabled. This cleared false positives on logs where the feature was actually enabled

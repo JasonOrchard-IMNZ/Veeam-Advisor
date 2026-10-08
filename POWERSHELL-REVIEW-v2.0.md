@@ -36,11 +36,15 @@ SOBR and an Azure external repository would see neither in the inventory.
 ```powershell
 $repos  = @(Get-VBRBackupRepository)
 $repos += @(Get-VBRBackupRepository -ScaleOut)
+$repos += @(Get-VBRObjectStorageRepository)
 $repos += @(Get-VBRExternalRepository)
 ```
 
-with the external-repository call wrapped in `try/catch` — it is not present on all VBR
-editions, and an unguarded call will terminate the block.
+Object storage repositories have their own cmdlet (`Get-VBRObjectStorageRepository`), so
+they also need to be enumerated explicitly. Wrap each additional call in `try/catch` so that
+an empty or unavailable result cannot terminate the block. (`Get-VBRExternalRepository` is a
+standard cmdlet in the Veeam PowerShell reference; the earlier note that it "is not present on
+all VBR editions" had no source and has been removed.)
 
 ## PS-2 (Minor) — Capacity readout is silently empty for object and offline repositories
 
@@ -67,7 +71,7 @@ distinctly rather than collapsing both to `—`.
 | Check | Result |
 |---|---|
 | Fleet View references | **None.** Neither script references the removed tool. |
-| `#Requires -Version 5.1` | Correct — minimum for VBR v12. |
+| `#Requires -Version 5.1` | Correct minimum for VBR v12 only. Veeam PowerShell v13 requires PowerShell 7 (current docs: 7.6.3+), which `#Requires 5.1` does not enforce — the script header notes this. |
 | `VeeamDataCloudObjStgVersion2` handling in QA | Present (4 assertions), including the immutability-by-design assertion that matches the tool's logic. |
 | Cmdlet surface | 21 `Get-VBRJob`, 12 `Get-VBRBackupRepository`, 10 `Get-VBRComputerBackupJob`, 10 `Get-VBRCloudTenant` and others — all current for v12/v13. |
 | Syntax | Both scripts unchanged from the previous release and previously validated. |

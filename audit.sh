@@ -1,9 +1,11 @@
 #!/bin/bash
 # Anonymisation audit for the v2.2 deliverables.
-FILES="index.html user-guide.html Veeam_Advisor_v2.2.html CHANGELOG.md test-v2_2.js fixtures.js VeeamAdvisor-MapCapture.ps1 VeeamAdvisor-PowerShell.ps1 VeeamAdvisor-PowerShell-QA.ps1"
+FILES="index.html user-guide.html Veeam_Advisor_v3.0.html RELEASE-NOTES-v3.0.md tools/build-links.mjs tools/release-refresh.mjs .github/workflows/refresh-advisories.yml Veeam_Advisor_v2.6.html Veeam_Advisor_v2.5.html Veeam_Advisor_v2.4.html Veeam_Advisor_v2.3.html Veeam_Advisor_v2.2.1.html tools/build-advisories.mjs Veeam_Advisor_v2.2.html CHANGELOG.md test-v2_2.js fixtures.js VeeamAdvisor-MapCapture.ps1 VeeamAdvisor-PowerShell.ps1 VeeamAdvisor-PowerShell-QA.ps1"
 # Known non-identifying literals: Veeam built-in GUIDs, documented example / private /
-# loopback IPs in the PowerShell help, and a browser UA version string.
-BUILTIN="88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec|00000000-0000-0000-0000-000000000000|10\\.0\\.0\\.50|192\\.168\\.1\\.20|127\\.0\\.0\\.1|124\\.0\\.0\\.0|aaaa[0-9a-f]{4}-bbbb-cccc-dddd-eeee[0-9a-f]{4}ffff"
+# loopback IPs in the PowerShell help, a browser UA version string, and Veeam Backup &
+# Replication 12.x / 13.x build numbers (e.g. 12.3.2.4854) in the embedded advisory data,
+# which have the same dotted-quad shape as an IPv4 address.
+BUILTIN="88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec|00000000-0000-0000-0000-000000000000|10\\.0\\.0\\.50|192\\.168\\.1\\.20|127\\.0\\.0\\.1|124\\.0\\.0\\.0|aaaa[0-9a-f]{4}-bbbb-cccc-dddd-eeee[0-9a-f]{4}ffff|^1[23]\\.[0-9]\\.[0-9]+\\.[0-9]+$"
 FAIL=0
 chk(){ # label, pattern, extra-filter
   local hits

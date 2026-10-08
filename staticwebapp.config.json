@@ -1,4 +1,8 @@
 {
+  "routes": [
+    { "route": "/tools/*", "statusCode": 404 },
+    { "route": "/*.{md,markdown}", "statusCode": 404 }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/robots.txt","/*.txt","/*.json","/*.ps1","/user-guide.html","/Veeam_Advisor_v*.html"]
