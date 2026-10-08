@@ -1,6 +1,6 @@
 <!--
-  Veeam Advisor v2.2 — PRODUCTION RELEASE
-  Released: 2026-07-09  (v1.1.0: 2026-06-26, v1.0.3: 2026-06-24, v1.0.2: 2026-06-21, v1.0.1: 2026-06-20, v1.0: 2026-06-08)
+  Veeam Advisor v2.2.1 — PRODUCTION RELEASE
+  Released: 2026-09-30  (v2.2: 2026-09-29, v2.1.01: 2026-07-24, v2.1: 2026-07-19, v2.0: 2026-07-09, v1.1.0: 2026-06-26, v1.0.3: 2026-06-24, v1.0.2: 2026-06-21, v1.0.1: 2026-06-20, v1.0: 2026-06-08)
   Build: production
 
   ==========================================================================
@@ -11,6 +11,39 @@
   reproduced, modified, distributed, or used in any form without the prior
   express written permission of the Author. See the LICENSE file for terms.
   ==========================================================================
+
+  v2.2.1 — accuracy corrections (all checked against the v13 Help Center):
+  - "Remove deleted items data" was reported backwards. It deletes data for VMs no longer
+    processed after N days; when off, that data is kept indefinitely. It is now an
+    informational item (keep N >= 7 days if used), not a missing protection.
+  - WAN accelerators are no longer described as deprecated; they remain supported in v12/v13.
+  - Socket (perpetual) licences no longer assumed to cover all agents: at most 6 agent
+    instances (or the socket count if fewer). New finding when detected agents exceed it.
+  - Proxmox / Nutanix AHV / KVM etc. are sized as workers (6 vCPU / 6 GB for 4 tasks,
+    +1 vCPU & +1 GB per extra task) instead of the NAS general-purpose 4 GB + 4 GB/task rate.
+  - Security & Compliance Analyzer items re-described to match the real checks:
+    ViProxyTrafficEncrypted = host-to-proxy NBDSSL; ManualLinuxHostAuthentication = "add
+    unknown Linux hosts manually"; LossProtectionEnabled = Enterprise Manager encryption
+    password loss protection. MFA / auto-logoff paths corrected to Users and Roles → Security.
+  - Inline scan is a global Malware Detection setting (Encryption Detection tab), not per job;
+    YARA is used in scan backup / SureBackup, not a global toggle.
+  - Removed the inverted "VSA requires v13 — upgrade" finding shown to v13 servers; the v12
+    finding no longer claims hardened repositories / immutability are v13-only.
+  - VSA Disk 1 now follows Help Center wording (480 GB up to a few hundred workloads, 960 GB
+    up to a few thousand, multi-TB above) instead of <=50 / <=250 VM thresholds.
+  - Concurrent jobs no longer inflated by 1.15 x job count; "80-100 optimal" claim removed.
+  - v12 backup server uses the v12 Help Center formula (4 cores, 8 GB + 0.5 GB/job).
+  - Proxy tables use 2 tasks per core throughout and platform RAM rates; Hyper-V placement
+    advice corrected (on-host / off-host, no HotAdd). VMs-per-job thresholds unified (300).
+  - Windows table: Server 2016+ supported; PostgreSQL is the v13 default; SQL Express limit
+    50 GB (2025) / 10 GB (earlier); unsourced disk/log figures labelled as tool estimates.
+  - Tape sizing uses the entered daily change rate instead of a fixed 10%.
+  - Unsourced figures removed or softened: 14-day immutability "minimum", StoreOnce "90%",
+    1 gateway per 200 connections, 1 NAS proxy per 10 TB, GFS "minimum", block size.
+  - Paths fixed: health check (Storage → Advanced → Maintenance), storage latency (General
+    Options → I/O Control), malware review (Inventory → Malware Detection), compression (no
+    "Auto" level; Dedupe-friendly accepted for dedupe appliances), CDP RPO in seconds.
+  - Help Center links that pointed to unrelated pages now point to the matching v13 topics.
 
   v2.0 — changes since v1.1.0 (major release):
   - Repository parser rebuilt on a definition-line anchor (RepositoryID: <guid>, Type: <type>)
@@ -144,8 +177,7 @@
     (ByType/BySource/ByState/BySeverity + FileMask extension detail),
     security BPA violations, MFA, config backup encryption, Enterprise Manager,
     Virtual Labs, WAN accelerators, NIC interface detection with speed inference
-  - 11 tabs: VSA, VBR Windows, Proxy BP, Repository, Retention, Replication,
-    All Jobs, Cloud Connect, Malware, Settings, BP Review
+  - 11 tabs at v1.0 (15 as of v2.x: + Agents, Tape, Infrastructure, Licensing, Backup map)
   - 30+ BP findings from bp.veeam.com/security + bp.veeam.com/vbr
   - Sizing calculator: proxy/repo/backup-server/VSA with named constants,
     NIC bandwidth modelling, GFS retention, storage growth projection
@@ -155,7 +187,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Veeam Advisor v2.2</title>
+<title>Veeam Advisor v2.2.1</title>
 <style>
 :root{
   /* ── Arcade palette (v2.0) ────────────────────────────────────────────────
@@ -503,7 +535,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
 <header>
   <div class="logo">V</div>
   <div style="display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0;overflow:hidden">
-    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v2.2</span></h1>
+    <h1 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Veeam Advisor <span style="font-size:13px;font-weight:400;color:var(--tx3);vertical-align:middle">v2.2.1</span></h1>
     <div style="font-size:11px;color:var(--tx3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Created by Jason Orchard &middot; &copy; 2026 &middot; All Rights Reserved &middot; unofficial community tool, not affiliated with or supported by Veeam</div>
   </div>
   <div class="ver-toggle">
@@ -550,7 +582,7 @@ tr.bp-warn:hover td{background:rgba(186,117,23,0.1);} tr.bp-crit:hover td{backgr
       <div class="upz" id="dz" onclick="document.getElementById('fi').click()">
         <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.4"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
         <strong id="dzlbl">Click or drag VMC.log here</strong>
-        <p>.log · .txt (RTF) · VBR 12.x & 13.x · HV & VMware · optional: MapCapture.ps1 output enriches the Resiliency map</p>
+        <p>.log · .txt (RTF) · VBR 12.x & 13.x · VMware, Hyper-V, Proxmox, AHV · optional: MapCapture.ps1 output enriches the Resiliency map</p>
         <input type="file" id="fi" accept=".log,.txt">
       </div>
       <p style="font-size:11px;color:var(--tx3);text-align:center;margin:8px 0 0">No log handy? A companion PowerShell script (<a href="VeeamAdvisor-PowerShell.ps1" download style="color:var(--blue);text-decoration:underline"><strong>VeeamAdvisor-PowerShell.ps1</strong></a>) pulls the same inventory live from a VBR server via the Veeam API.</p>
@@ -1412,7 +1444,7 @@ function parseLog(raw,fname){
      emAdded:false,       // IsAddedToEM
      virtualLabs:0,       // Virtual Lab count (SureBackup prerequisite)
      repoServers:null, serviceProviders:null, appGroups:null,   // infra inventory
-     wanAccel:0,          // WAN Accelerator count (deprecated v12+)
+     wanAccel:0,          // WAN Accelerator count
      cur:{compression:null,encryption:null,blockSize:null,cbt:null,guestProc:null,
           healthCheck:null,deletedVMRet:null,perVMFiles:null,immutability:null,
           backupCopy:null,storageLatency:null,repoTaskMax:null,repoTaskTotal:null,
@@ -2830,8 +2862,10 @@ function parseLog(raw,fname){
   // verified against the per-workload licence data (an estate with 0 managed agents
   // but a consumed Workstation instance is covered by its standalone agent), so the
   // earlier "EndpointBackup is free" assumption was wrong. Perpetual (socket)
-  // licences cover agents via CPU sockets, so AgentsServer/Workstation read 0 and
-  // the instance cross-check is skipped.
+  // licences do NOT cover agents generally: Help Center — a per-socket licence
+  // allows up to 6 instances for Veeam Agents (or the socket count if fewer than 6).
+  // Only an agent inside a VM on a socket-licensed host is covered by the socket.
+  // The allowance is checked once socket metrics are parsed (see licSockets below).
   (function(){
     var srv=0, wks=0, standalone=0;
     D.jobRecords.forEach(function(j){
@@ -2848,9 +2882,10 @@ function parseLog(raw,fname){
       mgdServer:srv, mgdWorkstation:wks, standalone:standalone,
       expSrvInst:srv, expWksInst:wksInst,
       licSrv:licSrv, licWks:licWks, perpetual:perpetual,
-      reconciles: perpetual || (srv===licSrv && wksInst===licWks) ||
-                  (srv===0 && wks===0 && standalone>0 && (licSrv+licWks)>0),
-      overServer: (!perpetual && srv>licSrv)
+      reconciles: (!perpetual && ((srv===licSrv && wksInst===licWks) ||
+                  (srv===0 && wks===0 && standalone>0 && (licSrv+licWks)>0))),
+      overServer: (!perpetual && srv>licSrv),
+      sockAgentCap:null, overSocketCap:false
     };
   })();
 
@@ -2881,6 +2916,15 @@ function parseLog(raw,fname){
       workloads:sgk('SocketsTotalWorkloadsNumber'),
       perPlatform:perPlat
     };
+    // Per-socket licence agent allowance: min(6, sockets in licence) instances.
+    var sil=D.licSockets.inLicense;
+    if(sil!=null && D.agentRecon){
+      var ar0=D.agentRecon, cap=Math.min(6,sil);
+      var need=ar0.expSrvInst+ar0.expWksInst+ar0.standalone;
+      ar0.sockAgentCap=cap;
+      ar0.overSocketCap=(need>cap);
+      ar0.reconciles=!ar0.overSocketCap;
+    }
   }
 
   // ── Agent-protected machines for the coverage estimate (v1.1.0 corrected) ────
@@ -3247,11 +3291,13 @@ function fN(n){return n.toLocaleString();}
   var REPO_OVERHEAD      = 1.2;   // 20% overhead for metadata, free space [BP]
   var NIC_UTILISATION    = 0.6;   // 60% NIC utilisation cap [BP]
   var MBPS_PER_TASK      = 52;    // MB/s per concurrent backup task (400 Mbps compressed) [SS]
-  var MAX_TASKS_VPROXY   = 12;    // Max tasks per virtual proxy (6 vCPU × 2) [BP]
-  var JOB_OVERLAP        = 1.15;  // 15% concurrent job overlap factor [SS]
-  var BS_CORES_PER_10J   = 1;     // BS (v12 BP-style): 1 core per 10 concurrent jobs [SR]
-  var BS_RAM_BASE        = 4;     // BS (v12 BP-style): 4 GB base RAM [SR]
-  var BS_RAM_PER_10J     = 4;     // BS (v12 BP-style): 4 GB per 10 concurrent jobs [SR]
+  var MAX_TASKS_VPROXY   = 12;    // Max tasks per virtual proxy (6 vCPU × 2 tasks/core; HC: 4-core CPU → 8 tasks) [HC]
+  // Concurrent jobs: worst case is every configured job running at once. The
+  // earlier 1.15 "overlap" multiplier produced MORE concurrent jobs than exist,
+  // which is impossible, so it has been removed (v2.2.1).
+  var BS_V12_MIN_CORES   = 4;     // BS (v12 Help Center): 4 cores recommended [HC]
+  var BS_V12_MIN_RAM     = 8;     // BS (v12 Help Center): 8 GB RAM base [HC]
+  var BS_V12_RAM_PER_JOB = 0.5;   // BS (v12 Help Center): +500 MB RAM per concurrent job [HC]
   var BS_V13_MIN_CORES   = 8;     // BS (v13 Help Center): 8 cores minimum, both Windows & Linux appliance [HC]
   var BS_V13_MIN_RAM     = 16;    // BS (v13 Help Center): 16 GB RAM minimum [HC]
   var BS_V13_RAM_PER_JOB = 0.5;   // BS (v13 Help Center): +500 MB RAM per concurrent job [HC]
@@ -3276,8 +3322,21 @@ function fN(n){return n.toLocaleString();}
   var PROXY_RAM_PER_T_VMW = 1;  // VMware proxy: +1 GB RAM per task [HC]
   var PROXY_RAM_BASE_HV   = 2;  // Hyper-V off-host proxy: 2 GB base [HC]
   var PROXY_RAM_PER_T_HV  = 0.5;// Hyper-V off-host proxy: +500 MB RAM per task [HC]
-  var PROXY_RAM_BASE_GP   = 4;  // General-purpose proxy: 4 GB base [HC]
+  var PROXY_RAM_BASE_GP   = 4;  // General-purpose proxy: 4 GB base [HC] — NAS/unstructured data ONLY
   var PROXY_RAM_PER_T_GP  = 4;  // General-purpose proxy: +4 GB RAM per task (unstructured data) [HC]
+  // Workers (Proxmox VE, Nutanix AHV, oVirt KVM, Scale HyperCore, XCP-ng, Sangfor, HPE VME).
+  // Help Center "Workers": default 6 vCPU / 6 GB RAM handles 4 concurrent tasks; each
+  // additional task needs +1 vCPU and +1 GB RAM. [HC]
+  var WORKER_VCPU         = 6;
+  var WORKER_RAM          = 6;
+  var WORKER_TASKS        = 4;
+
+  // Proxy/worker RAM for a given platform and concurrent task count (Help Center rates).
+  function proxyRamFor(platform, tasks){
+    if(platform==='VMware') return PROXY_RAM_BASE_VMW+PROXY_RAM_PER_T_VMW*tasks;
+    if(platform==='HyperV') return PROXY_RAM_BASE_HV+PROXY_RAM_PER_T_HV*tasks;
+    return WORKER_RAM+Math.max(0,tasks-WORKER_TASKS);
+  }
 
   function calculate(){
   // Unsupported-format short-circuit: a standalone Veeam Agent log was
@@ -3344,30 +3403,26 @@ function fN(n){return n.toLocaleString();}
   }
 
   var pVCPU,pRAM,pCnt,pRAMFormulaNote;
-  // Proxy RAM is platform/workload-specific per Help Center, not a single flat
-  // figure. VMware and Hyper-V both use the standard 6-vCPU/12-task virtual
-  // proxy sizing convention; only the RAM-per-task rate differs. Everything
-  // else (Proxmox, Nutanix, KVM, etc.) is treated as general-purpose, which
-  // HC sizes substantially higher per task for unstructured-data workloads.
-  pVCPU=PROXY_VCPU;
-  var pTasks=MAX_TASKS_VPROXY;
-  if(platform==='VMware'){
-    pRAM=PROXY_RAM_BASE_VMW+PROXY_RAM_PER_T_VMW*pTasks;
-    pRAMFormulaNote='VMware proxy: 2 GB + 1 GB/task';
-  } else if(platform==='HyperV'){
-    pRAM=PROXY_RAM_BASE_HV+PROXY_RAM_PER_T_HV*pTasks;
-    pRAMFormulaNote='Hyper-V off-host proxy: 2 GB + 0.5 GB/task';
-  } else {
-    pRAM=PROXY_RAM_BASE_GP+PROXY_RAM_PER_T_GP*pTasks;
-    pRAMFormulaNote='General-purpose proxy: 4 GB + 4 GB/task (unstructured-data rate)';
-  }
+  // Proxy RAM is platform-specific per Help Center, not a single flat figure.
+  // VMware and Hyper-V use a 6-vCPU / 12-task virtual proxy (2 tasks per vCPU);
+  // only the RAM-per-task rate differs. Proxmox, Nutanix AHV, KVM etc. are backed
+  // up through WORKERS, which Help Center sizes at 6 vCPU / 6 GB for 4 tasks.
+  // (The general-purpose proxy 4 GB + 4 GB/task rate applies to NAS/unstructured
+  // data backup only and must not be used for hypervisor VM backup.)
+  var isWorkerPlatform = !(platform==='VMware' || platform==='HyperV');
+  pVCPU = isWorkerPlatform ? WORKER_VCPU : PROXY_VCPU;
+  var pTasks = isWorkerPlatform ? WORKER_TASKS : MAX_TASKS_VPROXY;
+  pRAM = proxyRamFor(platform, pTasks);
+  if(platform==='VMware')      pRAMFormulaNote='VMware proxy: 2 GB + 1 GB/task';
+  else if(platform==='HyperV') pRAMFormulaNote='Hyper-V off-host proxy: 2 GB + 0.5 GB/task';
+  else                         pRAMFormulaNote='Worker: 6 vCPU / 6 GB for 4 tasks, +1 vCPU & +1 GB per extra task';
   pRAM=Math.round(pRAM*10)/10;
   // Proxy count: limited by both window and NIC
-  var tasksPerProxy=nicGbE>0?Math.min(MAX_TASKS_VPROXY,nicTaskCap):MAX_TASKS_VPROXY;
+  var tasksPerProxy=nicGbE>0?Math.min(pTasks,nicTaskCap):pTasks;
   pCnt=Math.max(2,Math.ceil(tasksNeeded/tasksPerProxy));
 
   // Backup server
-  var concJ=Math.ceil(jobs*JOB_OVERLAP);
+  var concJ=Math.ceil(jobs);   // worst case: all configured jobs concurrent (cannot exceed job count)
   var bsC,bsR,bsFormulaNote;
   if(VBR_V13){
     // v13 Help Center: 8 cores minimum; 16 GB RAM + 500 MB per concurrent job.
@@ -3376,10 +3431,10 @@ function fN(n){return n.toLocaleString();}
     bsR=Math.round((BS_V13_MIN_RAM+BS_V13_RAM_PER_JOB*concJ)*10)/10;
     bsFormulaNote='v13 Help Center: 8 cores min, 16 GB + 0.5 GB/concurrent job';
   } else {
-    // v12-style BP guidance (kept for v12 mode only — superseded by Help Center in v13).
-    bsC=Math.max(2,Math.ceil(concJ/10)*BS_CORES_PER_10J);
-    bsR=Math.max(8,BS_RAM_BASE+Math.ceil(concJ/10)*BS_RAM_PER_10J);
-    bsFormulaNote='v12 BP-style: scales per 10 concurrent jobs';
+    // v12 Help Center: 4 cores recommended; 8 GB RAM + 500 MB per concurrent job.
+    bsC=BS_V12_MIN_CORES;
+    bsR=Math.round((BS_V12_MIN_RAM+BS_V12_RAM_PER_JOB*concJ)*10)/10;
+    bsFormulaNote='v12 Help Center: 4 cores recommended, 8 GB + 0.5 GB/concurrent job';
   }
   if(D.bsRAM)bsR=Math.max(bsR,D.bsRAM);if(D.bsCPU)bsC=Math.max(bsC,D.bsCPU);
 
@@ -3434,17 +3489,18 @@ function fN(n){return n.toLocaleString();}
   // VSA = backup server + proxy/worker + repository (own local Disk-2 repo).
   var vsaC=Math.max(8,bsC+pVCPU+vsaRepoCPU);var vsaR=Math.max(16,bsR+pRAM+vsaRepoRAM);
   // Disk 1 (system: JeOS + VBR + config DB + instant-recovery cache).
-  // Help Center: 240 GB is the hard install minimum; recommended sizing scales
-  // with environment size — ~480 GB SSD for small, ~960 GB for medium, multi-TB
-  // for large (larger capacity = more IR cache headroom). VM count is used as
-  // the size signal since it's the most direct measure of environment scale
-  // available from a parsed log.
+  // Help Center: 240 GB is the hard install minimum; recommended 480 GB SSD for
+  // small environments ("up to a few hundred workloads"), 960 GB SSD for medium
+  // ("up to a few thousand workloads"), multi-TB SSD for large. The workload
+  // count thresholds below (500 / 3000) are this tool's reading of "a few
+  // hundred" and "a few thousand"; 2 TB is used as the multi-TB starting point.
   var VD1_HARD_MIN   = 240;  // [HC] absolute install minimum
   var VD1_SMALL_REC  = 480;  // [HC] recommended for small environments
   var VD1_MEDIUM_REC = 960;  // [HC] recommended for medium environments
-  var vD1 = vms<=50  ? VD1_SMALL_REC
-          : vms<=250 ? VD1_MEDIUM_REC
-          : Math.max(VD1_MEDIUM_REC, Math.ceil(bsR*4/480)*480); // large: scale further, multi-TB territory
+  var VD1_LARGE_REC  = 2000; // [HC] "multi-TB" for large environments
+  var vD1 = vms<=500  ? VD1_SMALL_REC
+          : vms<=3000 ? VD1_MEDIUM_REC
+          : VD1_LARGE_REC;
   vD1 = Math.max(VD1_HARD_MIN, vD1);
   var vD2=Math.max(240,Math.ceil(totGB/1024)*1024);
   var recProxies=clusters>0?Math.max(2,clusters*2):Math.max(2,Math.ceil(hosts/4));
@@ -3472,7 +3528,7 @@ function fN(n){return n.toLocaleString();}
   // approximate from overall proxy core count per the BP shortcut Veeam
   // cited — repo cores ~= proxy cores / 3, RAM = repo cores * 4 GB.
   if(repoComputeList.length===0){
-    repoTotalCPU = Math.max(REPO_CORES_MIN, Math.round((pCnt*PROXY_VCPU)/3));
+    repoTotalCPU = Math.max(REPO_CORES_MIN, Math.round((pCnt*pVCPU)/3));
     repoTotalRAM = repoTotalCPU*4;
   }
 
@@ -3654,7 +3710,7 @@ function render(d){
     else if(d.jobCounts&&(d.jobCounts['SureBackup']||d.jobCounts['SureBackupLite'])) h+='<div style="background:var(--al);color:var(--amber);border-radius:6px;padding:4px 9px;font-size:11px">&#9888; SureBackup configured but <b>0 Virtual Labs</b></div>';
 
     // WAN Accelerators
-    if(d.wanAccel>0) h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:6px;padding:4px 9px;font-size:11px;color:var(--tx3)">WAN Accel: <b>'+d.wanAccel+'</b> <span style="font-size:10px">(deprecated v12+)</span></div>';
+    if(d.wanAccel>0) h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:6px;padding:4px 9px;font-size:11px;color:var(--tx3)">WAN Accel: <b>'+d.wanAccel+'</b> <span style="font-size:10px">(backup copy / replication over WAN)</span></div>';
 
     // Failover plans
     if(d.failoverPlans>0) h+='<div style="background:var(--gl);color:var(--gd);border-radius:6px;padding:4px 9px;font-size:11px">&#9873; Failover plans: <b>'+d.failoverPlans+'</b></div>';
@@ -3727,12 +3783,12 @@ function render(d){
   h+='<p style="font-size:11px;color:var(--tx3);margin:-2px 0 8px">VSA combines three roles on one appliance: backup server ('+d.bsC+' vCPU/'+d.bsR+' GB) + proxy ('+d.pVCPU+' vCPU/'+d.pRAM+' GB) + its own local repository on Disk 2 ('+d.vsaRepoCPU+' vCPU/'+d.vsaRepoRAM+' GB) = '+d.vsaC+' vCPU/'+d.vsaR+' GB total.</p>';
   h+='<div class="tw"><table><tr><th>Disk</th><th>Min</th><th>Recommended</th><th>Role</th></tr>';
   h+='<tr><td>Disk 1</td><td>240 GB</td><td><b>'+d.vD1+' GB SSD</b></td><td>JeOS OS · VBR software · config DB · IR cache</td></tr>';
-  h+='<tr><td>Disk 2+</td><td>240 GB</td><td><b>'+fTB(d.vD2)+'</b></td><td>Catalog + backups (auto-merged LVM — add disks online)</td></tr>';
+  h+='<tr><td>Disk 2+</td><td>240 GB</td><td><b>'+fTB(d.vD2)+'</b></td><td>Catalog + backups (extra disks present at deployment are merged into one LVM volume)</td></tr>';
   h+='</table></div>';
-  h+='<p style="font-size:11px;color:var(--tx3);margin-top:8px">Disk 1: recommended 480 GB SSD for small environments (&le;50 VMs), 960 GB for medium (&le;250 VMs), scaling further for large; hard minimum is 240 GB regardless of size.</p>';
+  h+='<p style="font-size:11px;color:var(--tx3);margin-top:8px">Disk 1 (Help Center): 480 GB SSD for small environments (up to a few hundred workloads), 960 GB SSD for medium (up to a few thousand), multi-TB SSD for large; hard minimum 240 GB. This tool applies 480 GB up to 500 VMs, 960 GB up to 3,000 VMs, and 2 TB above that.</p>';
   if(d.bsRAMact) h+=nt('i','Current BS: <b>'+d.bsRAMact+' GB RAM / '+d.bsCPUact+' vCPU</b> — VSA recommendation builds on this baseline.');
-  h+=bpRef('https://helpcenter.veeam.com/docs/backup/vsphere/','VSA deployment — helpcenter.veeam.com');
-  h+='<p style="font-size:11px;color:var(--tx3);margin-top:10px;border-top:0.5px solid var(--bd);padding-top:8px">VSA is a pre-hardened JeOS Linux appliance — no Windows licence required. Disk 1 &lt; 240 GB = install fails. Disk 2+ auto-merged into LVM pool, expandable online.</p><p style="font-size:11px;color:var(--tx3);margin-top:10px;padding-top:8px;border-top:0.5px solid var(--bd)">&#128196; Best Practice reference: <a href="https://helpcenter.veeam.com/docs/backup/vsphere/" target="_blank" style="color:var(--bdk)">VSA deployment — helpcenter.veeam.com &#8599;</a></p>';
+  h+=bpRef('https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html','Backup server / VSA system requirements — helpcenter.veeam.com');
+  h+='<p style="font-size:11px;color:var(--tx3);margin-top:10px;border-top:0.5px solid var(--bd);padding-top:8px">VSA is a pre-hardened JeOS Linux appliance — no Windows licence required; OS and product updates are supplied and centrally managed by Veeam but must still be applied. Disk 1 &lt; 240 GB = install fails. Additional disks present at deployment are joined to Disk 2 in one LVM volume; resizing existing local disks is not supported, and only Fibre Channel / iSCSI devices can be added after deployment.</p>';
   if(!d.vbrV13) h+='</div>'; // close opacity wrapper
   h+='</div>';
 
@@ -3768,15 +3824,15 @@ function render(d){
   var proxy_cur  = d.proxyEx   || null;
 
   h+='<div class="tw"><table><tr><th>Component</th><th>Min</th><th>Recommended</th><th>Current</th><th>Status</th><th>Notes</th></tr>';
-  h+=winRow('Backup server OS',   'Win Srv 2019', 'Windows Server 2022',  null, d.fromLog?'Win Server (detected)':null, null, 'Standard or Datacenter. Separate from proxy if &gt;50 jobs.');
-  h+=winRow('Backup server CPU',  d.vbrV13?'8 cores':'2 cores',  d.bsC+' vCPU',  d.bsC,  bsCPU_cur?(bsCPU_cur+' vCPU'):null,  bsCPU_cur, d.vbrV13?'v13 Help Center: 8 cores minimum':'1 core per 10 concurrent jobs (min 2)');
-  h+=winRow('Backup server RAM',  d.vbrV13?'16 GB':'8 GB',        d.bsR+' GB',    d.bsR,  bsRAM_cur?(bsRAM_cur+' GB'):null,    bsRAM_cur, d.vbrV13?'v13 Help Center: 16 GB + 0.5 GB per concurrent job':'4 GB per 10 concurrent jobs (min 8 GB)');
-  h+=winRow('Config DB',          'SQL Express',  'SQL Standard / PostgreSQL', null, null, null, 'SQL Express = 10 GB limit. Use Standard for &gt;'+Math.ceil(d.jobs/2)+' jobs.');
-  h+=winRow('BS disk — OS + VBR', '100 GB',       '200 GB SSD',           null, null, null, 'C: drive. Keep VBR logs on separate volume.');
-  h+=winRow('BS disk — logs',     '40 GB',        Math.max(40,d.logGB*2)+' GB', null, null, null, '~'+d.logGB+' GB estimated (3 GB per 100 VMs at 24hr RPO)');
-  h+=winRow('Proxy servers',      '2',            d.pCnt+'',              d.pCnt, proxy_cur?(proxy_cur+''):null, proxy_cur, 'Min 2 for HA. Virtual VMs on each cluster node.');
-  h+=winRow('Proxy vCPU',         '4',            d.pVCPU+' vCPU each',   d.pVCPU, null, null, 'Max 8 vCPU per VM proxy (co-stop avoidance)');
-  h+=winRow('Proxy RAM',          '8 GB',         d.pRAM+' GB each',      d.pRAM, null, null, esc(d.pRAMFormulaNote||'Platform-specific — see Proxy tab'));
+  h+=winRow('Backup server OS',   'Win Srv 2016', 'Windows Server 2022 / 2025',  null, d.fromLog?'Win Server (detected)':null, null, 'Windows Server 2016–2025 supported (Core edition included).');
+  h+=winRow('Backup server CPU',  d.vbrV13?'8 cores':'4 cores',  d.bsC+' vCPU',  d.bsC,  bsCPU_cur?(bsCPU_cur+' vCPU'):null,  bsCPU_cur, d.vbrV13?'v13 Help Center: 8 cores minimum':'v12 Help Center: 4 cores recommended');
+  h+=winRow('Backup server RAM',  d.vbrV13?'16 GB':'8 GB',        d.bsR+' GB',    d.bsR,  bsRAM_cur?(bsRAM_cur+' GB'):null,    bsRAM_cur, d.vbrV13?'v13 Help Center: 16 GB + 0.5 GB per concurrent job':'v12 Help Center: 8 GB + 0.5 GB per concurrent job');
+  h+=winRow('Config DB',          'PostgreSQL (bundled)', 'PostgreSQL 17 (default)', null, null, null, 'PostgreSQL 17 ships with v13 setup. Microsoft SQL Server Express is limited to 50 GB (SQL 2025) or 10 GB (earlier versions) — use a full edition for larger databases.');
+  h+=winRow('BS disk — OS + VBR', '~10 GB install', '200 GB SSD (tool estimate)', null, null, null, 'Help Center: 5 GB product + 4.5 GB .NET; 10 GB per 100 VMs for guest catalog; &ge;100 GB free for Instant Recovery cache recommended.');
+  h+=winRow('BS disk — logs',     '10 GB',        Math.max(40,d.logGB*2)+' GB', null, null, null, 'Help Center: at least 10 GB, grows with features used. ~'+d.logGB+' GB is a tool estimate (3 GB per 100 VMs), not a Veeam figure.');
+  h+=winRow('Proxy servers',      '2',            d.pCnt+'',              d.pCnt, proxy_cur?(proxy_cur+''):null, proxy_cur, d.platform==='HyperV'?'Min 2 for redundancy. Hyper-V uses on-host (the host itself) or physical off-host proxies.':'Min 2 for redundancy.');
+  h+=winRow('Proxy vCPU',         '2',            d.pVCPU+' vCPU each',   d.pVCPU, null, null, '2 concurrent tasks per core (Help Center); keep VM proxies &le;8 vCPU (bp.veeam.com).');
+  h+=winRow('Proxy RAM',          d.platform==='VMware'?'3 GB':d.platform==='HyperV'?'2.5 GB':'6 GB', d.pRAM+' GB each',      d.pRAM, null, null, esc(d.pRAMFormulaNote||'Platform-specific — see Proxy tab'));
   h+=winRow('Repository storage', '—',            d.repoTB+' TB',         null, null, null, 'See Repository tab for full GFS breakdown');
   h+='</table></div>';
   h+=nt('i','&#8505; VBR v13 Windows uses the same sizing rules as VSA but runs on Windows Server. You manage the OS, SQL/PostgreSQL, and Windows updates separately.');
@@ -3803,8 +3859,8 @@ function render(d){
   if(pl.length>0){
     // Compute per-proxy BP assessment
     var proxyData = pl.map(function(p){
-      var tasks = p.cores ? p.cores*(p.phys?1:2) : null;
-      var ramNeed = p.cores ? 2+p.cores*2 : null;
+      var tasks = p.cores ? p.cores*2 : null;   // Help Center: 2 concurrent tasks per core
+      var ramNeed = tasks ? Math.round(proxyRamFor(d.platform, tasks)*10)/10 : null;
       var cpuOk  = !p.cores || p.phys || p.cores<=8;  // physical can exceed 8
       var ramOk  = !p.ram_gb || !ramNeed || p.ram_gb>=ramNeed;
       var sev    = (!cpuOk&&!p.phys)?'crit':(!ramOk)?'warn':'ok';
@@ -3828,7 +3884,7 @@ function render(d){
     h+='</div>';
 
     if(nWarn>0)  h+=nt('w','&#9888; <b>'+nWarn+' proxies are under-RAM\'d</b> for their vCPU count. RAM requirements are platform-specific: '+esc(d.pRAMFormulaNote||'2 GB + 1 GB/task (VMware) or 2 GB + 0.5 GB/task (Hyper-V off-host)')+'. These proxies may throttle or fail under peak backup load.');
-    if(nCrit>0)  h+=nt('e','&#10007; <b>'+nCrit+' virtual proxies exceed 8 vCPU</b>. Veeam Best Practice limits virtual proxies to 8 vCPU to avoid VMware/HV co-stop scheduling degradation.');
+    if(nCrit>0)  h+=nt('e','&#10007; <b>'+nCrit+' virtual proxies exceed 8 vCPU</b>. bp.veeam.com guidance is to keep virtual proxies at 8 vCPU or fewer and scale out with more proxies; very large VMs can suffer hypervisor CPU scheduling contention.');
 
     // NIC bandwidth context note
     if(d.nicGbE>0){
@@ -3898,7 +3954,7 @@ function render(d){
       h+='</tr>';
     });
     h+='</table></div>';
-    h+='<p style="font-size:11px;color:var(--tx3);margin-top:9px;border-top:0.5px solid var(--bd);padding-top:7px">BP rules: virtual proxies max 8 vCPU &middot; 2 tasks per vCPU (physical: 1 task per core). RAM is platform-specific: '+esc(d.pRAMFormulaNote||'2 GB + 1 GB/task (VMware), 2 GB + 0.5 GB/task (Hyper-V off-host), or 4 GB + 4 GB/task (general-purpose, unstructured data)')+'. Task count = cores &times; tasks-per-core.</p>';
+    h+='<p style="font-size:11px;color:var(--tx3);margin-top:9px;border-top:0.5px solid var(--bd);padding-top:7px">Rules: 2 concurrent tasks per core (Help Center); virtual proxies kept &le;8 vCPU (bp.veeam.com). RAM is platform-specific: '+esc(d.pRAMFormulaNote||'2 GB + 1 GB/task (VMware), 2 GB + 0.5 GB/task (Hyper-V off-host), worker 6 GB for 4 tasks +1 GB/extra task (Proxmox/AHV/KVM)')+'. Task count = cores &times; 2.</p>';
   } else {
     h+=nt('w','&#9888; No per-proxy hardware data available. Import a VMC.log to see individual proxy loading analysis.');
   }
@@ -3907,16 +3963,17 @@ function render(d){
   h+='<div style="margin-top:16px"><p style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:7px">Best practice rules (bp.veeam.com)</p>';
   h+='<div class="tw"><table><tr><th>Rule</th><th>Value</th><th>Applies to</th><th>Reason</th></tr>';
   [
-    ['Tasks per vCPU','2','Virtual proxy','2 concurrent tasks per vCPU — bp.veeam.com standard'],
-    ['Tasks per core','1','Physical proxy','Physical cores process 1 task each — no co-stop concern'],
-    ['Max vCPU per proxy','8','Virtual proxy only','Above 8 vCPU VMware/HV co-stop scheduling degrades throughput'],
+    ['Tasks per core','2','VMware / Hyper-V proxy','Help Center: e.g. 4-core CPU → max 8 concurrent tasks (1 task = 1 VM disk)'],
+    ['Max vCPU per proxy','8','Virtual proxy only','bp.veeam.com guidance — scale out with more proxies rather than very large VMs'],
     ['RAM (VMware proxy)','2 GB + 1 GB/task','VMware','Help Center — VMware backup proxy'],
     ['RAM (Hyper-V off-host)','2 GB + 0.5 GB/task','Hyper-V','Help Center — Hyper-V backup proxy'],
-    ['RAM (general-purpose)','4 GB + 4 GB/task','Proxmox/Nutanix/other','Help Center — unstructured-data rate applies'],
-    ['Minimum proxies','2','All environments','At least 2 for load balancing and failover (HA)'],
-    ['Placement (HV)','1 VM per cluster node','Hyper-V','Local HotAdd access — avoids network backup traffic'],
-    ['Placement (VMware)','1 VM per cluster','VMware','Local HotAdd to datastores on same host'],
-    ['Transport mode','HotAdd preferred','Virtual','NBD (network) mode is fallback — far lower throughput'],
+    ['Worker (default)','6 vCPU / 6 GB, 4 tasks','Proxmox / Nutanix AHV / KVM / others','Help Center — +1 vCPU & +1 GB per extra task'],
+    ['RAM (general-purpose)','4 GB + 4 GB/task','NAS / file share only','Help Center — unstructured-data rate (not for VM backup)'],
+    ['Minimum proxies','2','All environments','At least 2 for load balancing and redundancy'],
+    ['Placement (HV)','On-host or off-host','Hyper-V','On-host: the Hyper-V host acts as proxy. Off-host: physical server with shared storage access. HotAdd does not apply to Hyper-V'],
+    ['Placement (VMware)','Proxy VM per cluster','VMware','HotAdd needs the proxy on a host that can reach the source datastores'],
+    ['Placement (Proxmox)','Worker per node','Proxmox VE','Help Center recommends a worker on each cluster node'],
+    ['Transport mode (VMware)','Direct SAN / HotAdd preferred','VMware','NBD (network) is the fallback; enable NBDSSL if NBD is used'],
   ].forEach(function(r){
     h+='<tr><td style="font-weight:500">'+r[0]+'</td><td><b>'+r[1]+'</b></td><td style="font-size:12px;color:var(--bdk)">'+r[2]+'</td><td style="font-size:12px;color:var(--tx2)">'+r[3]+'</td></tr>';
   });
@@ -3926,10 +3983,11 @@ function render(d){
   h+='<div style="margin-top:14px"><p style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:7px">Recommended sizing for this workload</p>';
   h+='<div class="tw"><table><tr><th>Deployment</th><th>Count</th><th>vCPU each</th><th>RAM each</th><th>Tasks total</th><th>Notes</th></tr>';
   h+='<tr><td><b>VSA (v13)</b></td><td>Built-in</td><td>'+d.vsaC+'</td><td>'+d.vsaR+' GB</td><td>'+d.tasksNeeded+'</td><td style="font-size:12px;color:var(--tx2)">Combined BS+proxy+repo appliance</td></tr>';
-  var vCnt=Math.max(2,Math.ceil(d.tasksNeeded/16)),vCPU=Math.max(4,Math.min(8,Math.ceil(d.tasksNeeded/vCnt))),vRAM=2+vCPU*2;
-  h+='<tr><td><b>Virtual VM</b></td><td>'+vCnt+'</td><td>'+vCPU+'</td><td>'+vRAM+' GB</td><td>'+d.tasksNeeded+'</td><td style="font-size:12px;color:var(--tx2)">Max 8 vCPU · deploy on each cluster node</td></tr>';
-  var phCPU=Math.ceil(d.tasksNeeded),phRAM=2+phCPU*2;
-  h+='<tr><td><b>Physical</b></td><td>1</td><td>'+phCPU+' cores</td><td>'+phRAM+' GB</td><td>'+d.tasksNeeded+'</td><td style="font-size:12px;color:var(--tx2)">1 core per task · best for Direct SAN Access</td></tr>';
+  var isWrk=!(d.platform==='VMware'||d.platform==='HyperV');
+  var vCnt=isWrk?Math.max(1,Math.ceil(d.tasksNeeded/WORKER_TASKS)):Math.max(2,Math.ceil(d.tasksNeeded/16)),vTasks=Math.ceil(d.tasksNeeded/vCnt),vCPU=isWrk?WORKER_VCPU:Math.max(2,Math.min(8,Math.ceil(vTasks/2))),vRAM=isWrk?WORKER_RAM:Math.round(proxyRamFor(d.platform,vTasks)*10)/10;
+  h+='<tr><td><b>'+(isWrk?'Worker (default)':'Virtual VM')+'</b></td><td>'+vCnt+'</td><td>'+vCPU+'</td><td>'+vRAM+' GB</td><td>'+d.tasksNeeded+'</td><td style="font-size:12px;color:var(--tx2)">'+(isWrk?'Default worker: 4 tasks each (Help Center)':'&le;8 vCPU · 2 tasks per vCPU')+'</td></tr>';
+  var phCPU=Math.max(2,Math.ceil(d.tasksNeeded/2)),phRAM=Math.round(proxyRamFor(d.platform,d.tasksNeeded)*10)/10;
+  if(!isWrk) h+='<tr><td><b>Physical</b></td><td>1</td><td>'+phCPU+' cores</td><td>'+phRAM+' GB</td><td>'+d.tasksNeeded+'</td><td style="font-size:12px;color:var(--tx2)">2 tasks per core · best for Direct SAN Access</td></tr>';
   h+='</table></div></div>';
 
   // NIC interface detail
@@ -4517,33 +4575,33 @@ function render(d){
   h+='<div>';
   var JOB_META={
     // Backup jobs
-    'BackupHV':       {label:'Hyper-V Backup',     cat:'Backup',      bp:'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_proxies/vmware_proxies.html', bpNote:'30 VMs per job recommended. Enable CBT, guest processing for app-aware backups.',detail:'Each job processes VMs sequentially within the window. Enable per-VM backup files for jobs >30 VMs to allow parallel processing and faster restores.'},
-    'VDDKBackup':     {label:'VMware Backup',       cat:'Backup',      bp:'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_proxies/vmware_proxies.html', bpNote:'30 VMs per job. Enable CBT. Use HotAdd proxy mode where possible.',detail:'VMware VDDK backup: 1 disk = 1 proxy task. Average 2 disks/VM. Use HotAdd for local datastore access. NBD (network) mode is fallback only.'},
+    'BackupHV':       {label:'Hyper-V Backup',     cat:'Backup',      bp:'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_proxies/vmware_proxies.html', bpNote:'Keep jobs ≤300 VMs with per-machine backup files. Enable CBT and application-aware processing where needed.',detail:'VMs in a job are processed in parallel up to the proxy and repository task limits. Per-machine backup files allow parallel writes and simpler retention.'},
+    'VDDKBackup':     {label:'VMware Backup',       cat:'Backup',      bp:'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_proxies/vmware_proxies.html', bpNote:'Keep jobs ≤300 VMs with per-machine backup files. Enable CBT. Prefer Direct SAN or HotAdd transport.',detail:'VMware VDDK backup: 1 disk = 1 proxy task (the tool assumes 2 disks/VM). Direct SAN / HotAdd preferred; NBD (network) mode is the fallback — enable NBDSSL if used.'},
     'AgentBackup':    {label:'Agent Backup',         cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/backup/agents/', bpNote:'Managed agent backups — ensure agent versions are current and policy assignments are reviewed.',detail:'Modern managed agent model. Policies assigned to protection groups (AD, CSV, manual). Supports Windows, Linux, and Mac. Check agent version currency in Inventory.'},
-    'EndpointBackup': {label:'Endpoint Backup',      cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/backup/agents/', bpNote:'Legacy endpoint backup type — consider migrating to Agent Backup policy.',detail:'Legacy per-machine backup jobs. Migrate to managed Agent Backup policies: centrally managed, group-based assignment, better reporting.'},
+    'EndpointBackup': {label:'Endpoint Backup',      cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html', bpNote:'Standalone Veeam Agent backups reporting to this server — each consumes a licence instance.',detail:'Backups created by Veeam Agents running in standalone mode and targeting a repository on this server. They are not managed by the backup server; consider a managed agent job or policy if central control is needed.'},
     'EpAgentManagement':{label:'Agent Management',  cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/backup/agents/', bpNote:'Agent management policy — controls agent deployment and settings across managed machines.',detail:'Manages agent deployment, updates, and settings. Not a backup job itself — a management overlay. Ensure all managed machines are reporting healthy.'},
-    'NasBackup':      {label:'NAS / File Share',     cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html', bpNote:'Requires dedicated NAS proxy. Size proxy at 1 file proxy per 10 TB NAS data.',detail:'File-level backup for SMB/NFS shares. Requires a dedicated NAS backup proxy. First run is full; subsequent runs are incremental. Cache proxy handles metadata.'},
+    'NasBackup':      {label:'NAS / File Share',     cat:'Backup',      bp:'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_unstructured_data.html', bpNote:'Uses general-purpose backup proxies (4 GB + 4 GB RAM per task) and a cache repository.',detail:'File-level backup for SMB/NFS shares and file servers. Processed by general-purpose backup proxies (the backup server can act as one by default). First run is full; subsequent runs are incremental. A cache repository holds file share metadata.'},
     // Backup copy
     'BackupCopy':     {label:'Backup Copy',          cat:'Copy',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'3-2-1 rule. Copy to a separate site or object storage. Retention ≥ primary job.',detail:'Satisfies the 3-2-1 rule. Runs continuously or on schedule. Target should be geographically separate. GFS retention on copy jobs provides long-term archive.'},
     'SimpleBackupCopyWorker':{label:'Backup Copy Workers',cat:'Copy',   bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'Worker tasks — each worker processes one VM at a time. Scale workers to meet copy window.',detail:'Internal worker tasks spawned by backup copy jobs. High counts indicate active copy job activity. Each worker handles one VM at a time.'},
     // Log backup
-    'SqlLogBackup':   {label:'SQL Log Backup',       cat:'Application', bp:'https://helpcenter.veeam.com/docs/backup/vsphere/oracle_backup.html', bpNote:'Log backup requires guest processing enabled on parent job. Log frequency: every 15 min recommended.',detail:'SQL transaction log backup. Requires guest processing on the parent VM backup job. Enables point-in-time database recovery. Recommended: every 15 minutes.'},
+    'SqlLogBackup':   {label:'SQL Log Backup',       cat:'Application', bp:'https://helpcenter.veeam.com/docs/vbr/userguide/sql_backup.html', bpNote:'Log backup requires application-aware processing on the parent job. Default interval: every 15 minutes.',detail:'SQL transaction log backup. Requires application-aware processing on the parent VM backup job. Enables point-in-time database recovery. Default interval: every 15 minutes.'},
     'OracleLogBackup':{label:'Oracle Log Backup',    cat:'Application', bp:'https://helpcenter.veeam.com/docs/backup/vsphere/oracle_backup.html', bpNote:'Archive log backup. Ensure Oracle credentials are configured and valid.',detail:'Oracle archived redo log backup. Requires SYSDBA credentials configured in Veeam. Enables SCN-level point-in-time recovery.'},
-    'PostgreSqlLogBackup':{label:'PostgreSQL Log',   cat:'Application', bp:'https://helpcenter.veeam.com/docs/backup/vsphere/', bpNote:'PostgreSQL log shipping — requires VBR v12+ and PostgreSQL agent.',detail:'PostgreSQL WAL log backup. Requires VBR v12.1+ and the PostgreSQL agent installed on the database server.'},
+    'PostgreSqlLogBackup':{label:'PostgreSQL Log',   cat:'Application', bp:'https://helpcenter.veeam.com/docs/vbr/userguide/postgresql_backup_job.html', bpNote:'PostgreSQL WAL (transaction log) backup via application-aware processing.',detail:'PostgreSQL WAL log backup for point-in-time recovery. Requires application-aware processing for PostgreSQL on the protected Linux machine.'},
     // DR
     'SureBackup':     {label:'SureBackup',           cat:'Verification',bp:'https://helpcenter.veeam.com/docs/backup/vsphere/surebackup_job.html', bpNote:'Automated recovery verification. Run weekly on critical VMs. Requires Virtual Lab.',detail:'Powers on VMs in an isolated Virtual Lab and runs tests (heartbeat, ping, app scripts). Verifies that backups are actually recoverable. Run weekly on critical systems.'},
     'SureBackupLite': {label:'SureBackup Lite',      cat:'Verification',bp:'https://helpcenter.veeam.com/docs/backup/vsphere/surebackup_job.html', bpNote:'SureScan without full lab — validates backup integrity without booting VMs.',detail:'Lightweight scan — verifies backup file integrity and scans for malware without booting the VM. Faster than full SureBackup. No Virtual Lab required.'},
     // DR / Replication
     'ReplicaHV':      {label:'Hyper-V Replication',  cat:'DR',          bp:'https://helpcenter.veeam.com/docs/backup/vsphere/replication.html', bpNote:'Creates ready-to-power-on VM replicas at DR site. Failover RTO: minutes.',detail:'HV replica jobs. Each replica = a powered-off VM at the DR site, kept in sync. Schedule replication to meet RPO. Enable network mapping and Re-IP for clean failover.'},
     'ReplicaVMware':  {label:'VMware Replication',   cat:'DR',          bp:'https://helpcenter.veeam.com/docs/backup/vsphere/replication.html', bpNote:'Creates ready-to-power-on VM replicas at DR site. Failover RTO: minutes.',detail:'VMware replica jobs. Replicas are stored as VMDKs on target datastore. WAN accelerator reduces bandwidth for remote replication. Seeded replication for initial large transfers.'},
-    'CdpPolicy':      {label:'CDP Policy',           cat:'DR',          bp:'https://helpcenter.veeam.com/docs/vbr/userguide/cdp_replication.html?ver=13', bpNote:'Continuous Data Protection — sub-second RPO. Requires CDP proxy and I/O filter installation.',detail:'Journals every write to a vSphere VM. Provides seconds-level RPO. Requires VMware I/O filter installed and a dedicated CDP proxy. Significant storage overhead for journal retention.'},
+    'CdpPolicy':      {label:'CDP Policy',           cat:'DR',          bp:'https://helpcenter.veeam.com/docs/vbr/userguide/cdp_replication.html?ver=13', bpNote:'Continuous Data Protection — RPO in seconds. Requires CDP proxy and I/O filter installation.',detail:'Journals every write to a vSphere VM. Provides seconds-level RPO. Requires VMware I/O filter installed and a dedicated CDP proxy. Significant storage overhead for journal retention.'},
     // File/tape
-    'FileCopy':       {label:'File Copy',            cat:'File',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html', bpNote:'Copies files between hosts. Not a backup — no versioning or dedup. Use sparingly.',detail:'Simple file transfer between managed hosts. No versioning, dedup, or encryption. For backup use cases, use a proper backup job instead.'},
+    'FileCopy':       {label:'File Copy',            cat:'File',        bp:'https://helpcenter.veeam.com/docs/vbr/userguide/performing_file_copy.html', bpNote:'Copies files between hosts. Not a backup — no versioning or dedup. Use sparingly.',detail:'Simple file transfer between managed hosts. No versioning, dedup, or encryption. For backup use cases, use a proper backup job instead.'},
     'VeeamZip':       {label:'VeeamZIP',             cat:'File',        bp:'https://helpcenter.veeam.com/docs/vbr/userguide/veeamzip.html?ver=13', bpNote:'Ad-hoc compressed backups. Not recommended as primary backup method — no scheduling or policy.',detail:'Ad-hoc manual backup to a compressed VBK file. One-off use only. No retention policy, no scheduling, no automation. Should not be used as a primary backup method.'},
     'FileTapeBackup': {label:'File to Tape',         cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/file_to_tape_jobs.html', bpNote:'Archive files to tape for long-term retention. Verify tape hardware and media pool configuration.',detail:'Archive files or folders to tape for long-term retention. Uses media pools for tape rotation. Verify tape library connectivity and media availability regularly.'},
-    'VmTapeBackup':   {label:'VM to Tape',           cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_to_tape_jobs.html', bpNote:'VM backups archived to tape. Consider using SOBR capacity/archive tier instead.',detail:'Copies existing VM backups to tape. Veeam reads from the backup repository and writes to tape. Consider SOBR Archive Tier (object storage) as a more manageable alternative.'},
+    'VmTapeBackup':   {label:'VM to Tape',           cat:'Tape',        bp:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_to_tape_jobs.html', bpNote:'VM backups archived to tape — offline (air-gapped) media counts toward the immutable/offline media check.',detail:'Copies existing VM backups to tape. Veeam reads from the backup repository and writes to tape. Tape provides an offline copy; a SOBR archive tier is an alternative if offline media is not required.'},
     // Config
-    'ConfBackup':     {label:'Config Backup',        cat:'System',      bp:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html', bpNote:'CRITICAL: Must target a remote repository. Local config backup is lost if backup server fails.',detail:'Backs up the Veeam configuration database (SQL/PostgreSQL). If stored locally, the config is lost when the backup server fails — defeating its purpose. Target a network share or remote repo.'},
+    'ConfBackup':     {label:'Config Backup',        cat:'System',      bp:'https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html', bpNote:'CRITICAL: Must target a remote repository. Local config backup is lost if backup server fails.',detail:'Backs up the Veeam configuration database (SQL/PostgreSQL). If stored locally, the config is lost when the backup server fails — defeating its purpose. Target a network share or remote repo.'},
   };
 
   // Add replication and failover from D fields
@@ -4646,7 +4704,7 @@ function render(d){
     // Key BP checks for job types
     h+='<div class="tw" style="margin-top:4px"><table><tr><th>Check</th><th>Status</th><th>Detail</th></tr>';
     // Config backup offsite
-    if(jc['ConfBackup']){h+='<tr class="bp-warn"><td style="font-weight:500">Config backup — offsite?</td><td><span class="bwn">Review</span></td><td style="font-size:12px;color:var(--tx2)">'+jc['ConfBackup']+' config backup job(s). Verify target is a remote repository — loss of backup server = loss of config if local. <a href="https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html" target="_blank" style="color:var(--bdk)">Help &#8599;</a></td></tr>';}
+    if(jc['ConfBackup']){h+='<tr class="bp-warn"><td style="font-weight:500">Config backup — offsite?</td><td><span class="bwn">Review</span></td><td style="font-size:12px;color:var(--tx2)">'+jc['ConfBackup']+' config backup job(s). Verify target is a remote repository — loss of backup server = loss of config if local. <a href="https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html" target="_blank" style="color:var(--bdk)">Help &#8599;</a></td></tr>';}
     // Backup copy exists
     if(!jc['BackupCopy']&&!jc['SimpleBackupCopyWorker']){h+='<tr class="bp-crit"><td style="font-weight:500">Backup copy (3-2-1)</td><td><span class="bcr">Missing</span></td><td style="font-size:12px;color:var(--tx2)">No backup copy jobs detected — 3-2-1 rule not met. <a href="https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html" target="_blank" style="color:var(--bdk)">Help &#8599;</a></td></tr>';}
     else{h+='<tr class="bp-ok"><td style="font-weight:500">Backup copy (3-2-1)</td><td><span class="bok">&#10003;</span></td><td style="font-size:12px;color:var(--tx2)">Backup copy configured.'+(jc['BackupCopy']?' '+jc['BackupCopy']+' copy jobs.':'')+'</td></tr>';}
@@ -4667,13 +4725,13 @@ function render(d){
       // Summary row
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px">';
       if(ad.epAgentBackup>0) h+=st(ad.epAgentBackup,'Agent backup jobs',false);
-      if(ad.epBackup>0)      h+=st(ad.epBackup,'EndpointBackup<br><span style="font-size:10px;color:var(--amber)">Masked</span>',false);
+      if(ad.epBackup>0)      h+=st(ad.epBackup,'EndpointBackup<br><span style="font-size:10px;color:var(--tx3)">Standalone</span>',false);
       if(ad.epPolicy>0)      h+=st(ad.epPolicy,'Agent policies',false);
       if(ad.epMgmt>0)        h+=st(ad.epMgmt,'Mgmt policies',false);
       h+='</div>';
 
       // Legacy warning
-      if(ad.legacy) h+=nt('w','&#9888; <b>EndpointBackup-type jobs detected.</b> These are tracked separately and are <b>excluded</b> from the Agent-protected machines total and coverage estimate (see the Agents tab) until better understood — they do not appear to consume a license instance the way Agent Backup (managed) jobs do. <a href="https://helpcenter.veeam.com/docs/backup/agents/" target="_blank" style="color:var(--bdk)">Veeam Agent documentation &#8599;</a>');
+      if(ad.legacy) h+=nt('i','&#8505; <b>EndpointBackup-type jobs detected.</b> These are backups from Veeam Agents in <b>standalone</b> mode. Since v1.1.0 they are counted in the Agent-protected machines total and the coverage estimate, and each consumes a licence instance (see the Agents tab). <a href="https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html" target="_blank" style="color:var(--bdk)">Veeam Agent documentation &#8599;</a>');
 
       // Agent type breakdown table
       h+='<div class="tw"><table><tr><th>Agent job type</th><th>Count</th><th>Description</th><th>BP Status</th></tr>';
@@ -4683,9 +4741,9 @@ function render(d){
         h+='<td><span class="bok">Current</span></td></tr>';
       }
       if(ad.epBackup>0){
-        h+='<tr class="bp-warn"><td style="font-weight:600">EndpointBackup <span style="font-size:10px;color:var(--amber)">(masked)</span></td><td><b>'+ad.epBackup+'</b></td>';
-        h+='<td style="font-size:12px;color:var(--tx2)">Excluded from Agent-protected machines total and license-consumption assumptions pending clarification of what this job type represents.</td>';
-        h+='<td><span class="bwn">Under review</span></td></tr>';
+        h+='<tr class="bp-ok"><td style="font-weight:600">EndpointBackup <span style="font-size:10px;color:var(--tx3)">(standalone)</span></td><td><b>'+ad.epBackup+'</b></td>';
+        h+='<td style="font-size:12px;color:var(--tx2)">Standalone Veeam Agent backups. Counted in the Agent-protected machines total; each consumes a licence instance.</td>';
+        h+='<td><span class="bok">&#10003;</span></td></tr>';
       }
       if(ad.epPolicy>0){
         h+='<tr class="bp-ok"><td style="font-weight:600">Agent Policies</td><td><b>'+ad.epPolicy+'</b></td>';
@@ -4734,7 +4792,7 @@ function render(d){
 
   if(!isProvider&&!isTenant){
     h+=nt('i','&#8505; Cloud Connect is not configured on this environment. This server is neither a Cloud Connect Provider (VCSP) nor a tenant connected to a service provider.');
-    h+=nt('i','&#8505; Cloud Connect enables organisations to back up and replicate workloads to a hosted service provider infrastructure. <a href="https://helpcenter.veeam.com/docs/backup/em/" target="_blank" style="color:var(--bdk)">Learn more &#8599;</a>');
+    h+=nt('i','&#8505; Cloud Connect enables organisations to back up and replicate workloads to a hosted service provider infrastructure. <a href="https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html" target="_blank" style="color:var(--bdk)">Learn more &#8599;</a>');
   } else {
 
     // Role banner
@@ -4764,7 +4822,7 @@ function render(d){
     // ── Gateways table ──────────────────────────────────────────────
     if((d.vcspGatewayList||[]).length>0){
       h+='<p style="font-size:13px;font-weight:600;margin-bottom:8px">Cloud Gateways</p>';
-      h+=nt('i','&#8505; Cloud Gateways handle all tenant connections. Each gateway server needs adequate CPU and RAM for concurrent tenant sessions. BP: 1 gateway per 200 concurrent connections.');
+      h+=nt('i','&#8505; Cloud Gateways handle all tenant connections. Each gateway server needs adequate CPU and RAM for concurrent tenant sessions — size against the Veeam Cloud Connect Guide system requirements; deploy at least two for redundancy.');
       h+='<div class="tw"><table><tr><th>Gateway ID <span style="font-weight:400;font-size:10px">(click to copy)</span></th><th>Connection type</th><th>OS</th><th>Cores</th><th>RAM</th><th>Pool</th></tr>';
       d.vcspGatewayList.forEach(function(gw){
         var idCell='<span onclick="copyId(this,\''+gw.fullId+'\')" title="'+gw.fullId+'" style="font-family:monospace;font-size:11px;color:var(--bdk);cursor:pointer;border-bottom:1px dashed var(--bdk)">'+gw.id+'…</span>';
@@ -4777,7 +4835,7 @@ function render(d){
         h+='</tr>';
       });
       h+='</table></div>';
-      h+=bpRef('https://helpcenter.veeam.com/docs/backup/em/','Cloud Gateway management — helpcenter.veeam.com');
+      h+=bpRef('https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html','Cloud Gateway management — helpcenter.veeam.com');
     }
 
     // ── Tenants table ───────────────────────────────────────────────
@@ -4811,7 +4869,7 @@ function render(d){
       if(d.vcspHWPlansHV) h+='<tr><td><b>Hyper-V</b></td><td><b>'+d.vcspHWPlansHV+'</b></td><td style="font-size:12px;color:var(--tx2)">HV replica resources — defines vCPU, RAM, storage quota per tenant replica VM</td></tr>';
       if(d.vcspHWPlansVi) h+='<tr><td><b>VMware vSphere</b></td><td><b>'+d.vcspHWPlansVi+'</b></td><td style="font-size:12px;color:var(--tx2)">VMware replica resources — vCenter host targets for tenant replica VMs</td></tr>';
       h+='</table></div>';
-      h+=bpRef('https://helpcenter.veeam.com/docs/backup/em/','Hardware plans — helpcenter.veeam.com');
+      h+=bpRef('https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html','Hardware plans — helpcenter.veeam.com');
     }
 
     // ── Cloud Connect BP checks ─────────────────────────────────────
@@ -4819,7 +4877,7 @@ function render(d){
     h+='<div class="tw"><table><tr><th>Check</th><th>Status</th><th>Detail</th></tr>';
     // Gateway pool
     var gwNoPool=(d.vcspGatewayList||[]).filter(function(gw){return !gw.poolId;}).length;
-    if(gwNoPool>0) h+='<tr class="bp-warn"><td style="font-weight:500">Gateway pools</td><td><span class="bwn">Review</span></td><td style="font-size:12px;color:var(--tx2)">'+gwNoPool+' gateway(s) not assigned to a pool. Gateway pools provide HA and load balancing across multiple gateways. <a href="https://helpcenter.veeam.com/docs/backup/em/" target="_blank" style="color:var(--bdk)">Help &#8599;</a></td></tr>';
+    if(gwNoPool>0) h+='<tr class="bp-warn"><td style="font-weight:500">Gateway pools</td><td><span class="bwn">Review</span></td><td style="font-size:12px;color:var(--tx2)">'+gwNoPool+' gateway(s) not assigned to a pool. Gateway pools provide HA and load balancing across multiple gateways. <a href="https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html" target="_blank" style="color:var(--bdk)">Help &#8599;</a></td></tr>';
     else if((d.vcspGatewayList||[]).length>0) h+='<tr class="bp-ok"><td style="font-weight:500">Gateway pools</td><td><span class="bok">&#10003;</span></td><td style="font-size:12px;color:var(--tx2)">All gateways assigned to pools.</td></tr>';
     // Multiple gateways
     if(d.vcspGateways===1) h+='<tr class="bp-warn"><td style="font-weight:500">Gateway HA</td><td><span class="bwn">Single gateway</span></td><td style="font-size:12px;color:var(--tx2)">Only 1 cloud gateway. Add a second gateway for redundancy — a single gateway is a SPOF for all tenant connections.</td></tr>';
@@ -4832,7 +4890,7 @@ function render(d){
     if(isProvider&&d.vcspInfraHosts.vmware>0&&!d.vcspHWPlansVi) h+='<tr class="bp-warn"><td style="font-weight:500">VMware HW plans</td><td><span class="bwn">Missing</span></td><td style="font-size:12px;color:var(--tx2)">VMware hosts in CC infrastructure but no VMware hardware plans configured.</td></tr>';
     if(isProvider&&d.vcspInfraHosts.hyperv>0&&!d.vcspHWPlansHV) h+='<tr class="bp-warn"><td style="font-weight:500">HV HW plans</td><td><span class="bwn">Missing</span></td><td style="font-size:12px;color:var(--tx2)">HyperV hosts in CC infrastructure but no HV hardware plans configured.</td></tr>';
     h+='</table></div>';
-    h+=bpRef('https://helpcenter.veeam.com/docs/backup/em/','Cloud Connect documentation — helpcenter.veeam.com');
+    h+=bpRef('https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html','Cloud Connect documentation — helpcenter.veeam.com');
   }
   h+='</div>';
 
@@ -4957,12 +5015,12 @@ function render(d){
     if(malCritCount>0){
       h+='<p style="font-size:13px;font-weight:700;color:var(--red);margin:14px 0 8px">Immediate response steps</p>';
       h+='<div class="tw"><table><tr><th>Step</th><th>Action</th><th>How</th></tr>';
-      [['1','Review events in Veeam console','Home → Malware Detection → Incidents → review each flagged VM'],
+      [['1','Review events in Veeam console','Inventory → Malware Detection → review each flagged machine'],
        ['2','Identify affected VMs','Note all VMs with Infected or Suspicious status — do not restore without isolation'],
        ['3','Isolate affected VMs','Power off or network-isolate VMs before any restore operation'],
        ['4','Find a clean restore point','Use Veeam Explorer → identify a restore point prior to the earliest infection event'],
        ['5','Restore to isolated environment','Restore to an isolated network segment — verify cleanliness before production cutover'],
-       ['6','Mark as clean or false positive','Once verified: Incidents view → right-click → Mark as Clean or Mark as False Positive'],
+       ['6','Mark as clean or false positive','Once verified: Inventory → Malware Detection → right-click the machine → Mark as clean'],
       ].forEach(function(r){
         h+='<tr><td style="font-weight:700;color:var(--red)">'+r[0]+'</td><td style="font-weight:600">'+r[1]+'</td><td style="font-size:12px;color:var(--tx2)">'+r[2]+'</td></tr>';
       });
@@ -4970,7 +5028,7 @@ function render(d){
     }
 
     if(md.deleted>0&&malCritCount===0){
-      h+=nt('i','&#8505; <b>'+md.deleted+' deleted files events</b> recorded. These are typically benign (normal file churn) but a sudden spike may indicate mass deletion. Review in Veeam console → Incidents.');
+      h+=nt('i','&#8505; <b>'+md.deleted+' deleted files events</b> recorded. These are typically benign (normal file churn) but a sudden spike may indicate mass deletion. Review in Veeam console → Inventory → Malware Detection.');
     }
   }
   h+=bpRef('https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html','Malware detection — helpcenter.veeam.com');
@@ -5068,16 +5126,16 @@ function render(d){
       'PasswordsRotation':                {cat:'Credentials',label:'Password rotation policy',detail:'Service account and credential passwords have not been rotated recently.',action:'Rotate all Veeam service account passwords. Use Veeam Credentials Manager: Configuration → Credentials → Manage passwords.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
       'CredentialsPasswordsComplexityRules':{cat:'Credentials',label:'Credential password complexity',detail:'One or more stored credentials do not meet complexity requirements.',action:'Update weak passwords in Veeam Credentials Manager. Enforce complexity: 12+ chars, mixed case, numbers, symbols.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
       'PasswordsComplexityRules':         {cat:'Credentials',label:'Password complexity rules',detail:'Passwords stored in Veeam do not meet the recommended complexity policy.',action:'Update all passwords in Configuration → Credentials to meet complexity requirements.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'MfaEnabledInBackupConsole':        {cat:'Credentials',label:'MFA enabled in Backup Console',detail:'Multi-factor authentication is not enabled for Veeam console access.',action:'Enable MFA: Veeam Backup & Replication console → Configuration → Security → Enable MFA.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html'},
-      'ManualLinuxHostAuthentication':    {cat:'Credentials',label:'Linux host authentication',detail:'Linux hosts are using manual (password) authentication instead of SSH keys.',action:'Switch Linux managed servers to SSH key authentication in Configuration → Managed Servers.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'LinuxServersUsingSSHKeys':         {cat:'Credentials',label:'Linux servers using SSH keys',detail:'SSH key authentication is not configured for Linux backup infrastructure.',action:'Add SSH public keys for Linux servers in Configuration → Managed Servers → SSH keys.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
+      'MfaEnabledInBackupConsole':        {cat:'Credentials',label:'MFA enabled in Backup Console',detail:'Multi-factor authentication is not enabled for Veeam console access.',action:'Enable MFA: Main menu → Users and Roles → Security → Enable multi-factor authentication (MFA).',url:'https://helpcenter.veeam.com/docs/vbr/userguide/mfa.html'},
+      'ManualLinuxHostAuthentication':    {cat:'Credentials',label:'Unknown Linux servers trusted automatically',detail:'The backup server automatically trusts SSH fingerprints of unknown Linux hosts instead of requiring manual verification.',action:'Main menu → Options → Security → Linux hosts authentication → Add unknown hosts to the list manually.',url:'https://helpcenter.veeam.com/docs/vbr/userguide/linux_fingerprint_check.html'},
+      'LinuxServersUsingSSHKeys':         {cat:'Credentials',label:'Linux servers use password-based authentication',detail:'Linux servers are added with standard (username/password) accounts. Key-based SSH authentication is recommended to avert MITM credential capture.',action:'Edit the Linux server credentials in the Credentials Manager to use a Linux private key (identity/pubkey) instead of a password.',url:'https://helpcenter.veeam.com/docs/vbr/userguide/credentials_manager.html'},
       // ── Backup protection ───────────────────────────────────────────
-      'ImmutableOrOfflineMediaPresence':  {cat:'Backup protection',label:'Immutable or offline media present',detail:'No immutable or air-gapped backup copy detected. Ransomware can destroy all online backups.',action:'Add an immutable repo (S3/hardened Linux) or offline media (tape/detachable) as a backup target.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
-      'LossProtectionEnabled':            {cat:'Backup protection',label:'Loss protection (backup copy) enabled',detail:'No backup copy job provides offsite protection. Single point of failure for all backups.',action:'Create a backup copy job to a remote site, cloud repository, or object storage.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'},
+      'ImmutableOrOfflineMediaPresence':  {cat:'Backup protection',label:'Immutable or offline media present',detail:'No immutable or air-gapped backup copy detected. Ransomware can destroy all online backups.',action:'Add an immutable repository (hardened Linux / object storage with Object Lock) or offline media (tape / rotated drives).',url:'https://helpcenter.veeam.com/docs/vbr/userguide/immutability.html'},
+      'LossProtectionEnabled':            {cat:'Backup protection',label:'Encryption password loss protection enabled',detail:'Enterprise Manager password loss protection is not enabled, so there is no alternative way to decrypt backups or tapes if an encryption password is lost.',action:'Veeam Backup Enterprise Manager → Configuration → Key Management → Enable encryption password loss protection.',url:'https://helpcenter.veeam.com/docs/vbr/em/em_manage_keys.html?ver=13'},
       'ContainBackupCopies':              {cat:'Backup protection',label:'Backup copies contain required restore points',detail:'Backup copy jobs do not contain enough restore points to meet the configured retention policy.',action:'Review backup copy job retention settings to ensure they match or exceed primary job retention.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'},
       // ── Infrastructure ──────────────────────────────────────────────
-      'ViProxyTrafficEncrypted':          {cat:'Infrastructure',label:'vSphere proxy traffic encrypted',detail:'Backup traffic between proxies and datastores is not encrypted in flight.',action:'Enable network traffic encryption: Job → Advanced → Network → Enable network data encryption.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
-      'ConfigurationBackupRepositoryNotLocal':{cat:'Infrastructure',label:'Config backup repo not local',detail:'The Veeam configuration backup is stored on the backup server itself — lost if the server fails.',action:'Change configuration backup target to a remote repo: Configuration → Configuration Backup → Change repository.',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
+      'ViProxyTrafficEncrypted':          {cat:'Infrastructure',label:'Host-to-proxy traffic encryption (NBDSSL)',detail:'A VMware backup proxy using Network (NBD) transport mode reads VM data from ESXi hosts without TLS.',action:'Proxy → Edit → Transport mode → Enable host to proxy traffic encryption in Network mode (NBDSSL).',url:'https://helpcenter.veeam.com/docs/vbr/userguide/vmware_proxy_server.html'},
+      'ConfigurationBackupRepositoryNotLocal':{cat:'Infrastructure',label:'Config backup repo not local',detail:'The Veeam configuration backup is stored on the backup server itself — lost if the server fails.',action:'Change the target: Main menu → Configuration Backup → Backup repository (not on the backup server).',url:'https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html'},
       'BackupServerUpToDate':             {cat:'Infrastructure',label:'Backup server up to date',detail:'VBR is not running the latest patch level. Known bugs and security issues may be present.',action:'Download and apply the latest VBR patch from the Veeam download portal.',url:'https://www.veeam.com/downloads.html'},
       'PostgreSqlUseRecommendedSettings': {cat:'Infrastructure',label:'PostgreSQL recommended settings',detail:'The PostgreSQL configuration database is not using Veeam-recommended performance settings.',action:'Apply recommended PostgreSQL settings per the Veeam Knowledge Base article KB4542.',url:'https://www.veeam.com/kb4542'},
     };
@@ -5141,13 +5199,13 @@ function buildSettings(d){
   if(d.mfaEnabled!==null) row('MFA',d.mfaEnabled?'Enabled':'Disabled','Enabled — OTP on login',d.mfaEnabled?'ok':'crit',d.mfaEnabled?'OK':'Enable in Users and Roles settings');
   if(d.autoLogoff!==null) row('Auto logoff',d.autoLogoff?'Enabled':'Disabled','Enabled — idle session protection',d.autoLogoff?'ok':'warn',d.autoLogoff?'OK':'Enable in General Options → Security');
   if(d.configBackupEncrypted!==null) row('Config backup encryption',d.configBackupEncrypted?'Encrypted':'Plaintext','Encrypted',d.configBackupEncrypted?'ok':'warn',d.configBackupEncrypted?'OK':'Enable encryption on Configuration Backup');
-  if(c.blockSize){var ok=c.blockSize==='KbBlockSize1024';row('Block size',c.blockSize,'KbBlockSize1024 (≥1 TB VMs)',ok?'ok':'warn',ok?'OK':'Review — use 1024 KB for large VMs');}
+  if(c.blockSize){var ok=(c.blockSize==='KbBlockSize1024'||c.blockSize==='KbBlockSize4096');row('Block size',c.blockSize,'1 MB (Local target, default) or 4 MB (large blocks)',ok?'ok':'i',ok?'OK':'Smaller blocks (LAN/WAN target) give smaller increments but more metadata — confirm this is intentional');}
   if(c.cbt)row('CBT',c.cbt==='True'?'Enabled':'Disabled','Enabled — critical for incremental efficiency',c.cbt==='True'?'ok':'crit',c.cbt==='True'?'OK':'Enable CBT immediately — dramatically reduces backup time');
   if(c.guestProc)row('Guest processing',c.guestProc==='True'?'Enabled':'Disabled','Enabled for app-aware backups',c.guestProc==='True'?'ok':'warn',c.guestProc==='True'?'OK':'Enable on VMs running AD, SQL, Exchange, Oracle');
-  if(c.healthCheck)row('Health check',c.healthCheck==='True'?'Enabled':'Disabled','Enabled monthly',c.healthCheck==='True'?'ok':'warn',c.healthCheck==='True'?'OK':'Enable monthly health check in Job Advanced settings');
-  if(c.deletedVMRet)row('Deleted VM retention',c.deletedVMRet==='True'?'Enabled':'Disabled','Enabled (14 days)',c.deletedVMRet==='True'?'ok':'warn',c.deletedVMRet==='True'?'OK':'Enable: protects against accidental VM deletion');
-  if(c.perVMFiles)row('Per-VM files',c.perVMFiles==='True'?'Enabled':'Disabled','Enabled for jobs >30 VMs',c.perVMFiles==='True'?'ok':'warn',c.perVMFiles==='True'?'OK':'Enable per-VM files for parallel processing and fast restores');
-  if(c.avgVmsPerJob!=null){var ok=c.avgVmsPerJob<=30;row('Avg VMs/job',c.avgVmsPerJob+' avg, '+c.maxVmsPerJob+' max','≤30 VMs per job',ok?'ok':c.maxVmsPerJob>100?'crit':'warn',ok?'OK':c.maxVmsPerJob>100?'Split largest job ('+c.maxVmsPerJob+' VMs) urgently':'Consider splitting jobs >30 VMs');}
+  if(c.healthCheck)row('Health check',c.healthCheck==='True'?'Enabled':'Disabled','Enabled monthly',c.healthCheck==='True'?'ok':'warn',c.healthCheck==='True'?'OK':'Enable in Job → Storage → Advanced → Maintenance → Storage-level corruption guard');
+  if(c.deletedVMRet)row('Remove deleted items data',c.deletedVMRet==='True'?'Enabled':'Disabled','Optional space reclaim (≥7 days if used)','i',c.deletedVMRet==='True'?'Data of VMs no longer processed is deleted after N days — keep N ≥ 7':'Data of removed VMs is kept indefinitely — enable only if you want it purged automatically');
+  if(c.perVMFiles)row('Per-machine backup files',c.perVMFiles==='True'?'Enabled':'Disabled','Enabled (default for new repositories)',c.perVMFiles==='True'?'ok':'warn',c.perVMFiles==='True'?'OK':'Enable per-machine backup files on the repository for parallel processing and simpler retention');
+  if(c.avgVmsPerJob!=null){var ok=c.maxVmsPerJob<=100;row('VMs per job',c.avgVmsPerJob+' avg, '+c.maxVmsPerJob+' max','≤300 VMs per job (per-machine chains)',ok?'ok':c.maxVmsPerJob>300?'crit':'i',ok?'OK':c.maxVmsPerJob>300?'Split largest job ('+c.maxVmsPerJob+' VMs)':'Within the ~300-VM guideline; optionally split for finer scheduling');}
   var isProviderS=d.cloudConnect&&d.cloudConnect.isProvider===true;
   var isTenantS=d.cloudConnect&&d.cloudConnect.isTenant===true;
   if(c.backupCopy){
@@ -5160,14 +5218,14 @@ function buildSettings(d){
     var immNote=c.immutability==='True'?'OK':(isProviderS?'Verify tenant repo immutability (Cloud Connect repos)':'Enable immutability on S3/hardened Linux repos');
     row('Immutability',c.immutability==='True'?'Enabled on some repos':(isProviderS?'Not detected (verify CC repos)':'Disabled'),'Enabled on at least one repo',immSev,immNote);
   }
-  if(c.storageLatency)row('Storage latency control',c.storageLatency==='True'?'Enabled':'Disabled','Enabled — protects production',c.storageLatency==='True'?'ok':'warn',c.storageLatency==='True'?'OK':'Enable in Global Options → Advanced');
+  if(c.storageLatency)row('Storage latency control',c.storageLatency==='True'?'Enabled':'Disabled','Enabled — protects production',c.storageLatency==='True'?'ok':'warn',c.storageLatency==='True'?'OK':'Enable in General Options → I/O Control');
   var gfsOk=(d.gfsW>0||d.gfsM>0||d.gfsY>0);
-  row('GFS configured',gfsOk?'W:'+d.gfsW+'/M:'+d.gfsM+'/Y:'+d.gfsY:'None','Weekly + monthly + yearly GFS',gfsOk?'ok':'warn',gfsOk?'OK':'Enable GFS in Job Schedule for long-term recovery points');
+  row('GFS configured',gfsOk?'W:'+d.gfsW+'/M:'+d.gfsM+'/Y:'+d.gfsY:'None','Long-term retention per your policy',gfsOk?'ok':'warn',gfsOk?'OK':'Enable GFS in Job → Storage → Configure GFS if long-term restore points are required');
   // New fields
-  if(d.inlineScan!==null) row('Inline malware scan',d.inlineScan?'Enabled':'Disabled','Enabled — detects malware during backup',d.inlineScan?'ok':'warn',d.inlineScan?'OK':'Enable in Job → Advanced → Storage → Inline scan');
-  if(d.yaraScan!==null)   row('YARA scan',d.yaraScan?'Enabled':'Disabled','Enabled for advanced threat detection',d.yaraScan?'ok':'warn',d.yaraScan?'OK':'Enable YARA scanning in Malware Detection settings');
+  if(d.inlineScan!==null) row('Inline malware scan',d.inlineScan?'Enabled':'Disabled','Enabled — detects malware during backup',d.inlineScan?'ok':'warn',d.inlineScan?'OK':'Enable in Malware Detection settings → Encryption Detection tab (global setting)');
+  if(d.yaraScan!==null)   row('YARA scan',d.yaraScan?'Used':'Not used','Optional — targeted threat hunting',d.yaraScan?'ok':'i',d.yaraScan?'OK':'YARA rules run in scan backup and SureBackup sessions — add rules there if needed');
   if(d.veeamOne!==null)   row('VeeamONE monitoring',d.veeamOne?'Connected':'Not connected','Connected — capacity forecasting + alerting',d.veeamOne?'ok':'warn',d.veeamOne?'OK':'Deploy VeeamONE for proactive monitoring and capacity forecasting');
-  if(d.backupWindow!==null) row('Backup window schedule',d.backupWindow?'Enabled':'Disabled','Enabled — prevents backups from impacting business hours',d.backupWindow?'ok':'warn',d.backupWindow?'OK':'Enable backup window in Job → Schedule → Backup window');
+  if(d.backupWindow!==null) row('Backup window schedule',d.backupWindow?'Enabled':'Disabled','Enabled — prevents backups from impacting business hours',d.backupWindow?'ok':'warn',d.backupWindow?'OK':'Enable in Job → Schedule → Terminate job if it exceeds allowed backup window');
   // Protection coverage (estimate) — only when infra VMs known and jobs exist
   var isProvS=d.cloudConnect&&d.cloudConnect.isProvider===true;
   if(!isProvS && d.infraVMs>0 && (d.combinedProtected>0 || d.coveragePct!=null)){
@@ -5216,7 +5274,7 @@ function buildFindings(d){
   var c=d.cur;
   // Enterprise scale warning (>5000 VMs — bp.veeam.com/vbr enterprise design)
   if(d.vms>5000) add('warn','Large environment — consider multiple VBR instances',
-    d.vms+' VMs detected. Veeam best practice recommends a maximum of 5000–10000 VMs per VBR instance. Above this, split into Protection Domains with separate VBR servers.',
+    d.vms+' VMs detected. bp.veeam.com enterprise design guidance suggests considering multiple VBR instances (protection domains) at this scale; the exact limit depends on hardware, job design and database performance.',
     'Use Enterprise Manager or VeeamONE for centralised reporting across multiple VBR instances.',
     false,'https://bp.veeam.com/vbr/2_Design_Structures/D_enterprise_design/enterprise_design.html');
 
@@ -5224,36 +5282,36 @@ function buildFindings(d){
   if(d.repoList&&Array.isArray(d.repoList)&&d.repoList.length>0){
     var soNoDecomp=d.repoList.filter(function(r){return r.type==='HPStoreOnceIntegration'&&r.decomp===false;});
     if(soNoDecomp.length>0) add('warn','HPE StoreOnce repos — Decompress before storing not enabled',
-      soNoDecomp.length+' StoreOnce repo(s) without Decompress enabled. StoreOnce performs block-level dedup — sending compressed Veeam data bypasses dedup and reduces efficiency by up to 90%.',
-      'Enable: Repository → Edit → Advanced → Decompress backup data blocks before storing.',
+      soNoDecomp.length+' StoreOnce repo(s) without Decompress enabled. StoreOnce performs its own block-level deduplication — sending compressed Veeam data significantly reduces the deduplication ratio.',
+      'Enable: Repository → Edit → Repository step → Advanced → Decompress backup data blocks before storing.',
       false,'https://bp.veeam.com/vbr/2_Design_Structures/D_Veeam_Components/D_backup_repositories/storeonce.html');
   }
   var md=d.malwareDetail||{};
   if(md.oibInfected>0){
     add('crit','Malware detected — '+md.oibInfected+' infected restore point'+(md.oibInfected===1?'':'s'),
       md.oibInfected+' restore point'+(md.oibInfected===1?'':'s')+' confirmed infected'+(md.oibSuspicious>0?', plus '+md.oibSuspicious+' flagged suspicious':'')+'. Veeam has identified malware inside protected backup data.',
-      'Veeam console → Incidents. Identify the last clean restore point and isolate affected VMs before restoring.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html');
+      'Veeam console → Inventory → Malware Detection. Identify the last clean restore point and isolate affected VMs before restoring.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/malware_detection_managing_status_console.html');
   } else if(md.oibSuspicious>0){
     add('warn',md.oibSuspicious+' suspicious restore point'+(md.oibSuspicious===1?'':'s')+' — review',
       md.oibSuspicious+' restore point'+(md.oibSuspicious===1?'':'s')+' flagged suspicious by malware detection. None are confirmed infected, but they warrant review (genuine detection vs false positive).',
-      'Review the flagged points in Veeam console → Incidents and confirm or dismiss.',
+      'Review the flagged machines in Veeam console → Inventory → Malware Detection and mark as clean or keep flagged.',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html');
   } else if((md.total||0)>0 || d.malwareEvents>0){
     var evN=md.total||d.malwareEvents;
     add('i','Malware scan events recorded — no infected restore points',
       evN+' scan event'+(evN===1?'':'s')+' recorded ('+(md.ransomExt||0)+' extension match'+((md.ransomExt||0)===1?'':'es')+', '+(md.deleted||0)+' deleted file'+((md.deleted||0)===1?'':'s')+'), but no restore point is flagged infected or suspicious. Typically benign extension/deletion noise rather than an active threat.',
-      'Optionally review in Veeam console → Incidents to confirm, and tune the suspicious-extension list if the event volume is high.',
+      'Optionally review in Veeam console → Inventory → Malware Detection, and tune the suspicious-extension list if the event volume is high.',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html');
   }
   // Enterprise Manager
   if(d.emAdded) add('ok','Enterprise Manager connected',
     'VBR is registered with Enterprise Manager ('+d.enterpriseManager+'). Centralised management, multi-server reporting and self-service restore portal available.',
-    '',false,'https://helpcenter.veeam.com/docs/backup/em/');
+    '',false,'https://helpcenter.veeam.com/docs/vbr/em/em_know_ui.html');
   else add('i','Enterprise Manager not configured',
     'VBR is not registered with Enterprise Manager. EM provides centralised multi-server management, reporting dashboard, and self-service file/VM restore portal for end users.',
     'Deploy and register: Veeam EM → Veeam Backup Servers → Add.',
-    false,'https://helpcenter.veeam.com/docs/backup/em/');
+    false,'https://helpcenter.veeam.com/docs/vbr/em/em_know_ui.html');
 
   // Virtual Labs / SureBackup
   if(d.virtualLabs>0) add('ok','Virtual Labs configured',
@@ -5263,11 +5321,11 @@ function buildFindings(d){
     'Create a Virtual Lab: Backup Infrastructure → Virtual Labs → Add.',
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/virtual_lab.html');
 
-  // WAN Accelerator deprecation
-  if(d.wanAccel>0&&d.vbrV13) add('i','WAN Accelerators detected — deprecated in v12+',
-    d.wanAccel+' WAN Accelerator(s) configured. WAN acceleration is deprecated from Veeam v12 — modern object storage repositories provide better offsite efficiency without dedicated WAN Accel appliances.',
-    'Consider replacing WAN Accel with direct backup copy to object storage (S3, Azure Blob, or Veeam Data Cloud).',
-    false,'https://helpcenter.veeam.com/docs/backup/vsphere/wan_accelerator.html');
+  // WAN Accelerators (supported in v12 and v13 — informational only)
+  if(d.wanAccel>0) add('i','WAN Accelerators configured',
+    d.wanAccel+' WAN Accelerator(s) configured. WAN acceleration is a supported feature for off-site backup copy and replication jobs over constrained links.',
+    'Confirm the WAN accelerator cache is sized for the source data, and that each pair is still needed (fast links or object-storage targets may not benefit).',
+    false,'https://helpcenter.veeam.com/docs/vbr/userguide/wan_acceleration.html');
 
   // Failover plans
   if(d.failoverPlans>0) add('ok','Failover plans configured',
@@ -5279,7 +5337,7 @@ function buildFindings(d){
     'App-aware backup confirmed for: '+(aa.ad?'AD ':'')+(aa.exchange?'Exchange ':'')+(aa.sql?'SQL ':'')+(aa.sharepoint?'SharePoint ':'')+(aa.oracle?'Oracle ':''),
     '',false,null);
   // Version check
-  if(!v13) add('warn','Running VBR v12.x — v13 features unavailable','VSA deployment, hardened Linux repos with immutability improvements, and several v13 security features are not available on v12.x.','Plan upgrade to VBR v13. VSA, improved immutability, and enhanced BPA checks are v13-only.',false,'https://www.veeam.com/whats-new-backup-replication.html');
+  if(!v13) add('warn','Running VBR v12.x — v13 features unavailable','The Veeam Software Appliance (VSA), backup server High Availability and several newer Security & Compliance Analyzer checks require v13. Hardened Linux repositories and immutability are already available on v12.','Plan the upgrade to VBR v13.',false,'https://www.veeam.com/whats-new-backup-replication.html');
   var isProvider=d.cloudConnect&&d.cloudConnect.isProvider===true;
   var isTenant=d.cloudConnect&&d.cloudConnect.isTenant===true;
 
@@ -5290,8 +5348,8 @@ function buildFindings(d){
   if(d.mfaEnabled===false)
     add('crit','MFA disabled on VBR console',
       'Multi-Factor Authentication is not enabled. The Veeam console and web UI are accessible with username/password only. A compromised credential gives full access to all backups.',
-      'Enable MFA: VBR Console → Users and Roles → Enable MFA. Users will enrol on next login.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html');
+      'Enable MFA: Main menu → Users and Roles → Security → Enable multi-factor authentication (MFA). Users enrol at next login.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/mfa.html');
   else if(d.mfaEnabled===true)
     add('ok','MFA enabled','Console and web UI require OTP in addition to password.','',false,null);
 
@@ -5299,50 +5357,50 @@ function buildFindings(d){
   if(d.autoLogoff===false)
     add('warn','Auto logoff disabled',
       'The VBR console does not automatically log out idle sessions. An unattended authenticated console session is a security risk.',
-      'Enable: VBR Console → General Options → Security → Enable auto logoff after N minutes.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html');
+      'Enable: Main menu → Users and Roles → Security → Enable auto logoff after N min of inactivity.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/mfa.html');
 
   // Config backup encryption
   if(d.configBackupEncrypted===false)
     add('warn','Configuration backup is not encrypted',
       'The VBR configuration backup is stored without encryption. It contains credentials and infrastructure details that could be extracted if the backup file is accessed.',
-      'Enable: Configuration Backup → Settings → Enable encryption and set a password.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html');
+      'Enable: Main menu → Configuration Backup → Enable configuration backup file encryption.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/config_backup_encrypted.html');
 
   // Config backup not targeting remote repo (BPA)
   if(bpa['ConfigurationBackupRepositoryNotLocal'])
     add('crit','Configuration backup stored locally',
       'The config backup is saved to the local backup server. If the server fails, the config backup is lost with it — destroying your recovery path.',
-      'Retarget to a network share or remote repo: Configuration Backup → Select repository.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html');
+      'Retarget to a repository not hosted on the backup server: Main menu → Configuration Backup → Backup repository.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html');
 
-  // Immutability minimum days
+  // Immutability period (no Veeam-mandated minimum; 14 days is this tool's advisory threshold)
   if(d.immutabilityMinDays!=null && d.immutabilityMinDays<14)
-    add('warn','Immutability lock period below recommended minimum',
-      'Shortest immutability lock is '+d.immutabilityMinDays+' day(s). Veeam recommends a minimum of 14 days to ensure backups survive a ransomware dwell period before detection.',
-      'Increase lock period: Repository → Edit → Advanced → Immutability → set ≥ 14 days.',
+    add('i','Short immutability period ('+d.immutabilityMinDays+' day'+(d.immutabilityMinDays===1?'':'s')+')',
+      'Shortest immutability period is '+d.immutabilityMinDays+' day(s). Veeam does not mandate a minimum; this tool flags periods under 14 days because attackers often go undetected for longer than a week. Choose a period that covers your expected detection time.',
+      'Review: Repository → Edit → Make recent backups immutable for N days.',
       false,'https://bp.veeam.com/security/Design-and-implementation/Hardening/WORM_Storage_with_Veeam_Hardened_Repository.html');
 
   // Email notifications (BPA)
   if(bpa['EmailNotificationsEnabled'])
     add('warn','Email notifications not configured',
       'Veeam is not sending job completion or warning notifications. Failed jobs may go unnoticed until a restore is attempted.',
-      'Configure: VBR → General Options → Email Notifications → enable and set SMTP.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html');
+      'Configure: Main menu → Options → E-mail Settings → Enable e-mail notifications.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/email_notification_settings.html');
 
   // Proxy traffic encryption (BPA)
   if(bpa['ViProxyTrafficEncrypted'])
-    add('warn','Backup proxy traffic not encrypted',
-      'Data transferred between backup proxies and the backup server is not encrypted in transit. On shared or untrusted networks this exposes backup data.',
-      'Enable: Backup Infrastructure → select proxy → Edit → Traffic encryption.',
-      false,'https://bp.veeam.com/vbr/3_Build_structures/B_Veeam_Components/B_backup_proxies/vmware_proxies.html');
+    add('warn','Host-to-proxy traffic not encrypted (NBD mode)',
+      'A VMware backup proxy using Network (NBD) transport mode reads VM data from ESXi hosts without TLS. Enabling NBDSSL encrypts this host-to-proxy traffic.',
+      'Enable: Backup Infrastructure → Backup Proxies → proxy → Edit → Transport mode → Enable host to proxy traffic encryption in Network mode (NBDSSL).',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/vmware_proxy_server.html');
 
   // Linux host manual auth (BPA)
   if(bpa['ManualLinuxHostAuthentication'])
-    add('warn','Linux servers using manual credentials (not SSH fingerprint)',
-      'Linux managed servers are authenticated with username/password rather than SSH host fingerprint verification. This is less secure — a man-in-the-middle could intercept credentials.',
-      'Switch to SSH fingerprint: Managed Servers → Linux server → Edit → Use SSH fingerprint.',
-      false,'https://bp.veeam.com/security/Design-and-implementation/Hardening/Attack_surface_reduction.html');
+    add('warn','Unknown Linux servers are trusted automatically',
+      'The backup server automatically trusts SSH fingerprints of unknown Linux hosts. Untrusted Linux servers should only be allowed after manual SSH fingerprint verification, to prevent man-in-the-middle attacks.',
+      'Set: Main menu → Options → Security → Linux hosts authentication → Add unknown hosts to the list manually.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/linux_fingerprint_check.html');
 
   // Credentials Guard (BPA) — Windows-only
   if(bpa['CredentialsGuardConfigured'] && !d.isVSA)
@@ -5354,16 +5412,16 @@ function buildFindings(d){
   // Backup server HA
   if(bpa['BackupServerHighAvailabilityEnabled'])
     add('i','Backup server High Availability not configured',
-      'VBR HA provides automatic failover of the backup server to a standby node. Not currently enabled.',
-      'Configure: VBR Console → Home → Backup Server → High Availability.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html');
+      'v13 High Availability clusters two backup server nodes; if the primary becomes unavailable you fail over to the secondary node. Not currently configured.',
+      'See the High Availability (HA) Cluster section of the Help Center for requirements and setup.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/high_availability_cluster.html');
 
   // Jobs targeting cloud repos encrypted (BPA)
   if(bpa['JobsTargetingCloudRepositoriesEncrypted'])
     add('warn','Cloud-targeted jobs not encrypted',
       'Some backup jobs sending data to cloud/object storage repositories do not have encryption enabled. Cloud data at rest is exposed without client-side encryption.',
-      'Enable per-job: Job → Edit → Storage → Advanced → Encryption.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html');
+      'Enable per-job: Job → Edit → Storage → Advanced → Storage → Enable backup file encryption.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/encryption_job.html');
   // Per-type encryption (v1.1.0): unencrypted jobs broken out by job type, so copy
   // jobs, agent jobs etc. are each surfaced — not just primary VM backup jobs. Crit
   // for primary/copy data, warn for the rest. Replaces the single backup-job finding.
@@ -5372,18 +5430,25 @@ function buildFindings(d){
     var critType=(t.common==='Backup Job'||t.common==='Backup copy job');
     add(critType?'crit':'warn','Encryption disabled \u2014 '+t.common+' ('+t.encOff+' of '+t.encTotal+')',
       'Encryption is disabled on '+t.encOff+' of '+t.encTotal+' '+t.common+(t.encTotal===1?'':'s')+'. Backups'+(t.common==='Backup copy job'?' copied offsite / to object storage':'')+' without encryption expose data at rest.'+((isProvider&&critType)?' As a VCSP, your own infrastructure backups must be encrypted even if tenant jobs handle their own.':''),
-      'Job \u2192 Edit \u2192 Storage \u2192 Advanced \u2192 Encryption \u2192 enable and set a password.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html');
+      'Job \u2192 Edit \u2192 Storage \u2192 Advanced \u2192 Storage \u2192 Enable backup file encryption and set a password.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/encryption_job.html');
   });
 
   // Agent over-licence (v1.1.0): more managed server agents than licensed instances.
-  // Instance-based licences only — perpetual/socket estates cover agents via sockets,
-  // so agentRecon.overServer is already false for them.
+  // Instance-based licences. Socket licences are checked separately below against
+  // their 6-instance agent allowance.
   if(d.agentRecon && d.agentRecon.overServer)
     add('warn','More server agents than licensed ('+d.agentRecon.mgdServer+' vs '+d.agentRecon.licSrv+')',
       'This environment has '+d.agentRecon.mgdServer+' managed server agent'+(d.agentRecon.mgdServer===1?'':'s')+' but only '+d.agentRecon.licSrv+' server-agent licence instance'+(d.agentRecon.licSrv===1?'':'s')+' consumed. The estate may be over-consuming server-agent licences \u2014 verify entitlement before adding more.',
       'Review licence usage (License \u2192 Instances) and reconcile against managed agent jobs; expand the licence if required.',
-      false,'https://helpcenter.veeam.com/docs/backup/agents/quickstart.html');
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html');
+  if(d.agentRecon && d.agentRecon.overSocketCap){
+    var arS=d.agentRecon, needS=arS.expSrvInst+arS.expWksInst+arS.standalone;
+    add('warn','Agents may exceed the socket licence allowance ('+needS+' vs '+arS.sockAgentCap+')',
+      'Detected agents need about '+needS+' instance'+(needS===1?'':'s')+', but a per-socket licence allows at most '+arS.sockAgentCap+' agent instance'+(arS.sockAgentCap===1?'':'s')+' (6, or the socket count if fewer). Agents inside VMs on socket-licensed hosts are covered by sockets and do not count toward this.',
+      'Confirm which agents run on physical or cloud machines; add instance (VUL) licences if they exceed the allowance.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html');
+  }
 
   // Backup copy: VCSP with BCSMPolicy OR tenant (CC connection = offsite) = covered
   if(c.backupCopy!=='True'){
@@ -5401,28 +5466,27 @@ function buildFindings(d){
   if(c.immutability!=='True'){
     if(isProvider) add('warn','Repository immutability — verify tenant repo protection',
       'No on-prem repos with immutability detected. As a VCSP, ensure tenant backup repositories have immutability enabled where supported (hardened Linux, S3-compatible). Cloud (VCC) tenant repos should also have immutability configured via the repository settings.',
-      'Enable immutability on tenant backup repos: Cloud Connect → Backup Storage → repo properties.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html');
+      'Enable immutability on the repositories backing tenant cloud repositories (hardened Linux or object storage with immutability).',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/immutability.html');
     else add('crit','Repository immutability not enabled',
       'No repositories with immutability detected. Ransomware can encrypt or delete unprotected backups.',
-      'Enable immutability on S3-compatible or hardened Linux repos. Minimum lock: 14 days.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html');
+      'Enable immutability on a hardened Linux repository or object storage with Object Lock, or keep an offline copy (tape / rotated drives).',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/immutability.html');
   }
   if(c.cbt==='False')add('crit','CBT (Change Block Tracking) disabled',
     'CBT disabled means full VM disk reads on every job run — backup windows will be many times longer.',
-    'Enable CBT per VM in vSphere/HV settings. For VMware, reset CBT if jobs show stale tracking.',
+    'Enable in Job → Storage → Advanced → vSphere (Use changed block tracking data / Enable CBT automatically) or Hyper-V (Use changed block tracking). For VMware, reset CBT if jobs show stale tracking.',
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/changed_block_tracking.html');
   if(c.maxVmsPerJob>300)add('crit','Job with '+c.maxVmsPerJob+' VMs exceeds safe limit',
     'A job with '+c.maxVmsPerJob+' VMs is large even with per-VM backup files. Above ~300 VMs/job, expect heavy configuration-DB load, slow progress reporting, and difficult troubleshooting.',
-    'Split into multiple jobs (≤300 VMs each with per-VM backup files; ≤30 without per-VM files).',
+    'Split into multiple jobs of ≤300 VMs each (with per-machine backup files).',
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html');
   else if(c.avgVmsPerJob!=null&&c.maxVmsPerJob>100)add('i','Large backup job ('+c.maxVmsPerJob+' VMs)',
     'Largest job contains '+c.maxVmsPerJob+' VMs. With per-VM backup files (the modern default) this is within the ~300-VM guideline, but very large jobs still slow progress reporting and reduce scheduling and restore granularity.',
     'Optional: split into smaller jobs for finer scheduling and faster per-VM restores.',
     false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html');
-  // v13-only: VSA warning — only if v12 AND not already running VSA
-  if(!d.isVSA) add('warn','VSA deployment requires v13','VSA (Veeam Software Appliance) is a v13-exclusive feature. Not available on v12.x.',
-    'Upgrade to VBR v13 to deploy VSA.',true,'https://helpcenter.veeam.com/docs/backup/vsphere/');
+  // VSA is v13-only; the v12 case is covered by the 'Running VBR v12.x' finding above,
+  // and v13-on-Windows by the passing finding at the end, so no separate VSA warning here.
   // ── Warnings — with VCSP / tenant / no-jobs context ─────────────────
   var hasOwnBackupJobs = d.jobs && d.jobs > 0;
 
@@ -5432,46 +5496,48 @@ function buildFindings(d){
     add('warn','Guest processing disabled on most jobs',
       'Application-aware processing disabled. SQL, Exchange, AD, and Oracle will not receive log truncation or quiescing.',
       'Enable guest processing on VMs running database applications.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html');
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/application_aware_processing.html');
   else if(c.guestProc!=='True' && isProvider)
     add('ok','Guest processing — VCSP context',
       'Guest processing applies to tenant workloads, not the SP infrastructure server. Tenants manage this in their own VBR environments.','',false,null);
 
   // Health check — relevant for all environments with backup jobs
   if(c.healthCheck==='False' && hasOwnBackupJobs)
-    add('warn','Repository health check disabled',
-      'Health check not enabled. Silent repository corruption (bit rot) will not be detected until restore time.',
-      'Enable monthly health check in Job → Edit → Storage → Maintenance → Health check.',
+    add('warn','Backup file health check disabled',
+      'The job-level backup files health check (storage-level corruption guard) is not enabled. Silent corruption in backup files will not be detected until restore time.',
+      'Enable in Job → Edit → Storage → Advanced → Maintenance → Perform backup files health check (storage-level corruption guard), e.g. monthly.',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job_advanced_maintenance_vm.html');
 
-  // Deleted VM retention — relevant if backup jobs exist
-  if(c.deletedVMRet==='False' && hasOwnBackupJobs)
-    add('warn','Deleted VM retention disabled',
-      'When a VM is removed from a job, its restore points are immediately deleted. No recovery window for accidental removal.',
-      'Enable deleted VM retention (14 days) in Job → Advanced → Maintenance.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job_advanced_maintenance_vm.html');
+  // "Remove deleted items data after N days" — a space-reclaim option, not a protection
+  // setting. Disabled = data of removed VMs stays in the repository indefinitely.
+  if(c.deletedVMRet==='True' && hasOwnBackupJobs)
+    add('i','Deleted items retention enabled',
+      'Jobs are set to remove data for VMs that are no longer processed (deleted or excluded) after N days. This reclaims space but permanently deletes those restore points (GFS-flagged fulls excepted).',
+      'Keep the period at 7 days or more, as the Help Center recommends, so a temporarily excluded or failing VM is not purged.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/retention_deleted_vms.html');
 
   // Storage latency — only applies when backing up VMs from a hypervisor datastore
   // Not applicable for VCSP (they provide infra, not back up production datastores themselves)
   if(c.storageLatency!=='True' && hasOwnBackupJobs && !isProvider)
     add('warn','Storage latency control disabled',
       'No I/O throttling configured. Backup jobs may saturate production datastores during peak hours.',
-      'Enable in Backup & Replication console → Options → Advanced → Enable storage latency control.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html');
+      'Enable in Main menu → General Options → I/O Control → Enable storage latency control.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/io_settings.html');
 
   // Compression — relevant if backup jobs exist
-  if(c.compression && c.compression!=='Optimal' && hasOwnBackupJobs)
-    add('warn','Compression set to '+c.compression,
-      'Non-optimal compression detected. Auto mode may underperform on some workloads.',
-      'Set compression to Optimal in Job → Advanced → Storage.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html');
+  var dedupeTarget=(d.repoList||[]).some(function(r){return r.type in {DDBoost:1,ExaGrid:1,HPStoreOnceIntegration:1,HPStoreOnceSmbIntegration:1,HPStoreOnceCloudBank:1,Quantum:1,Infinidat:1,Fujitsu:1};});
+  if(c.compression && c.compression!=='Optimal' && hasOwnBackupJobs && !(dedupeTarget && /dedupe/i.test(c.compression)))
+    add('i','Compression set to '+c.compression,
+      'Optimal is the default and recommended balance of size and CPU. None/Dedupe-friendly produce larger backups (Dedupe-friendly suits deduplicating appliances); High/Extreme use much more proxy CPU for modest gains.',
+      'Review in Job → Storage → Advanced → Storage → Compression level.',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/compression_deduplication.html');
 
   // GFS — VCSP does not manage GFS for tenants; tenants control their own retention
   // Skip if no backup jobs at all, or if VCSP
   if(d.gfsW===0&&d.gfsM===0&&d.gfsY===0 && hasOwnBackupJobs && !isProvider)
     add('warn','No GFS retention configured',
       'No weekly, monthly, or yearly GFS restore points detected. Long-term recovery relies on short-term restore points only.',
-      'Enable GFS in Job → Schedule: weekly (4 weeks), monthly (12 months), yearly (7 years) minimum.',
+      'If long-term restore points are required, enable GFS in Job → Storage → Configure GFS (e.g. 4 weekly / 12 monthly / 7 yearly — set to your retention policy).',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/gfs_retention_policy.html');
 
   // ── Infrastructure protection coverage ──────────────────────────────────────
@@ -5524,22 +5590,18 @@ function buildFindings(d){
   if(d.proxyEx>0 && d.proxyEx<d.recProxies)
     add('warn','Insufficient proxy servers for environment size',
       d.proxyEx+' proxies for '+d.hosts+' hosts / '+d.clusters+' clusters. Minimum recommended: '+d.recProxies+'.',
-      'Add '+(d.recProxies-d.proxyEx)+' proxy servers. For HV clusters, deploy proxy VMs on each cluster node.',
+      'Add '+(d.recProxies-d.proxyEx)+' proxy servers. (Tool heuristic: 2 per cluster or 1 per 4 hosts. Hyper-V uses on-host or physical off-host proxies, not proxy VMs.)',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_proxy.html');
 
-  // Concurrent jobs
-  if(d.concJ>100)
-    add('warn','Concurrent job count exceeds sweet spot',
-      d.concJ+' estimated concurrent jobs. Veeam\'s optimal range is 80-100.',
-      'Consider consolidating jobs or staggering schedules.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html');
+  // (Removed: "optimal range 80-100 concurrent jobs" — no Veeam source. Backup server
+  //  RAM already scales with concurrent jobs per the Help Center formula.)
 
   // Inline scan — VCSP scanning tenant backup data raises privacy/performance concerns; keep as info
   if(d.inlineScan===false && !isProvider)
     add('warn','Inline malware scan disabled',
       'Veeam can scan backup data for malware signatures during the backup process. This is disabled.',
-      'Enable inline scan: Job → Edit → Advanced → Storage → Enable inline scan.',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html');
+      'Enable inline scan globally: Main menu → Malware Detection → Encryption Detection tab (web UI: Inline entropy analysis).',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/malware_detection_inline_scan_configuring.html');
   else if(d.inlineScan===false && isProvider)
     add('i','Inline scan — VCSP note',
       'Inline scan is disabled. As a VCSP, consider whether scanning tenant backup streams is appropriate for your service agreement before enabling.',
@@ -5557,7 +5619,7 @@ function buildFindings(d){
   if(d.backupWindow===false && hasOwnBackupJobs)
     add('warn','Backup window not configured',
       'No backup window schedule is set. Jobs may run during business hours, impacting production workloads.',
-      'Enable backup window in Job → Schedule → Backup window to restrict job activity to off-hours.',
+      'Enable in Job → Schedule → Terminate job if it exceeds allowed backup window, to restrict job activity to off-hours.',
       false,'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html');
   // Passing
   if(c.encryption==='True')add('ok','Backup encryption enabled','All jobs use encryption at rest.','',false,null);
@@ -5567,17 +5629,17 @@ function buildFindings(d){
   if(d.gfsW>0||d.gfsM>0||d.gfsY>0)add('ok','GFS retention configured','W:'+d.gfsW+' / M:'+d.gfsM+' / Y:'+d.gfsY+' restore points configured.','',false,null);
   if(d.isVSA)
     add('ok','VSA deployment — pre-hardened Linux appliance',
-      'Running Veeam Software Appliance (VSA)'+(d.applianceVersion?' v'+esc(d.applianceVersion):'')+'. Pre-hardened JeOS Linux, no Windows OS overhead, built-in hardened repo.','',false,null);
+      'Running Veeam Software Appliance (VSA)'+(d.applianceVersion?' v'+esc(d.applianceVersion):'')+'. Pre-hardened JeOS Linux appliance with Veeam-managed OS updates and no Windows OS overhead.','',false,null);
   else if(v13)
     add('ok','VBR v13 on Windows — VSA also available',
-      'Running VBR v13 on Windows Server. Consider VSA (Linux appliance) as an alternative — eliminates Windows licence costs and OS patching.','',
-      false,'https://helpcenter.veeam.com/docs/backup/vsphere/');
+      'Running VBR v13 on Windows Server. Consider VSA (Linux appliance) as an alternative — no Windows licence, and OS/product updates are supplied and centrally managed by Veeam.','',
+      false,'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html');
   return items;
 }
 
 function countIssues(d){
   var s=buildSettings(d),f=buildFindings(d);
-  return {settings:s.filter(function(x){return x.sev!=='ok';}).length,total:f.filter(function(x){return x.sev==='crit';}).length};
+  return {settings:s.filter(function(x){return x.sev!=='ok'&&x.sev!=='i';}).length,total:f.filter(function(x){return x.sev==='crit';}).length};
 }
 
 function finding(sev,f){
@@ -5620,7 +5682,8 @@ function agentsTab(d){
   // ── Licence cross-check ──
   h+='<h3 style="font-size:13px;font-weight:700;margin:0 0 8px">Agent licence cross-check</h3>';
   if(ar.perpetual){
-    h+=nt('i','This is a <b>Perpetual (socket)</b> licence &mdash; agents are covered by CPU sockets, not per-agent instances, so <span style="font-family:monospace;font-size:12px">AgentsServer</span>/<span style="font-family:monospace;font-size:12px">AgentsWorkstation</span> read zero and there is no per-instance agent figure to reconcile. Socket consumption is on the Licensing tab.');
+    var needA=ar.expSrvInst+ar.expWksInst+ar.standalone;
+    h+=nt(ar.overSocketCap?'w':'i','This is a Perpetual (socket) licence. Per the Help Center, a per-socket licence allows <b>up to 6 instances</b> for Veeam Agents (or the number of licensed sockets, if fewer)'+(ar.sockAgentCap!=null?' &mdash; <b>'+ar.sockAgentCap+'</b> for this licence':'')+'. Agents inside VMs on socket-licensed hosts are covered by the socket instead; agents on physical or cloud machines need instances. Detected agents need about <b>'+needA+'</b> instance'+(needA===1?'':'s')+'.'+(ar.overSocketCap?' This exceeds the socket-licence allowance unless some agents run inside VMs on licensed hosts &mdash; verify, and add instance (VUL) licences if needed.':''));
   } else {
     var srvMatch=ar.expSrvInst===ar.licSrv, wksMatch=ar.expWksInst===ar.licWks;
     var tick='<span style="color:var(--green);font-weight:700">&#10003;</span>', warn='<span style="color:var(--amber);font-weight:700">&#9888;</span>';
@@ -5647,9 +5710,9 @@ function agentsTab(d){
   h+='<tr><td style="font-family:monospace;font-size:12px">EndpointBackup</td><td>Standalone agent reporting to this server (not a managed job).</td><td>1 instance, by OS type</td></tr>';
   h+='<tr><td style="font-family:monospace;font-size:12px">EpAgentManagement</td><td>Agent <b>management</b> object &mdash; shown separately, not a protected machine.</td><td>&mdash;</td></tr>';
   h+='</table></div>';
-  h+='<p style="font-size:11px;color:var(--tx3);margin-bottom:6px">&#8201;Server agents consume 1 licence instance each; workstation agents are weighted at 0.33 (three workstations = one instance, rounded up); standalone EndpointBackup agents also consume an instance. On a Perpetual licence, sockets cover all agents instead. Multipliers are set by the Veeam licensing programme and can change between releases.</p>';
+  h+='<p style="font-size:11px;color:var(--tx3);margin-bottom:6px">&#8201;Server agents consume 1 licence instance each; workstation agents are weighted at 0.33 (three workstations = one instance, rounded up); standalone EndpointBackup agents also consume an instance. A Perpetual (socket) licence includes at most 6 agent instances (fewer if it has fewer sockets); an agent inside a VM on a socket-licensed host uses the socket instead. Multipliers are set by the Veeam licensing policy and can change between releases.</p>';
 
-  h+=bpRef('https://helpcenter.veeam.com/docs/backup/agents/quickstart.html','Veeam Agent management &mdash; helpcenter.veeam.com');
+  h+=bpRef('https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html','Veeam Agent licensing requirements &mdash; helpcenter.veeam.com');
   h+='</div>';
   return h;
 }
@@ -5673,9 +5736,10 @@ function tapeCalc(d,gen,useComp){
   // GFS full restore points kept on tape = weekly + monthly + yearly (+1 active full)
   var wk=d.gfsW||0, mo=d.gfsM||0, yr=d.gfsY||0;
   var fulls=wk+mo+yr+1;                      // +1 for the current/active full
-  // Daily increments retained (each ~10% of a full — Veeam typical change rate)
+  // Daily increments retained — uses the daily change rate from the form (same as the
+  // Repository tab), falling back to 10% only if none is available.
   var dailies=d.ret||0;
-  var incrTB=fullTB*0.10;
+  var incrTB=fullTB*((d.chR!=null&&d.chR>0)?d.chR:0.10);
   var totalTB=(fulls*fullTB)+(dailies*incrTB);
   var effCap=cap*EOM;                        // usable capacity after EOM headroom
   var tapesPerCopy=effCap>0?Math.ceil(totalTB/effCap):0;
@@ -6530,8 +6594,9 @@ function bmRasterize(cb){
   var w=parseFloat(svg.getAttribute('width'))||1080, h=parseFloat(svg.getAttribute('height'))||600;
   var text=bmCurrentSvgText(); if(!text){ cb(null); return; }
   var img=new Image();
-  var svgBlob=new Blob([text],{type:'image/svg+xml;charset=utf-8'});
-  var url=URL.createObjectURL(svgBlob);
+  // data: URL rather than a blob: URL — the site CSP (img-src 'self' data:) blocks blob:
+  // images, which made PNG export and the PDF map image fail silently.
+  var url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(text);
   img.onload=function(){
     var scale=2;  // 2x for a crisp raster
     var cv=document.createElement('canvas'); cv.width=w*scale; cv.height=h*scale;
@@ -6539,10 +6604,9 @@ function bmRasterize(cb){
     g.fillStyle='#ffffff'; g.fillRect(0,0,cv.width,cv.height);   // PNG/PDF want a white ground
     g.setTransform(scale,0,0,scale,0,0);
     g.drawImage(img,0,0);
-    URL.revokeObjectURL(url);
     try{ cb(cv.toDataURL('image/png'), cv.width, cv.height); }catch(e){ cb(null); }
   };
-  img.onerror=function(){ URL.revokeObjectURL(url); cb(null); };
+  img.onerror=function(){ cb(null); };
   img.src=url;
 }
 function bmDownloadPNG(){
@@ -7106,7 +7170,7 @@ function _exportPDFNow(){
   // ── PAGE 1: Summary & sizing ──────────────────────────────────────────
   h += '<div class="pdf-page">';
   h += '<div class="pdf-h1">Veeam Sizing Advisor — Report</div>';
-  h += '<div class="pdf-meta">Veeam Advisor v2.2 &nbsp;|&nbsp; Feedback &amp; Bug Fix Requests: jason@cheekylittlemoney.net</div>';
+  h += '<div class="pdf-meta">Veeam Advisor v2.2.1 &nbsp;|&nbsp; Feedback &amp; Bug Fix Requests: jason@cheekylittlemoney.net</div>';
   h += '<div class="pdf-meta">Generated: '+now+(serverLabel?' &nbsp;|&nbsp; Server: '+esc(serverLabel):'')+(d.collectionTime?' &nbsp;|&nbsp; Data collected: '+esc(d.collectionTime):'')+' &nbsp;|&nbsp; Platform: '+plat+' &nbsp;|&nbsp; VBR: '+vbrLabel+(d.vbr?' ('+esc(d.vbr)+')':'')+'&nbsp;|&nbsp; Source: bp.veeam.com/vbr</div>';
   h += '<div class="pdf-meta" style="font-size:9px">Veeam Advisor &mdash; Created by Jason Orchard &middot; &copy; 2026 Jason Orchard. All Rights Reserved. Proprietary and confidential.</div>';
   h += '<div style="background:#fef2e0;border:1px solid #f89000;border-radius:6px;padding:8px 10px;margin:8px 0;font-size:10px;line-height:1.5;color:#a05030">'
@@ -7148,23 +7212,24 @@ function _exportPDFNow(){
   // VBR Windows
   h += '<div class="pdf-h2">VBR v13 on Windows Server</div>';
   h += '<table class="pdf-tbl"><tr><th>Component</th><th>Min</th><th>Recommended</th><th>Notes</th></tr>';
-  h += pdfRow('OS','Win Srv 2019','Windows Server 2022','Standard or Datacenter');
-  h += pdfRow('BS CPU',VBR_V13?'8 cores':'2 cores',d.bsC+' vCPU',VBR_V13?'v13 HC: 8 cores min':'1 core per 10 jobs');
-  h += pdfRow('BS RAM',VBR_V13?'16 GB':'8 GB',d.bsR+' GB',VBR_V13?'v13 HC: 16 GB + 0.5 GB/job':'4 GB per 10 jobs');
-  h += pdfRow('DB','SQL Express','SQL Standard / PostgreSQL','Express = 10 GB limit');
-  h += pdfRow('Proxy servers','2',d.pCnt+'','Min 2 for HA');
-  h += pdfRow('Proxy vCPU','4',d.pVCPU+' vCPU each','Max 8 per VM proxy');
-  h += pdfRow('Proxy RAM','8 GB',d.pRAM+' GB each',d.pRAMFormulaNote||'Platform-specific');
+  h += pdfRow('OS','Win Srv 2016','Windows Server 2022 / 2025','2016–2025 supported');
+  h += pdfRow('BS CPU',VBR_V13?'8 cores':'4 cores',d.bsC+' vCPU',VBR_V13?'v13 HC: 8 cores min':'v12 HC: 4 cores recommended');
+  h += pdfRow('BS RAM',VBR_V13?'16 GB':'8 GB',d.bsR+' GB',VBR_V13?'v13 HC: 16 GB + 0.5 GB/job':'v12 HC: 8 GB + 0.5 GB/job');
+  h += pdfRow('DB','PostgreSQL (bundled)','PostgreSQL 17 (default)','SQL Express: 50 GB (2025) / 10 GB (earlier)');
+  h += pdfRow('Proxy servers','2',d.pCnt+'','Min 2 for redundancy');
+  h += pdfRow('Proxy vCPU','2',d.pVCPU+' vCPU each','2 tasks/core; VM proxy \u22648 vCPU');
+  h += pdfRow('Proxy RAM',d.platform==='VMware'?'3 GB':d.platform==='HyperV'?'2.5 GB':'6 GB',d.pRAM+' GB each',d.pRAMFormulaNote||'Platform-specific');
   h += '</table>';
 
   // Proxy
   h += '<div class="pdf-h2">Proxy sizing</div>';
   h += '<table class="pdf-tbl"><tr><th>Deployment</th><th>Proxies</th><th>vCPU each</th><th>RAM each</th><th>Tasks</th></tr>';
-  var vCnt=Math.max(2,Math.ceil(d.tasksNeeded/16)),vCPU=Math.max(4,Math.min(8,Math.ceil(d.tasksNeeded/vCnt))),vRAM=2+vCPU*2;
-  var phCPU=Math.ceil(d.tasksNeeded),phRAM=2+phCPU*2;
+  var isWrk=!(d.platform==='VMware'||d.platform==='HyperV');
+  var vCnt=isWrk?Math.max(1,Math.ceil(d.tasksNeeded/WORKER_TASKS)):Math.max(2,Math.ceil(d.tasksNeeded/16)),vTasks=Math.ceil(d.tasksNeeded/vCnt),vCPU=isWrk?WORKER_VCPU:Math.max(2,Math.min(8,Math.ceil(vTasks/2))),vRAM=isWrk?WORKER_RAM:Math.round(proxyRamFor(d.platform,vTasks)*10)/10;
+  var phCPU=Math.max(2,Math.ceil(d.tasksNeeded/2)),phRAM=Math.round(proxyRamFor(d.platform,d.tasksNeeded)*10)/10;
   h += '<tr><td><b>VSA</b></td><td>Built-in</td><td>'+d.vsaC+'</td><td>'+d.vsaR+' GB</td><td>'+d.tasksNeeded+'</td></tr>';
-  h += '<tr><td><b>Virtual VM</b></td><td>'+vCnt+'</td><td>'+vCPU+'</td><td>'+vRAM+' GB</td><td>'+d.tasksNeeded+'</td></tr>';
-  h += '<tr><td><b>Physical</b></td><td>1</td><td>'+phCPU+'</td><td>'+phRAM+' GB</td><td>'+d.tasksNeeded+'</td></tr>';
+  h += '<tr><td><b>'+(isWrk?'Worker':'Virtual VM')+'</b></td><td>'+vCnt+'</td><td>'+vCPU+'</td><td>'+vRAM+' GB</td><td>'+d.tasksNeeded+'</td></tr>';
+  if(!isWrk) h += '<tr><td><b>Physical</b></td><td>1</td><td>'+phCPU+'</td><td>'+phRAM+' GB</td><td>'+d.tasksNeeded+'</td></tr>';
   h += '</table>';
   h += '</div>'; // page 1
 
@@ -7417,7 +7482,7 @@ function _exportPDFNow(){
       h += pdfStat(ar.standalone,'Standalone (Endpoint)');
       h += '</div>';
       if(ar.perpetual){
-        h += '<p style="font-size:10px;color:#555">Perpetual (socket) licence &mdash; agents are covered by CPU sockets, not per-agent instances, so AgentsServer / AgentsWorkstation read zero. See socket consumption above.</p>';
+        h += '<p style="font-size:10px;color:#555">Perpetual (socket) licence &mdash; allows up to 6 agent instances (or the socket count if fewer)'+(ar.sockAgentCap!=null?': '+ar.sockAgentCap+' for this licence':'')+'. Agents inside VMs on licensed hosts use sockets; physical/cloud agents need instances.'+(ar.overSocketCap?' <b>Detected agents may exceed this allowance &mdash; verify.</b>':'')+'</p>';
       } else {
         var srvT=ar.expSrvInst===ar.licSrv?'<span class="pdf-ok">&#10003;</span>':'<span class="pdf-warn">&#9888;</span>';
         var wksT=ar.expWksInst===ar.licWks?'<span class="pdf-ok">&#10003;</span>':'<span class="pdf-warn">&#9888;</span>';
@@ -7505,25 +7570,25 @@ function _exportPDFNow(){
       'PasswordsRotation':{label:'Password rotation',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
       'CredentialsPasswordsComplexityRules':{label:'Credential complexity',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
       'PasswordsComplexityRules':{label:'Password complexity',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'MfaEnabledInBackupConsole':{label:'MFA in console',url:'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html'},
-      'ManualLinuxHostAuthentication':{label:'Linux SSH keys',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'LinuxServersUsingSSHKeys':{label:'Linux SSH keys',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'ImmutableOrOfflineMediaPresence':{label:'Immutable/offline media',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
-      'LossProtectionEnabled':{label:'Backup copy / 3-2-1',url:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'},
+      'MfaEnabledInBackupConsole':{label:'MFA in console',url:'https://helpcenter.veeam.com/docs/vbr/userguide/mfa.html'},
+      'ManualLinuxHostAuthentication':{label:'Unknown Linux hosts added manually',url:'https://helpcenter.veeam.com/docs/vbr/userguide/linux_fingerprint_check.html'},
+      'LinuxServersUsingSSHKeys':{label:'Linux key-based authentication',url:'https://helpcenter.veeam.com/docs/vbr/userguide/credentials_manager.html'},
+      'ImmutableOrOfflineMediaPresence':{label:'Immutable/offline media',url:'https://helpcenter.veeam.com/docs/vbr/userguide/immutability.html'},
+      'LossProtectionEnabled':{label:'EM password loss protection',url:'https://helpcenter.veeam.com/docs/vbr/em/em_manage_keys.html?ver=13'},
       'ContainBackupCopies':{label:'Backup copy retention',url:'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'},
-      'ViProxyTrafficEncrypted':{label:'Proxy traffic encrypted',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
-      'ConfigurationBackupRepositoryNotLocal':{label:'Config backup offsite',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
+      'ViProxyTrafficEncrypted':{label:'Host-to-proxy NBDSSL',url:'https://helpcenter.veeam.com/docs/vbr/userguide/vmware_proxy_server.html'},
+      'ConfigurationBackupRepositoryNotLocal':{label:'Config backup offsite',url:'https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html'},
       'BackupServerUpToDate':{label:'VBR up to date',url:'https://www.veeam.com/downloads.html'},
       'PostgreSqlUseRecommendedSettings':{label:'PostgreSQL settings',url:'https://www.veeam.com/kb4542'},
-      'EmailNotificationsEnabled':{label:'Email notifications',url:'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html'},
+      'EmailNotificationsEnabled':{label:'Email notifications',url:'https://helpcenter.veeam.com/docs/vbr/userguide/email_notification_settings.html'},
       'HardenedRepositoryNotVirtual':{label:'Hardened repo — physical only',url:'https://helpcenter.veeam.com/docs/vbr/userguide/hardened_repository.html'},
       'ConfigurationBackupEnabledAndEncrypted':{label:'Config backup encrypted',url:'https://helpcenter.veeam.com/docs/vbr/userguide/config_backup_encrypted.html'},
       'EncryptionPasswordsComplexityRules':{label:'Encryption password complexity',url:'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'},
-      'BackupServerHighAvailabilityEnabled':{label:'Backup server HA',url:'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html'},
+      'BackupServerHighAvailabilityEnabled':{label:'Backup server HA',url:'https://helpcenter.veeam.com/docs/vbr/userguide/high_availability_cluster.html'},
       'SMB1ProtocolDisabled':{label:'SMBv1 disabled',url:'https://bp.veeam.com/vbr/Security/infrastructure_hardening.html'},
       'BackupServicesUnderLocalSystem':{label:'Services run as LocalSystem',url:'https://bp.veeam.com/vbr/Security/infrastructure_hardening.html'},
-      'TrafficEncryptionEnabled':{label:'Network traffic encryption',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
-      'JobsTargetingCloudRepositoriesEncrypted':{label:'Cloud-repo jobs encrypted',url:'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'},
+      'TrafficEncryptionEnabled':{label:'Network traffic encryption',url:'https://helpcenter.veeam.com/docs/vbr/userguide/enable_network_encryption.html'},
+      'JobsTargetingCloudRepositoriesEncrypted':{label:'Cloud-repo jobs encrypted',url:'https://helpcenter.veeam.com/docs/vbr/userguide/encryption_job.html'},
     };
     h += '<table class="pdf-tbl"><tr><th>Violation</th><th>Label</th><th>Help URL</th></tr>';
     d.bpa.forEach(function(v){

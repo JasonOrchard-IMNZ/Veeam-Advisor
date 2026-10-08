@@ -1,5 +1,14 @@
 # Veeam Advisor v2.0 — Release Package
 
+> **Erratum (added v2.2.1).** This is the historical v2.0 release record. Corrections:
+> - `confirm-outputs.js` is listed as deleted below but remained in the repository until
+>   v2.2.1, where it was removed (it loads the removed Fleet tool and cannot run).
+> - Backup Map is the 16th tab (the "tab 15" in the summary table is a typo); it is now
+>   labelled **Resiliency map** in the tool.
+> - "Veeam does not manage immutability on offline repositories" is too broad: it holds for
+>   External and storage-snapshot-only repositories, but a hardened or object-storage
+>   repository that was merely offline at collection time can still be immutable.
+
 **Release deadline:** 20 July 2026 · **Prepared:** 9 July 2026
 **Previous commit:** `b58ac8b` · **Previous version:** `1.1`
 
