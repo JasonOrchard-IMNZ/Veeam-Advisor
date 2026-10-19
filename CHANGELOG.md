@@ -3,6 +3,162 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## v3.0 fixes — 2026-10-08, remaining audit items (version stays v3.0)
+
+The audit items the first round left open. Each has a test in `tests/v3-fixes.test.js`.
+
+### Fixed
+- **Repositories**: a missing FreeSpace shows as unknown instead of 0 TB free and 0% used;
+  repositories under 0.1 TB show GB/MB instead of "0 TB"; the total repository task capacity
+  reads `{ Enabled: True, Number: 16 }` and skips disabled (unlimited) limits; an unlimited
+  repository is sized for the estate's concurrent tasks instead of 1, with a note.
+- **Parser**: Hyper-V hosts and clusters are added to VMware's in mixed estates; media pools,
+  tape cleaning (worst library, not the last) and the appliance OS come from the right record;
+  `CapacityTier: null` is not a tier; the Backup Map reads WeeklyGFS/MonthlyGFS/YearlyGFS.
+- **Manual entry** no longer raises backup copy, immutability, GFS or Enterprise Manager
+  findings, or a "VBR v13 on Windows" pass, from data only a log supplies.
+- **Settings tab** rates a missing copy job or immutability as a warning when tape or a
+  capacity tier exists, matching the findings.
+- **Defaults**: every input that fell back to a default (source TB, retention) is
+  listed; retention set in restore points is shown as such, with a note on sizing.
+- **New check**: VSA reminder to confirm Veeam Updater 12.3.0.65 or later (KB4879), since the
+  log does not record the Updater version.
+- **UI and PDF**: loading a new log disables Export PDF until the next Calculate; platform
+  support on the Infrastructure tab and the patch level ignore a capture from another server;
+  the PDF map page lists target mismatches and tape; SureBackup unknown shows "Unknown";
+  v12 wording on the Windows tab; inferred tape edge shown as a warning; repository CPU text
+  says 1 core per 2 tasks; stray `&mdash;` text in the PDF replication table; more log values
+  escaped.
+- **Scripts**: the PowerShell QA script also checks object storage and external repositories.
+- **Repository**: the advisory refresh workflow checks out full history, so its "maintainer
+  commits" guard no longer blocks every run after main moves; the data builders refuse to
+  write when a fetch comes back much smaller than the data already in the page.
+
+### Not changed
+- Proxy list and per-proxy RAM: telling proxies apart from other Data Mover hosts needs a
+  real log with proxy records; left until one is available.
+- The bot pull request still does not trigger `tests.yml` (needs an app token); the same
+  checks run inside the refresh workflow.
+
+## v3.0 fixes — 2026-10-08, deep audit (version stays v3.0)
+
+From the 2026-10-02 deep audit of the tool, scripts and supplied logs. Each fix has a test in
+`tests/v3-fixes.test.js` that runs the real page code on synthetic logs.
+
+### Fixed
+- **Stale results between logs**: loading a second log, or Reset, now clears form values,
+  the cached Backup Map picture and the previous results.
+- **Immutability**: read per repository from its own settings block; `Enabled: False` is no
+  longer reported as immutable, and every tab uses the same per-repository answer.
+- **Full repositories**: `FreeSpace: 0` now reads as 100% used, not 0%. The task limit is read
+  from its own block (`Enabled: False` = unlimited).
+- **Several collection runs in one log**: the newest complete run is used, and a finding says
+  when a newer run was incomplete.
+- **RTF logs**: a real RTF decoder replaces the tag stripper (escaped braces, code-page
+  characters, Unicode).
+- **Older backup copy jobs** (`Type: Backup` with `JobSourceType: Backup`) count as copies on
+  every tab and on the Backup Map.
+- **Coverage and SureBackup** count only scheduled jobs and the SureBackup jobs in the log.
+- **VBR 11 and older** are flagged end of life instead of being treated as v13.
+- **Encryption** row on the Infrastructure tab and in the PDF now agrees with the findings.
+- **Backup Map capture**: parser and `VeeamAdvisor-MapCapture.ps1` agree on every section
+  (object storage, copy jobs, gateways with spaces, n/a types, case of job names).
+- **PowerShell scripts** are plain ASCII (Windows PowerShell 5.1 safe) and no longer accept
+  any server certificate unless `-AcceptAnyCertificate` is given.
+- **CVE-2026-58070 (KB4902)**: the advisory now says to change the Application-Aware
+  Processing passwords; fixed v13 builds get a reminder.
+- **Latest product updates** check: Veeam Updater also runs on Windows from 13.1 (KB4840).
+- **Parser**: job count, source TB, retention (with units) and GFS keep counts now come from the
+  primary backup jobs, one per job, instead of counters, replicas, copy jobs or disabled tiers.
+  Platform lines no longer bleed into each other; VMware clusters are read; CDP, replication,
+  Veeam ONE, tape drives and LTO generation (including LTO-10) come from the right records.
+- **Unknown is not zero**: missing malware, virtual lab, Cloud Connect, retention and proxy
+  hardware data now shows as unknown instead of a clean or invented value.
+- **Licence**: dates in ISO, dotted and a/b/yyyy forms; an unclear day/month gives no badge;
+  over-use is shown as over-use; the TB capacity licence is no longer labelled VUL; EpAgent jobs
+  count as managed agents; workstation counts are compared with the licensed count.
+- **Sizing**: one recommended proxy count on every tab; task load also sized from data volume;
+  NIC speed limits throughput, not tasks; repository CPU at 2 tasks per core; no ReFS RAM for
+  XFS; weekly GFS fulls not counted twice; 2.5 GbE read correctly; LTO-5/6/10 sized.
+- **Findings**: absent fields raise no warnings; no "all encrypted" pass while a copy job is
+  unencrypted; tape or a capacity tier lowers no-copy and no-immutability criticals to warnings;
+  disabled copy jobs and tiers do not count as an offsite copy.
+- **New checks**: failed collection sections, failed or warning jobs, scheduled jobs with no
+  restore points, missing or disabled configuration backup, immutability longer than retention,
+  backup copy retention shorter than primary, support contract expired or ending.
+- **PDF**: names the source log and MapCapture; new Inventory detail page (repositories, proxies,
+  replication, malware, Cloud Connect tenants, network, Azure); per-workload licence use and
+  expiry; the map image uses light colours.
+- **UI**: files that are not Veeam logs are rejected; an empty calculation clears the previous
+  report; toast readable in dark mode; v12 Windows section labelled v12.
+
+### Not changed
+- Comma-decimal licence numbers are still read as dot-decimal: no log in hand shows the
+  collector writing them, and guessing would misread thousands separators.
+
+### Repository
+- Regression tests run the real page code (`tests/harness.js`); `fixtures.js` removed.
+- `tools/leak-check.mjs` blocks customer data in tracked files; tests, scripts and docs are
+  not served by the site.
+- The advisory refresh workflow no longer force-pushes over a maintainer's commits and runs
+  the full checks itself.
+
+
+## v3.0 fixes — 2026-10-02 (version stays v3.0)
+
+Found by checking every tab against 37 distinct real VMC.logs (v12.1 to v13.0.2, including
+Cloud Connect tenants, SOBRs with hardened extents, HPE StoreOnce, Hyper-V DR replica sites,
+a VSA, standalone Veeam Agent, Veeam Recovery Orchestrator and Veeam Backup for Microsoft 365
+logs, and truncated log-export runs). Repository type, backup count and immutability match
+the log for every repository in all 32 complete VBR logs.
+
+### Fixed
+- **Backup copy jobs of type `BackupSync`** (copy jobs to a Cloud Connect or other
+  repository that record only `TargetRepositoryType`) were not recognised: the Backup Map
+  showed "No backup copy flows", their target repositories were reported idle and the copy
+  count was 0. They are now counted as backup copy jobs. The target is inferred when one
+  repository of that type exists; otherwise the Map lists the candidate repositories, and
+  MapCapture output resolves the target.
+- **Cloud Connect repositories** were reported as immutability "Not set". Immutability on a
+  Cloud Connect repository is set by the service provider and is not recorded in the
+  tenant's log; the Infrastructure, Repository, scorecard, Cloud Connect and PDF views now
+  show "Set by provider / ask your service provider" and leave them out of the count.
+- **SOBR extents** were reported as idle repositories. Extents of a SOBR that jobs use are
+  now listed as extents. A SOBR counts as immutable when all its extents are.
+- **Job counts from session counters**: `[Other] ConfBackup: 91` and
+  `[SureBackup] SureBackupLite: 135` are activity counters, not job counts. Counts now come
+  from the job records (or the authoritative `Job counts` line). This removes false
+  "91 configuration backups" and "SureBackup jobs exist but no Virtual Labs" results.
+- **Storage-snapshot immutability** (`SnapshotImmutability: { Enabled: False,
+  ImmutabilityDays: n }` on a backup job) no longer sets the minimum immutability period.
+- **Last repository list**: the scope now anchors on the section header, not on the
+  `[VmcStats] =CURRENT REPOSITORIES=` line written after the list.
+- **Other Veeam products**: Veeam Recovery Orchestrator and Veeam Backup for Microsoft 365
+  logs were parsed as a VBR server (their version checked against VBR security advisories,
+  followed by an empty report). Any non-VBR product log now gets the explanation the
+  standalone Agent log already had, with product-specific next steps.
+- **Incomplete logs**: a log that ends before the inventory sections (a `STARTLOGSEXPORT`
+  run that stops after LICENSE INFORMATION) produced a full report from the default
+  50 VMs / 5 TB / 5 jobs. It now reports the log as incomplete and shows no report.
+- **Job settings on servers with no backup jobs**: "Guest processing disabled", "Storage
+  latency control disabled" and "No GFS retention" used the estimated job count
+  (VMs / 10) and fired on servers with no VM backup jobs. They now use the log's job count.
+- **Agent job counts from counters**: `[Agents] EpAgentBackup: 63` was read as 63
+  AgentBackup jobs (the type name matched inside the counter name). Job types now come from
+  job records or the `Job counts` line, for every type.
+- Backup copy encryption is read from `IsEncryptionEnabled` where the job records it that
+  way. The Cloud Connect tab lists the provider's repositories and the jobs writing to them.
+
+### Removed
+- `audit.sh`. Its deny-list named the customer environments whose logs were used for
+  validation, so the script itself carried customer-identifying data. The daily refresh
+  workflow and the docs no longer reference it.
+
+### Tests
+- `confirm-bp-findings.js`: 14 new v3.0 assertions run the real `parseLog()` on synthetic
+  logs covering each fix (100 assertions in total).
+
+
 ## Maintenance — 2026-10-01 (repository tooling; the tool itself is unchanged)
 
 ### Added — automatic refresh of the patch & vulnerability data

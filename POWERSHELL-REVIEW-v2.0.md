@@ -1,5 +1,8 @@
 # PowerShell Review — v2.0 (findings only, no code changes)
 
+> **Historical document.** The scripts have changed since this review. For the current state see
+> the "v3.0 fixes — 2026-10-08, deep audit" entry in `CHANGELOG.md`.
+
 Scope: `VeeamAdvisor-PowerShell.ps1` (1,240 lines) and `VeeamAdvisor-PowerShell-QA.ps1`
 (1,687 lines). Reviewed against the repository-parsing work done in v2.0.
 

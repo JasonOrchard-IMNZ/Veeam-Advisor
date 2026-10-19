@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "veeam-kb": {
+      "type": "http",
+      "url": "https://knowledge.veeamiq.com/mcp"
+    }
+  }
+}

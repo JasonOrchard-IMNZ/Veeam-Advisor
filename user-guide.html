@@ -391,7 +391,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <li>A summary panel confirms the parse and shows key detected facts.</li>
       <li>The <strong>collection date/time</strong> of the latest run in the file is recorded (and later printed on the PDF).</li>
     </ul>
-    <p>If the file is malformed or unreadable, you get a clear on-screen message rather than a silent failure &mdash; re-export the log or check you grabbed the right file.</p>
+    <p>If the file is not a Veeam log, stops before the job and repository sections, or comes from another Veeam product, you get a clear on-screen message instead of a report built from defaults &mdash; re-export the log or check you grabbed the right file.</p>
     </section>
 
     <section id="step-2-parameters" aria-labelledby="step-2-parameters-h">
@@ -470,7 +470,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
         <li><strong>Tape archive</strong> (v2.1.01) appears as a terminus node with an edge from each repository that feeds a VM-to-tape job. The edge is solid when a PowerShell capture resolved the source jobs, and dashed (with a warning) when it was inferred from a single VM-to-tape job. File-to-tape jobs are shown as a separate ingress, since they source from files rather than a repository. With two or more VM-to-tape jobs and no capture the tool does <em>not</em> guess the repository edges &mdash; run the capture for exact resolution.</li>
       </ul>
       <p><strong>Individual jobs per repository.</strong> Below the diagram, the repository table lists every repository that receives jobs. <strong>Click any row</strong> to expand the individual jobs writing to it, with full per-job detail: job ID (or real name if a PowerShell capture was loaded), type, platform, source data size, retention, encryption, schedule, and last result. This works regardless of the diagram&rsquo;s 40-job threshold &mdash; so on a large estate where the diagram shows only aggregate counts, you can still drill into any repository&rsquo;s jobs. The same per-repository job listing appears in the PDF export.</p>
-      <p>The tab also reports <strong>idle repositories</strong> (configured but targeted by no job), the <strong>absence of any backup copy flow</strong>, and any <strong>return-copy cycles</strong>. The map is included as a page in the PDF export (as tables, so it prints without drawing the diagram).</p>
+      <p>The tab also reports <strong>idle repositories</strong> (configured but targeted by no job), the <strong>absence of any backup copy flow</strong>, and any <strong>return-copy cycles</strong>. The map is included as a page in the PDF export: the diagram (drawn in light colours) followed by the same detail as tables.</p>
 
       <h3>Enriching the map with a PowerShell capture</h3>
       <p><code>VMC.log</code> cannot record several things the map wants: job <strong>names</strong> (it stores GUIDs only), replica <strong>target hosts</strong> (it stores nothing), whether a replica points at a host that still <strong>exists</strong>, and the <strong>source backup jobs behind each VM-to-tape job</strong> (it stores a count, not the job IDs, so multi-job tape edges cannot be drawn from the log alone). The companion script <code>VeeamAdvisor-MapCapture.ps1</code> collects exactly these from a live VBR server. It is <strong>read-only</strong> &mdash; it runs only <code>Get-VBR&hellip;</code> cmdlets and changes nothing.</p>
@@ -479,7 +479,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
         <li>Run it on the VBR server (or with the Veeam console open), ideally in the same window as the <code>VMC.log</code> collection so the object IDs line up. It writes a <code>.txt</code> capture file.</li>
         <li>Back in the tool, click <strong>Upload capture output</strong> and choose that <code>.txt</code>. You can upload the log and the capture in either order.</li>
       </ol>
-      <p>Once enriched, job nodes show their real names, replica destinations resolve to real hosts (drawn with a solid border), and any replica targeting a <strong>deleted host</strong> is flagged in red with a warning &mdash; a job configured against infrastructure that no longer exists. The capture is matched to the log by job ID, so a capture from a different server is detected and ignored rather than applied to the wrong environment.</p>
+      <p>Once enriched, job nodes show their real names, replica destinations resolve to real hosts (drawn with a solid border), and any replica targeting a <strong>deleted host</strong> is flagged in red with a warning &mdash; a job configured against infrastructure that no longer exists. The capture is matched to the log by job ID, so a capture from a different server is detected and ignored rather than applied to the wrong environment, including for the platform-support check. The PDF header names the log and the capture it was built from.</p>
     </section>
 
     <section id="export-pdf" aria-labelledby="export-pdf-h">
@@ -553,7 +553,7 @@ footer{border-top:1px solid var(--bd);background:var(--bg)}
       <dt>My theme reset when I reopened the file.</dt>
       <dd>Some browsers do not persist storage when the page is opened as a local <code>file://</code> or in a private window. Your choice still holds for the session; export a <em>scheme code</em> to carry it over, or use the hosted/deployed version where it saves automatically.</dd>
       <dt>My PDF came out light even though I was in dark mode.</dt>
-      <dd>That is intended. The PDF export is always light for print legibility, regardless of the on-screen theme.</dd>
+      <dd>That is intended. The PDF export, including the Resiliency map image, is always light for print legibility, regardless of the on-screen theme.</dd>
     </dl>
     </section>
 

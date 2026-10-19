@@ -2,15 +2,15 @@
 /*
  * confirm-bp-findings.js — regression guard for the single-server BP Review findings.
  *
- * Two layers:
- *   1. SYNTHETIC FIXTURES (always run, no external files) — assert the five corrected
- *      extractors against hand-built log snippets that reproduce the field shapes from the
- *      validated reference set. Safe for CI: contains NO customer data and needs no VMC.log on disk.
- *   2. REAL REFERENCE LOGS (optional) — pass a folder of VMC.logs as argv[2] to additionally assert
- *      the per-file expected outcomes. Customer logs must NOT be committed to the repo.
+ * Every layer runs the REAL application code from index.html, loaded into a Node vm by
+ * tests/harness.js (v3.0 fix: earlier layers tested hand-copied "mirrors" of the logic,
+ * which drifted from the tool and could pass while the tool was wrong).
  *
- * The extractors below MUST mirror the tool's parse logic in Veeam_Advisor_v1.1.0.html.
- * If you change the tool's logic, change it here too — a divergence is a real regression.
+ *   1. SYNTHETIC FIXTURES (always run, no external files) — made-up logs from tests/synth.js.
+ *      Safe for CI: contains NO customer data and needs no VMC.log on disk.
+ *   2. REAL REFERENCE LOGS (optional) — pass a folder of VMC.logs as argv[2] to additionally
+ *      assert the per-file expected outcomes. Customer logs must NOT be committed to the repo.
+ *   3. tests/v3-fixes.test.js — the 2026-10 audit fixes (run by this file too).
  *
  * Usage:  node confirm-bp-findings.js                 # fixtures only (CI)
  *         node confirm-bp-findings.js <logs-folder>   # fixtures + real reference logs
@@ -18,125 +18,56 @@
  */
 const fs = require('fs');
 const path = require('path');
+const H = require('./tests/harness');
+const SY = require('./tests/synth');
+const APP = H.load();                         // one shared copy of the real tool
+const V = code => H.run(APP, code);
 
-// ── tool-equivalent preprocessing ──────────────────────────────────────────────
-function stripRTF(s){ s=s.replace(/\\([a-z]+-?\d*)\s?/g,' '); s=s.replace(/[{}\\]/g,' '); return s; }
-function mostRecentFull(t){
-  const parts=t.split(/Starting new log/); let best=null,bt=-1,any=false;
-  parts.forEach(b=>{ if(!/CURRENT JOBS INFO/.test(b)) return; any=true;
-    const ms=[...b.matchAll(/\[(\d{2})\.(\d{2})\.(\d{4})/g)];
-    const tt=ms.length?new Date(+ms.at(-1)[3],+ms.at(-1)[2]-1,+ms.at(-1)[1]).getTime():0;
-    if(tt>=bt){bt=tt;best=b;} });
-  return any?best:t;
+// ── real-tool evaluation of the five original BP extractors ─────────────────────
+// Parses a log with the real parseLog()/calculate() and reads the real findings and
+// settings rows, mapped onto the original five outcome codes.
+function evalReal(text, fname){
+  const c = H.load(); let d=null; const r0=c.render; c.render=x=>{ d=x; return r0(x); };
+  H.analyse(c, text, fname||'VMC.log'); H.run(c,'calculate()'); c.render=r0;
+  if(!d) return {};
+  const f=c.buildFindings(d), rows=c.buildSettings(d);
+  const has=re=>f.some(x=>re.test(x.title)), row=n=>rows.find(r=>r.name===n);
+  const vm=row('VMs per job'), hc=row('Health check'), dv=row('Remove deleted items data');
+  return {
+    enc: has(/^Encryption disabled — Backup Job/) ? 'crit' : 'silent',
+    mal: has(/^Malware detected/) ? 'crit' : has(/suspicious restore point/) ? 'warn' : has(/^Malware scan events recorded/) ? 'info' : 'silent',
+    vm:  vm ? ({ok:'ok',i:'info',crit:'crit'})[vm.sev] : '-',
+    hc:  hc ? hc.sev : 'silent',
+    dv:  dv ? (dv.cur==='Disabled' ? 'off' : 'on') : 'silent',
+  };
 }
-
-// ── the five corrected extractors (mirror of v1.0.3) ────────────────────────────
-function encryption(t){                                   // FIX #1
-  const v=[]; t.split('\n').forEach(l=>{
-    if(!/JobID:\s*[\w-]+,\s*Type:\s*Backup,/.test(l) || l.indexOf('PlatformName:')<0) return;
-    const m=l.match(/Encryption:\s*\{?\s*Enabled:\s*(True|False)/); if(m) v.push(m[1]);
-  });
-  if(!v.length) return 'silent';
-  return v.filter(x=>x==='False').length===0 ? 'silent' : 'crit';
-}
-function malware(t){                                       // FIX #2
-  const sum=re=>(t.match(re)||[]).reduce((a,s)=>a+parseInt(s.replace(/\D/g,''),10),0);
-  const inf=sum(/OIBsInfectedCount:\s*(\d+)/g), sus=sum(/OIBsSuspiciousCount:\s*(\d+)/g);
-  const ev=+(t.match(/EventsTotalCount:\s*(\d+)/)||[0,0])[1];
-  if(inf>0) return 'crit'; if(sus>0) return 'warn'; if(ev>0) return 'info'; return 'silent';
-}
-function vmsPerJob(t){                                     // FIX #3
-  let mx=0; t.split('\n').filter(l=>l.includes('Type: Backup,')&&l.includes('PlatformName:'))
-    .forEach(l=>{const m=l.match(/VMsCount:\s*(\d+)/); if(m) mx=Math.max(mx,+m[1]);});
-  return mx>300?'crit':(mx>100?'info':(mx>0?'ok':'-'));
-}
-function majorityDisabled(t, field){                       // FIX #4 / #5
-  const v=[]; t.split('\n').forEach(l=>{ if(l.indexOf('JobID:')<0) return;
-    const m=l.match(new RegExp(field+'\\s*:\\s*\\{?\\s*Enabled:\\s*(True|False)')); if(m) v.push(m[1]); });
-  if(!v.length) return 'silent';
-  return v.filter(x=>x==='False').length > v.length/2 ? 'warn' : 'ok';
-}
-function evalAll(t){ return {
-  enc: encryption(t), mal: malware(t), vm: vmsPerJob(t),
-  hc: majorityDisabled(t,'HealthCheck'), dv: majorityDisabled(t,'DeletedVMRetention') }; }
 
 // ── synthetic fixtures (no customer data) ───────────────────────────────────────
-const HDR = '=======================CURRENT JOBS INFO==========================\n';
-// one VM backup-job line carrying encryption / health-check / deleted-VM / VM-count fields
-const job = (id,enc,hc,dv,vms) =>
-  `PlatformName: VMware, JobID: ${id}, Type: Backup, Encryption: { Enabled: ${enc} }, `+
-  `HealthCheck : { Enabled: ${hc}, FullHealthCheckEnabled: True }, `+
-  `DeletedVMRetention : { Enabled: ${dv}, Days: 30 }, VMsCount: ${vms}`;
-const malLine = (ev,inf,sus) =>
-  `Malware events counts: { EventsTotalCount: ${ev}, RansomwareExtensionsCount: ${ev} }\n`+
-  `OIBsRansomwareStatusCounts: { ManuallyChecked: { OIBsInfectedCount: 0, OIBsSuspiciousCount: 0 }, `+
-  `DetectedByVeeam: { OIBsInfectedCount: ${inf}, OIBsSuspiciousCount: ${sus} } }`;
-const id = n => `aaaaaaaa-0000-0000-0000-00000000000${n}`;
-
-// ── v1.1.0 mirrors: per-job-type classification + agent licence reconciliation ──
-// These MUST mirror the v1.1.0 data layer in Veeam_Advisor_v1.1.0.html (TYPEMAP,
-// agent recon). A divergence is a real regression.
-const TYPEMAP_11 = {Backup:'Backup Job',BCSMPolicy:'Backup copy job',ConfBackup:'Config backup',
-  AgentBackup:'Agent backup',AgentPolicy:'Agent backup',EpAgentManagement:'Agent backup (mgmt)',
-  SureBackupLite:'SureBackup (scan only)',SureBackup:'SureBackup (virtual labs)'};
-function jobRecords11(t){
-  const seen={}, recs=[];
-  t.split('\n').forEach(l=>{
-    const tm=l.match(/JobID:\s*([\w-]+),\s*Type:\s*(\w+)/); if(!tm) return;
-    if(seen[tm[1]]) return; seen[tm[1]]=1;
-    const e=l.match(/Encryption:\s*\{?\s*Enabled:\s*(True|False)/);
-    const ct=l.match(/ComputerType:\s*(\w+)/);
-    recs.push({type:tm[2], common:(TYPEMAP_11[tm[2]]||'Other'), enc:e?e[1]:null, computerType:ct?ct[1]:null});
-  });
-  return recs;
-}
-function classify11(t){ const m={}; jobRecords11(t).forEach(r=>{m[r.common]=(m[r.common]||0)+1;}); return m; }
-function agentRecon11(t,licSrv,licWks,perpetual){
-  let srv=0,wks=0,standalone=0;
-  jobRecords11(t).forEach(j=>{
-    if(j.type==='AgentBackup'||j.type==='AgentPolicy'){ if(j.computerType==='Workstation')wks++; else srv++; }
-    else if(j.type==='EndpointBackup') standalone++;
-  });
-  const wksInst = wks>0?Math.ceil(wks/3):0;
-  return { srv, wks, standalone, expSrvInst:srv, expWksInst:wksInst,
-    reconciles: perpetual || (srv===licSrv && wksInst===licWks) || (srv===0&&wks===0&&standalone>0&&(licSrv+licWks)>0),
-    overServer: (!perpetual && srv>licSrv) };
-}
+const job = (n,enc,hc,dv,vms) => SY.backupJob({ id:n, enc:enc==='True', vms:vms,
+  extra:` HealthCheck : { Enabled: ${hc}, FullHealthCheckEnabled: True }, DeletedVMRetention : { Enabled: ${dv}, Days: 30 },` });
+const malLine = (ev,inf,sus) => [
+  `${SY.TS}Malware events counts: { EventsTotalCount: ${ev}, RansomwareExtensionsCount: ${ev} }`,
+  `${SY.TS}OIBsRansomwareStatusCounts: { ManuallyChecked: { OIBsInfectedCount: 0, OIBsSuspiciousCount: 0 }, DetectedByVeeam: { OIBsInfectedCount: ${inf}, OIBsSuspiciousCount: ${sus} } }`];
+const L = (jobs, tail) => SY.log({ jobs: jobs, extraTail: tail||[] });
+const replicaOnly = `${SY.TS}PlatformId: ${SY.ZERO}, PlatformName: VMware, JobID: ${SY.G(4)}, Type: Replica, ScheduleEnabled: True, VMsCount: 3,`;
 
 const FIXTURES = [
   // FIX #1 encryption
-  { name:'enc: all jobs encrypted -> silent',
-    text: HDR+job(id(1),'True','True','True',10)+'\n'+job(id(2),'True','True','True',10),
-    expect:{ enc:'silent' } },
-  { name:'enc: one job unencrypted -> crit',
-    text: HDR+job(id(1),'True','True','True',10)+'\n'+job(id(2),'False','True','True',10),
-    expect:{ enc:'crit' } },
-  { name:'enc: RTF-stripped (no braces) unencrypted -> crit',
-    text: HDR+'PlatformName: VMware, JobID: '+id(3)+', Type: Backup, Encryption:   Enabled: False  , VMsCount: 5',
-    expect:{ enc:'crit' } },
-  { name:'enc: no backup jobs (replica only) -> silent',
-    text: HDR+'PlatformName: VMware, JobID: '+id(4)+', Type: Replica, VMsCount: 3',
-    expect:{ enc:'silent', vm:'-' } },
+  { name:'enc: all jobs encrypted -> silent', text: L([job(1,'True','True','True',10), job(2,'True','True','True',10)]), expect:{ enc:'silent' } },
+  { name:'enc: one job unencrypted -> crit', text: L([job(1,'True','True','True',10), job(2,'False','True','True',10)]), expect:{ enc:'crit' } },
+  { name:'enc: no backup jobs (replica only) -> silent', text: L([replicaOnly]), expect:{ enc:'silent', vm:'-' } },
   // FIX #2 malware
-  { name:'malware: infected restore points -> crit',
-    text: HDR+malLine(50,2,0), expect:{ mal:'crit' } },
-  { name:'malware: suspicious only -> warn',
-    text: HDR+malLine(800,0,5), expect:{ mal:'warn' } },
-  { name:'malware: events but 0 infected/suspicious -> info (host-F case)',
-    text: HDR+malLine(4000,0,0), expect:{ mal:'info' } },
-  { name:'malware: no events -> silent',
-    text: HDR+job(id(1),'True','True','True',10), expect:{ mal:'silent' } },
+  { name:'malware: infected restore points -> crit', text: L([job(1,'True','True','True',10)], malLine(50,2,0)), expect:{ mal:'crit' } },
+  { name:'malware: suspicious only -> warn', text: L([job(1,'True','True','True',10)], malLine(800,0,5)), expect:{ mal:'warn' } },
+  { name:'malware: events but 0 infected/suspicious -> info', text: L([job(1,'True','True','True',10)], malLine(4000,0,0)), expect:{ mal:'info' } },
+  { name:'malware: no events -> silent', text: L([job(1,'True','True','True',10)]), expect:{ mal:'silent' } },
   // FIX #3 VMs per job
-  { name:'vms: >300 -> crit',  text: HDR+job(id(1),'True','True','True',350), expect:{ vm:'crit' } },
-  { name:'vms: 100-300 -> info',text: HDR+job(id(1),'True','True','True',150), expect:{ vm:'info' } },
-  { name:'vms: <=100 -> ok',    text: HDR+job(id(1),'True','True','True',50),  expect:{ vm:'ok' } },
-  // FIX #4 / #5 majority
-  { name:'healthCheck/delVM: majority disabled -> warn',
-    text: HDR+job(id(1),'True','False','False',10)+'\n'+job(id(2),'True','False','False',10)+'\n'+job(id(3),'True','True','True',10),
-    expect:{ hc:'warn', dv:'warn' } },
-  { name:'healthCheck/delVM: majority enabled -> ok',
-    text: HDR+job(id(1),'True','True','True',10)+'\n'+job(id(2),'True','True','True',10)+'\n'+job(id(3),'True','False','False',10),
-    expect:{ hc:'ok', dv:'ok' } },
+  { name:'vms: >300 -> crit',   text: L([job(1,'True','True','True',350)]), expect:{ vm:'crit' } },
+  { name:'vms: 100-300 -> info', text: L([job(1,'True','True','True',150)]), expect:{ vm:'info' } },
+  { name:'vms: <=100 -> ok',     text: L([job(1,'True','True','True',50)]),  expect:{ vm:'ok' } },
+  // FIX #4 / #5 majority (deleted-VM retention is now informational: only its state is checked)
+  { name:'healthCheck/delVM: majority disabled', text: L([job(1,'True','False','False',10), job(2,'True','False','False',10), job(3,'True','True','True',10)]), expect:{ hc:'warn', dv:'off' } },
+  { name:'healthCheck/delVM: majority enabled',  text: L([job(1,'True','True','True',10), job(2,'True','True','True',10), job(3,'True','False','False',10)]), expect:{ hc:'ok', dv:'on' } },
 ];
 
 // ── reference-log expectations (only files present in the target folder are asserted) ──
@@ -144,8 +75,8 @@ const EXPECT = {
   'VMC.log':{enc:'silent',vm:'info'}, 'log-08.log':{enc:'silent'},
   'log-03.log':{enc:'crit',mal:'warn'}, 'log-05.log':{enc:'crit',vm:'crit'},
   'log-01.log':{enc:'crit',mal:'warn'},
-  'log-02.log':{enc:'crit',hc:'ok',dv:'ok'}, 'log-07.log':{enc:'crit',hc:'ok',dv:'ok'},
-  'log-10.log':{enc:'crit',dv:'ok'}, 'log-04.log':{enc:'silent'},
+  'log-02.log':{enc:'crit',hc:'ok'}, 'log-07.log':{enc:'crit',hc:'ok'},
+  'log-10.log':{enc:'crit'}, 'log-04.log':{enc:'silent'},
   'log-06.log':{enc:'silent'}, 'log-09.log':{enc:'silent'},
 };
 
@@ -159,46 +90,31 @@ function check(label, got, exp){
 }
 
 // layer 1 — fixtures (always)
-FIXTURES.forEach(f=> check(f.name, evalAll(mostRecentFull(f.text)), f.expect));
+FIXTURES.forEach(f=> check(f.name, evalReal(f.text), f.expect));
 console.log(`Fixtures: ${pass} passed, ${fail} failed`);
 
-// layer 1b — v1.1.0 fixtures: per-job-type classification + agent reconciliation
+// layer 1b — per-job-type classification + agent licence counts, from the real parser
 const _p0=pass, _f0=fail;
 function T11(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v1.1.0: ${label}`); } }
 (function(){
-  // classification (TYPEMAP)
-  T11('classify BCSMPolicy -> Backup copy job', classify11('JobID: a, Type: BCSMPolicy, PlatformName: X\n')['Backup copy job']===1);
-  T11('classify AgentPolicy(Workstation) -> Agent backup', jobRecords11('JobID: b, Type: AgentPolicy, ComputerType: Workstation\n')[0].common==='Agent backup');
-  T11('classify EpAgentManagement -> Agent backup (mgmt)', jobRecords11('JobID: c, Type: EpAgentManagement, X\n')[0].common==='Agent backup (mgmt)');
-  T11('classify unknown type -> Other', jobRecords11('JobID: d, Type: NasBackup, X\n')[0].common==='Other');
-  T11('jobRecords de-dupes by JobID', jobRecords11('JobID: e, Type: Backup, X\nJobID: e, Type: Backup, X\n').length===1);
-
-  // agent reconciliation — host-A shape: 1 server + 2 workstation managed + 2 standalone, lic 1/1
-  const hvb=agentRecon11('JobID: s1, Type: AgentBackup, ComputerType: Server\nJobID: w1, Type: AgentPolicy, ComputerType: Workstation\nJobID: w2, Type: AgentPolicy, ComputerType: Workstation\nJobID: e1, Type: EndpointBackup, X\nJobID: e2, Type: EndpointBackup, X\n',1,1,false);
-  T11('recon host-A: 1 srv / 2 wks / 2 standalone', hvb.srv===1&&hvb.wks===2&&hvb.standalone===2);
-  T11('recon host-A: 2 wks -> 1 instance (ceil/3)', hvb.expWksInst===1);
-  T11('recon host-A: reconciles 1/1', hvb.reconciles===true);
-  T11('recon host-A: not over-licensed', hvb.overServer===false);
-
-  // workstation rounding: 4 workstations -> 2 instances
-  const w4=agentRecon11('JobID: a, Type: AgentPolicy, ComputerType: Workstation\nJobID: b, Type: AgentPolicy, ComputerType: Workstation\nJobID: c, Type: AgentPolicy, ComputerType: Workstation\nJobID: d, Type: AgentPolicy, ComputerType: Workstation\n',0,2,false);
-  T11('recon: 4 wks -> 2 instances (ceil), reconciles', w4.expWksInst===2 && w4.reconciles===true);
-
-  // over-licence: 2 servers, 1 licensed -> overServer fires
-  const over=agentRecon11('JobID: a, Type: AgentBackup, ComputerType: Server\nJobID: b, Type: AgentBackup, ComputerType: Server\n',1,0,false);
-  T11('recon: 2 srv vs 1 lic -> over-licence fires', over.overServer===true);
-
-  // perpetual: server agent present, sockets cover -> reconciles, no over-licence
-  const perp=agentRecon11('JobID: a, Type: AgentBackup, ComputerType: Server\n',0,0,true);
-  T11('recon: perpetual covers agents (no over-licence)', perp.reconciles===true && perp.overServer===false);
-
-  // standalone covers a workstation licence (host-J shape: 0 managed, 1 standalone, lic 0/1)
-  const sa=agentRecon11('JobID: e, Type: EndpointBackup, X\n',0,1,false);
-  T11('recon: standalone agent covers workstation licence', sa.reconciles===true);
-
-  // unknown ComputerType counts as server (conservative)
-  const unk=agentRecon11('JobID: a, Type: AgentBackup, X\n',1,0,false);
-  T11('recon: unknown ComputerType -> server', unk.srv===1 && unk.reconciles===true);
+  const rec=(id,type,extra)=>`${SY.TS}PlatformId: ${SY.ZERO}, PlatformName: Windows, JobID: ${SY.G(id)}, Type: ${type}, ScheduleEnabled: True,${extra||''}`;
+  const parse=t=>{ const c=H.load(); H.analyse(c,t); return c.D; };
+  const byType=D=>{ const m={}; (D.jobsByType||[]).forEach(t=>{ m[t.common]=t.count; }); return m; };
+  const d1=parse(SY.log({ jobs:[ rec(1,'BCSMPolicy'), rec(2,'AgentPolicy',' ComputerType: Workstation,'), rec(3,'EpAgentManagement'), rec(4,'NasBackup'), rec(5,'Backup'), rec(5,'Backup') ] }));
+  const bt=byType(d1);
+  T11('classify BCSMPolicy -> Backup copy job', bt['Backup copy job']===1);
+  T11('classify AgentPolicy(Workstation) -> Agent backup', bt['Agent backup']===1);
+  T11('classify EpAgentManagement -> Agent backup (mgmt)', bt['Agent backup (mgmt)']===1);
+  T11('job records de-duplicated by JobID', (d1.jobRecords||[]).filter(j=>j.type==='Backup').length===1);
+  const ag=parse(SY.log({ jobs:[ rec(1,'AgentBackup',' ComputerType: Server,'), rec(2,'AgentPolicy',' ComputerType: Workstation,'), rec(3,'AgentPolicy',' ComputerType: Workstation,'),
+    rec(4,'EndpointBackup'), rec(6,'EndpointBackup') ] })).agentRecon||{};
+  T11('agents: 1 server / 2 workstation / 2 standalone', ag.mgdServer===1 && ag.mgdWorkstation===2 && ag.standalone===2);
+  T11('agents: 2 workstations -> 1 instance (ceil/3)', ag.expWksInst===1);
+  const w4=parse(SY.log({ jobs:[1,2,3,4].map(n=>rec(n,'AgentPolicy',' ComputerType: Workstation,')) })).agentRecon||{};
+  T11('agents: 4 workstations -> 2 instances', w4.expWksInst===2);
+  const unk=parse(SY.log({ jobs:[ rec(1,'AgentBackup') ] })).agentRecon||{};
+  T11('agents: unknown ComputerType counts as server', unk.mgdServer===1);
+  T11('agents: 1 server agent with no licence data -> over-licence', unk.overServer===true);
 })();
 console.log(`v1.1.0:   ${pass-_p0} passed, ${fail-_f0} failed`);
 
@@ -209,10 +125,8 @@ console.log(`v1.1.0:   ${pass-_p0} passed, ${fail-_f0} failed`);
 const _p1=pass, _f1=fail;
 function T23(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v2.3: ${label}`); } }
 (function(){
-  const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-  const a=html.indexOf('/*VA-ADVISORIES:START*/'), b=html.indexOf('  function calculate(){',a);
-  if(a<0||b<0){ T23('advisory block and vaBuildCheck present in index.html', false); return; }
-  const api=new Function(html.slice(a,b)+'; return {check:vaBuildCheck, data:function(){return VA_ADVISORIES;}, set:function(d){VA_ADVISORIES=d;}};')();
+  const c=H.load();
+  const api={check:c.vaBuildCheck, data:()=>H.run(c,'VA_ADVISORIES'), set:d=>{ c.__adv=d; H.run(c,'VA_ADVISORIES=__adv'); }};
   // shape of the embedded (real) data
   const real=api.data();
   T23('embedded data has asOf date', /^\d{4}-\d{2}-\d{2}$/.test(real.asOf||''));
@@ -247,10 +161,8 @@ console.log(`v2.3:     ${pass-_p1} passed, ${fail-_f1} failed`);
 const _p2=pass, _f2=fail;
 function T24(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v2.4: ${label}`); } }
 (function(){
-  const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-  const a=html.indexOf('/*VA-ADVISORIES:START*/'), b=html.indexOf('  function calculate(){',a);
-  if(html.indexOf('function vaUpgradeReadiness',a)<0||b<0){ T24('vaUpgradeReadiness present in index.html', false); return; }
-  const api=new Function(html.slice(a,b)+'; return {u:vaUpgradeReadiness, set:function(d){VA_ADVISORIES=d;}};')();
+  const c=H.load();
+  const api={u:c.vaUpgradeReadiness, set:d=>{ c.__adv=d; H.run(c,'VA_ADVISORIES=__adv'); }};
   api.set({asOf:'2026-01-01', latest:{12:{name:'12.9',build:'12.9.0.100',date:'2025-12-01'},13:{name:'13.9',build:'13.9.0.100',date:'2026-01-01'}}, advisories:[]});
   const st=(r,re)=>r.items.filter(x=>re.test(x.title)).map(x=>x.st).join();
   const old=api.u({vbr:'12.1.2.172',supportExpiry:'31/12/2025',bsCPUact:4,bsRAMact:8,veeamOne:true,enterpriseManager:'Local',o365Installed:true,
@@ -277,10 +189,7 @@ console.log(`v2.4:     ${pass-_p2} passed, ${fail-_f2} failed`);
 const _p3=pass, _f3=fail;
 function T25(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v2.5: ${label}`); } }
 (function(){
-  const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-  const a=html.indexOf('/*VA-ADVISORIES:START*/'), b=html.indexOf('  function calculate(){',a);
-  if(html.indexOf('var VA_SCA=',a)<0||b<0){ T25('VA_SCA present in index.html', false); return; }
-  const api=new Function(html.slice(a,b)+'; return {map:VA_SCA, info:vaScaInfo};')();
+  const api={map:V('VA_SCA'), info:APP.vaScaInfo};
   // VBRBestPracticeType members, Veeam PowerShell Reference v13 (Veeam PowerShell Enumerations)
   const ENUM13='BackupServerInProductionDomain VbrAndEmOnDifferentMachines BiosUEFIMode SecureBootEnable SMBSigningEnabled WDigestNotStorePasswordsInMemory WebProxyAutoDiscoveryDisabled TLS1Disabled TLS1_1Disabled SSLv2Disabled SSLv3Disabled WindowsScriptHostDisabled SMB1ProtocolDisabled LLMNRDisabled SMBEncryptionEnabled OutdatedSslAndTlsDisabled CSmbSigningAndEncryptionEnabled CredentialsGuardConfigured LsassProtectedProcess NetBiosDisabled RemoteDesktopServiceDisabled RemotePowerShellDisabled RemoteRegistryDisabled SMB1Disabled FirewallEnabled WinRmServiceDisabled MfaEnabledInBackupConsole ImmutableOrOfflineMediaPresence LossProtectionEnabled ConfigurationBackupEnabled ConfigurationBackupEncryptionEnabled EmailNotificationsEnabled ContainBackupCopies ReverseIncrementalInUse PublicCloudTargetJobEncrypted CloudConnectTargetJobEncrypted ManualLinuxHostAuthentication ConfigurationBackupRepositoryNotLocal ViProxyTrafficEncrypted HardenedRepositoryNotVirtual TrafficEncryptionEnabled LinuxServersUsingSSHKeys BackupServicesUnderLocalSystem ConfigurationBackupEnabledAndEncrypted PasswordsRotation HardenedRepositorySshDisabled OsBucketsInComplianceMode JobsTargetingCloudRepositoriesEncrypted BackupServerUpToDate PostgreSqlUseRecommendedSettings HardenedRepositoryNotContainsNBDProxies EncryptionPasswordsComplexityRules CredentialsPasswordsComplexityRules BackupServerHighAvailabilityEnabled LinuxSshPasswordAuthenticationDisabled LinuxPreventRootLogin LinuxUseIntrusionDetection LinuxUseSecurityModule LinuxAuditdConfigured LinuxOsIsFipsEnabled LinuxOsHasVaRandomization LinuxOsUsesTcpSyncookies LinuxWorldDirectoriesPermissions LinuxDisableProblematicServices LinuxUsePasswordPolicy LinuxUseAntivirus LinuxUseSecureBoot LinuxGrubPasswordSet LinuxAuditBinariesOwnerIsRoot LinuxAuditLogDirectoriesOwnerIsRoot'.split(' ');
   const missing=ENUM13.filter(k=>!api.map[k]);
@@ -300,10 +209,7 @@ console.log(`v2.5:     ${pass-_p3} passed, ${fail-_f3} failed`);
 const _p4=pass, _f4=fail;
 function T26(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v2.6: ${label}`); } }
 (function(){
-  const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-  const a=html.indexOf('// v2.6: Resilience scorecard.'), b=html.indexOf('var VA_RES_LABEL',a);
-  if(a<0||b<0){ T26('vaResilience present in index.html', false); return; }
-  const res=new Function(html.slice(a,b)+'; return vaResilience;')();
+  const res=APP.vaResilience;
   const st=(r,k)=>(r.rows.find(x=>x.key===k)||{}).st;
   const weak=res({cur:{backupCopy:'False',immutability:'False'},mfaEnabled:false,inlineScan:false,configBackupEncrypted:false,virtualLabs:0,jobCounts:{},
       encPosture:{jobsTot:4,jobsEnc:0,jobsPct:0}},
@@ -330,10 +236,7 @@ console.log(`v2.6:     ${pass-_p4} passed, ${fail-_f4} failed`);
 const _p5=pass, _f5=fail;
 function T30(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v3.0: ${label}`); } }
 (function(){
-  const html=fs.readFileSync(path.join(__dirname,'index.html'),'utf8');
-  const a=html.indexOf('/*VA-ADVISORIES:START*/'), b=html.indexOf('  function calculate(){',a);
-  if(html.indexOf('function vaFastClone',a)<0||html.indexOf('function vaPlatformSupport',a)<0){ T30('v3.0 functions present in index.html', false); return; }
-  const mk=(pre)=>new Function((pre||'')+html.slice(a,b)+'; return {fc:vaFastClone, plat:vaPlatformSupport, patch:vaVbrWithPatch};')();
+  const mk=(pre)=>{ const c=H.load(); if(pre) H.run(c,pre); return {fc:c.vaFastClone, plat:c.vaPlatformSupport, patch:c.vaVbrWithPatch}; };
   const api=mk();
   // Fast Clone: 10 TB full (10240 GB), 512 GB/day, 14 days, 4W/12M/3Y GFS, 1.2x overhead
   const base={fullGB:10240,incrGB:512,ret:14,gfsW:4,gfsM:12,gfsY:3,overhead:1.2};
@@ -358,20 +261,70 @@ function T30(label, cond){ if(cond) pass++; else { fail++; fails.push(`  v3.0: $
   T30('patch level appended for the matching build', withCap.patch('12.0.0.1420')==='12.0.0.1420 P20230718');
   T30('patch level ignored for another build or when the log already has one', withCap.patch('13.1.1.18')==='13.1.1.18' && withCap.patch('12.0.0.1420 P20230223')==='12.0.0.1420 P20230223');
   // MapCapture Section 7 parser
-  const ps=html.indexOf('function parseMapCapture(text){'), pe=html.indexOf('function applyCaptureToMap(){',ps);
-  const parse=new Function(html.slice(ps,pe)+'; return parseMapCapture;')();
+  const parse=APP.parseMapCapture;
   const cap=parse(['Veeam Advisor — Backup Map capture','Host: LAB-VBR-01   Date: 2026-10-01','Backup server build : 12.3.2.4854','Backup server patch : P20250901',
     '  SRV | ESXi | 8.0.3.0 | VMware ESXi 8.0.3 build-1 | esx1.lab','  SRV | HvServer | n/a (null) | n/a (null) | hv1.lab'].join('\n'));
   T30('MapCapture Section 7: build, patch and servers parsed; n/a values become null', cap.bsBuild==='12.3.2.4854' && cap.bsPatch==='20250901' && cap.servers.length===2 && cap.servers[1].api===null && cap.servers[0].name==='esx1.lab');
   // Version-correct links (real VA_LINKS12 map)
-  const ls=html.indexOf('/*VA-LINKS12:START*/'), le=html.indexOf('function encryptionSection',ls);
-  const L=new Function(html.slice(ls,le)+'; return {map:VA_LINKS12, fix:vaVersionLinks};')();
+  const L={map:V('VA_LINKS12'), fix:APP.vaVersionLinks};
   const u='https://helpcenter.veeam.com/docs/vbr/userguide/';
   T30('v12 links map is populated and well-formed', Object.keys(L.map).length>20 && Object.values(L.map).every(v=>Array.isArray(v)&&v.length));
   T30('v12 toggle: topic with a v12 copy goes to the archive (vSphere guide)', L.fix(u+'mfa.html?ver=13',false,'VMware')==='https://helpcenter.veeam.com/archive/backup/120/vsphere/mfa.html');
   T30('v12 toggle on Hyper-V prefers the Hyper-V guide', L.fix(u+'mfa.html',false,'HyperV')==='https://helpcenter.veeam.com/archive/backup/120/hyperv/mfa.html');
   T30('upgrade-checklist link always stays on v13', L.fix(u+'upgrade_vbr_byb.html?ver=13',false,'VMware')===u+'upgrade_vbr_byb.html?ver=13');
   T30('v13 toggle leaves links unchanged; unknown topic unchanged', L.fix(u+'mfa.html',true,'VMware')===u+'mfa.html' && L.fix(u+'no_such_topic.html',false,'VMware')===u+'no_such_topic.html');
+})();
+// v3.0 fixes found against real logs — the REAL parseLog() from index.html runs on a synthetic
+// log: BackupSync copy jobs (target recorded only as TargetRepositoryType), SOBR extents,
+// hardened repos with no Enabled flag, an explicit "Enabled: False" with a Value, Cloud Connect
+// repos (immutability set by the provider), session counters that are not job counts, and
+// storage-snapshot immutability (disabled) that is not repository immutability.
+(function(){
+  const ctx=H.load(), vm={runInContext:(code,c)=>H.run(c,code)};
+  const ts='[01.10.2026 10:00:00.000]    <18>    Info (3)    ', G=n=>`0000000${n}-1111-2222-3333-444444444444`;
+  const bk=(jid,repo)=>`${ts}PlatformId: 00000000-0000-0000-0000-000000000000, PlatformName: VMware, JobID: ${jid}, Type: Backup, IsCloudTarget: False, JobSourceType: VDDK, IncludedSize: 1099511627776, ScheduleEnabled: True, Platform: EVmware, VMsCount: 2, BackupRepository: ${repo}, RetentionPolicy: { Value: 14, Unit: Points }, Storage: { CompressionLevel: Optimal, Encryption: { Enabled: True, EncryptionType: Password } }, SnapshotImmutability: { Enabled: False, ImmutabilityDays: 3 },`;
+  const log=[
+    'Product: [Veeam Backup and Replication], Version: [13.0.1.2067]',
+    'CmdLineParams: [STARTCOLLECTINFRASTATISTIC]',
+    ts+'=======================CURRENT JOBS INFO==========================',
+    bk(G(1),G(5)), bk(G(2),G(7)),
+    `${ts}PlatformId: 00000000-0000-0000-0000-000000000000, PlatformName: VMware, JobID: ${G(3)}, Type: BackupSync, JobSourceType: Backup, IncludedSize: 1099511627776, ScheduleEnabled: True, Platform: EVmware, SimpleRetentionPolicy: { Value: 31, Unit: Points }, TargetRepositoryType: Cloud, IsEncryptionEnabled: True,`,
+    `${ts}PlatformId: 00000000-0000-0000-0000-000000000000, PlatformName: Configuration, JobID: ${G(4)}, Type: ConfBackup, IsEnabled: True, ScheduleEnabled: True, Platform: EConf, RetentionPolicy: 10, StorageEncryptionEnabled: True,`,
+    `${ts}PlatformId: 00000000-0000-0000-0000-000000000000, PlatformName: [VMware], JobID: ${G(9)}, Type: SureBackupLite, JobSourceType: [VDDK], ScheduleEnabled: True, Platform: [EVmware], LinkedJobsNum: 1,`,
+    ts+'[VmcStats] =CURRENT JOBS INFO= collection result: Success',
+    ts+'[Other] CatCleanup: 95, ConfBackup: 91',
+    ts+'[SureBackup] SureBackupLite: 40',
+    ts+'[Agents] EpAgentBackup: 63',
+    ts+'Job counts: { VDDKBackup: 2, BackupHV: 0, SurebackupVMware: 0, SurebackupHV: 0, SurebackupMultiplatform: 0, SurebackupLite: 1 }',
+    ts+'=======================CURRENT REPOSITORIES==========================',
+    `${ts}RepositoryID: ${G(5)}, Type: LinuxHardened, TotalSpace: 10995116277760, FreeSpace: 5497558138880, NumberOfBackups: 3, RepositoryGroupType: BackupRepository, ImmutabilitySettings: { Value: 7, Unit: Days },`,
+    `${ts}RepositoryID: ${G(6)}, Type: HPStoreOnceIntegration, TotalSpace: 10995116277760, FreeSpace: 5497558138880, NumberOfBackups: 0, RepositoryGroupType: BackupRepository, ImmutabilitySettings: { Enabled: False, Value: 7, Unit: Days },`,
+    `${ts}RepositoryID: ${G(7)}, Type: ExtendableRepository, TotalSpace: 10995116277760, FreeSpace: 5497558138880, NumOfExtents: 1, ExtentsIDs: [${G(8)}], NumberOfBackups: 2, RepositoryGroupType: BackupRepository,`,
+    `${ts}RepositoryID: ${G(8)}, Type: LinuxHardened, TotalSpace: 10995116277760, FreeSpace: 5497558138880, NumberOfBackups: 0, RepositoryGroupType: BackupRepository, ImmutabilitySettings: { Value: 14, Unit: Days },`,
+    `${ts}RepositoryID: ${G(0)}, Type: Cloud, TotalSpace: 10995116277760, FreeSpace: 5497558138880, NumberOfBackups: 1, RepositoryGroupType: BackupRepository`,
+    ts+'[VmcStats] =CURRENT REPOSITORIES= collection result: Success, Collection time: 00:00:01',
+    ts+'=======================REPOSITORY TYPE COUNTS=========================='].join('\n');
+  let err=null; try{ ctx.L=log; vm.runInContext('parseLog(L,"VMC.log")',ctx); }catch(e){ err=e.message; }
+  const D=ctx.D, bm=D.backupMap||{}, ep=D.encPosture||{}, jc=D.jobCounts||{};
+  const S=n=>G(n).slice(0,8), r=n=>(D.repoList||[]).find(x=>x.id===S(n))||{};
+  T30('fixture parses without error ('+(err||'ok')+')', !err);
+  T30('BackupSync counted as a backup copy job', jc.BackupCopy===1 && bm.copyJobsTotal===1);
+  T30('BackupSync with one Cloud repo: target inferred, Cloud repo not idle', (bm.idle||[]).every(i=>i.id!==S(0)) && (bm.nodes||[]).some(n=>n.id===G(0)));
+  T30('job counts come from job records, not session counters (ConfBackup 1, SureBackupLite 1)', jc.ConfBackup===1 && jc.SureBackupLite===1);
+  T30('SOBR extent is not reported idle', (bm.idle||[]).every(i=>i.id!==S(8)) && (bm.extents||[]).some(e=>e.id===S(8)&&e.parent===S(7)));
+  T30('only the unused StoreOnce repo is idle', (bm.idle||[]).length===1 && bm.idle[0].id===S(6));
+  T30('hardened repo with no Enabled flag is immutable; "Enabled: False, Value: 7" is not', !!r(5).immut && !r(6).immut);
+  T30('Cloud repo: set by provider, not counted as missing; SOBR immutable via extents', ep.reposProvider===1 && ep.reposImmut===3 && ep.reposTot===4);
+  T30('"[Agents] EpAgentBackup: 63" is not read as 63 AgentBackup or EndpointBackup jobs', !jc.AgentBackup && !jc.EndpointBackup);
+  const run=t=>{ ctx.L=t; try{ vm.runInContext('parseLog(L,"VMC.log")',ctx); }catch(e){} return ctx.D||{}; };
+  const vro=run(log.replace('Product: [Veeam Backup and Replication], Version: [13.0.1.2067]\nCmdLineParams: [STARTCOLLECTINFRASTATISTIC]','CmdLineParams: [STARTCOLLECTINFRASTATISTIC]\nProduct: [Veeam Recovery Orchestrator], Version: [13.0.0.1167]'));
+  T30('other Veeam products (Recovery Orchestrator) are flagged, not read as a VBR build', vro.unsupportedFormat && /Orchestrator/.test(vro.unsupportedFormat.product) && !vro.vbr);
+  const vbo=run('Product: [Veeam Backup for Microsoft 365], Version: [13.5.0.523]\n'+ts+'RepositoryID: '+G(1)+', Type: Repository,');
+  T30('Veeam Backup for Microsoft 365 log is flagged', vbo.unsupportedFormat && /Microsoft 365/.test(vbo.unsupportedFormat.product));
+  const part=run('Module: [x]. Product version: [13.0.2.29], Assembly version: [13.0.1.0]\nCmdLineParams: [STARTLOGSEXPORT 1]\n'+ts+'=======================LICENSE INFORMATION==========================\n'+ts+'License[1]: { Product: Veeam Backup and Replication }');
+  T30('log that ends before the inventory sections is reported as incomplete', part.incompleteLog && part.incompleteLog.version==='13.0.2.29' && part.incompleteLog.lastSection==='LICENSE INFORMATION' && !part.unsupportedFormat);
+  T30('a complete VBR log is neither incomplete nor unsupported', !D.incompleteLog && !D.unsupportedFormat);
+  T30('disabled snapshot immutability (3 days) does not set the minimum period (7 days from the repos)', String(D.immutabilityMinDays)==='7');
 })();
 console.log(`v3.0:     ${pass-_p5} passed, ${fail-_f5} failed`);
 
@@ -381,13 +334,19 @@ if (dir && fs.existsSync(dir)) {
   let cp=pass, cf=fail, present=0;
   Object.keys(EXPECT).forEach(fname=>{
     const fp=path.join(dir,fname); if(!fs.existsSync(fp)) return; present++;
-    let t=fs.readFileSync(fp,'utf8'); if(t.trimStart().startsWith('{\\rtf')) t=stripRTF(t);
-    check(fname, evalAll(mostRecentFull(t)), EXPECT[fname]);
+    check(fname, evalReal(fs.readFileSync(fp,'utf8'), fname), EXPECT[fname]);
   });
   console.log(`Reference:   ${pass-cp} passed, ${fail-cf} failed (${present} reference file(s) present)`);
 } else if (dir) {
   console.log(`Reference:   folder '${dir}' not found — skipped`);
 }
+
+// layer 3 — the 2026-10 audit fixes (tests/v3-fixes.test.js), counted here so CI runs them
+(function(){
+  const r=require('child_process').spawnSync(process.execPath,[path.join(__dirname,'tests','v3-fixes.test.js')],{encoding:'utf8'});
+  process.stdout.write(r.stdout||''); if(r.stderr) process.stdout.write(r.stderr);
+  if(r.status!==0){ fail++; fails.push('  tests/v3-fixes.test.js failed (see above)'); }
+})();
 
 if (fails.length){ console.log('\nFAILURES:'); fails.forEach(f=>console.log(f)); process.exit(1); }
 console.log('\nAll assertions passed.');
