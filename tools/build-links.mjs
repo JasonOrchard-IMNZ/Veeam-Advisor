@@ -106,6 +106,11 @@ broken.forEach(b => console.warn('BROKEN: ' + b));
 kbBad.forEach(b => console.warn('BROKEN: ' + b));
 
 if (!CHECK) {
+  // Sanity floor: a partial manifest must not shrink the map. Refuse when it drops by more than 20%.
+  let oldN = 0; try { oldN = Object.keys(JSON.parse(html.match(MARK)[0].replace(/^[\s\S]*?var VA_LINKS12 = /, '').replace(/;\s*\/\*VA-LINKS12:END\*\/$/, ''))).length; } catch { oldN = 0; }
+  if (oldN && Object.keys(map12).length < oldN * 0.8) {
+    console.error(`Refusing to write: ${Object.keys(map12).length} v12 links vs ${oldN} in the page (partial manifest?)`); process.exit(1);
+  }
   const sorted = Object.fromEntries(Object.keys(map12).sort().map(k => [k, map12[k]]));
   const block = `/*VA-LINKS12:START*/\nvar VA_LINKS12 = ${JSON.stringify(sorted)};\n/*VA-LINKS12:END*/`;
   fs.writeFileSync(TARGET, html.replace(MARK, () => block));
