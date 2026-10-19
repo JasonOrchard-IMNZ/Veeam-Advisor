@@ -1,0 +1,154 @@
+# Keeps the offline patch & vulnerability check current.
+#
+# Veeam Advisor never looks anything up from the browser: the security advisories and the
+# latest-build list (KB2680) are embedded in index.html at release time. This workflow runs
+# that release-time refresh on a schedule, on GitHub's runners, and opens a pull request when
+# Veeam publishes a new advisory or build — so the page stays offline and you review every
+# data change before it is deployed.
+#
+#   • Daily: tools/release-refresh.mjs --stamp-after=30
+#       – build-advisories.mjs  re-reads the advisories and KB2680 from knowledge.veeamiq.com
+#       – build-links.mjs       re-checks every Help Center / KB link, refreshes the v12 map
+#       – drift checks          platform matrix, Analyzer keys, v13 upgrade minimums
+#   • No change → nothing happens. The data date is re-stamped (one PR) at most every 30
+#     days, so the page's "advisory data is N days old" warning only fires if the job stops.
+#   • Change → one pull request on branch auto/refresh-advisories, updated in place by later
+#     runs, listing the new advisories / builds and any warnings that need a maintainer.
+#
+# Requires: Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
+# create and approve pull requests" (otherwise the job pushes the branch but cannot open the PR).
+name: Refresh security advisories
+
+on:
+  schedule:
+    - cron: '17 18 * * *'      # daily 18:17 UTC (early morning in New Zealand)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-advisories
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the "maintainer commits on the bot branch" check below compares
+          # against HEAD, and a shallow clone makes every older main commit look new.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Note version snapshot that mirrors index.html
+        id: snap
+        run: |
+          # A locked snapshot (Veeam_Advisor_vX.html) that is byte-identical to index.html is
+          # kept identical after the refresh. Repos without one skip this.
+          # The newest snapshot is the one that should mirror index.html; if it has drifted,
+          # say so rather than silently refreshing only index.html.
+          SNAP=""
+          NEWEST=$(ls Veeam_Advisor_v*.html 2>/dev/null | sort -V -r | head -n 1)
+          if [ -n "$NEWEST" ]; then
+            if cmp -s "$NEWEST" index.html; then SNAP="$NEWEST"
+            else echo "::warning::$NEWEST is not identical to index.html; it will not be refreshed"; fi
+          fi
+          echo "file=$SNAP" >> "$GITHUB_OUTPUT"
+          echo "Snapshot mirroring index.html: ${SNAP:-none}"
+
+      - name: Refresh embedded data
+        id: refresh
+        run: |
+          set +e
+          node tools/release-refresh.mjs index.html --stamp-after=30 2>&1 | tee refresh.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "1" ]; then echo "::error::release-refresh could not run (see log)"; exit 1; fi
+          if [ "$code" = "2" ]; then echo "::warning::release-refresh reported warnings — see the pull request"; fi
+
+      - name: Mirror snapshot
+        if: steps.snap.outputs.file != ''
+        run: cp index.html "${{ steps.snap.outputs.file }}"
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; echo "No data changes."; \
+          else echo "changed=true" >> "$GITHUB_OUTPUT"; git diff --stat; fi
+
+      # A pull request opened with github.token does not trigger tests.yml, so the same checks
+      # run here before anything is pushed.
+      - name: Regression tests (where present)
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          LEAK_NAMES: ${{ secrets.LEAK_NAMES }}
+        run: |
+          if [ -n "${{ steps.snap.outputs.file }}" ]; then cmp index.html "${{ steps.snap.outputs.file }}"; fi
+          if [ -f confirm-bp-findings.js ]; then node confirm-bp-findings.js; fi
+          if [ -f tools/leak-check.mjs ]; then node tools/leak-check.mjs; fi
+
+      - name: Open or update pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BR=auto/refresh-advisories
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          # Never overwrite a maintainer's work: if someone has pushed to the bot branch
+          # (e.g. adding a MANUAL advisory entry), leave it alone and say so.
+          if git fetch -q origin "$BR" 2>/dev/null; then
+            HUMAN=$(git log --format='%ae' "HEAD..origin/$BR" | grep -v 'github-actions\[bot\]' | head -n 1 || true)
+            if [ -n "$HUMAN" ]; then
+              echo "::warning::$BR has commits from a maintainer; not overwriting it. Merge or close that pull request and the next run will refresh it."
+              exit 0
+            fi
+          fi
+          git checkout -B "$BR"
+          git add -A index.html Veeam_Advisor_v*.html 2>/dev/null || git add -A index.html
+          git commit -q -m "Refresh security advisory data ($(date -u +%F))"
+          git push -f origin "$BR"
+
+          {
+            echo "Automated refresh of the data the offline patch & vulnerability check uses."
+            echo "The page itself still makes no network requests; this data is embedded."
+            echo
+            echo "### What changed"
+            if grep -q '^CHANGE:' refresh.log; then grep '^CHANGE:' refresh.log | sed 's/^CHANGE: /- /'; \
+            else echo "- Link map or other embedded data refreshed (see diff)"; fi
+            if grep -qE '^(WARNING|DRIFT|BROKEN):' refresh.log; then
+              echo
+              echo "### Needs a maintainer"
+              grep -E '^(WARNING|DRIFT|BROKEN):' refresh.log | sed 's/^/- /'
+              echo
+              echo "WARNING = an advisory the parser could not read (add it to MANUAL in tools/build-advisories.mjs, citing the KB)."
+              echo "DRIFT = a hand-maintained table no longer matches the Help Center. BROKEN = a link not in the topic index."
+            fi
+            echo
+            echo "### Before merging"
+            echo "- Check each new advisory's fixed builds against the linked KB article."
+            echo "- Merging deploys the new data; the page shows it as \"advisory data as of\" the run date."
+            echo
+            echo "<details><summary>Full refresh log</summary>"
+            echo
+            echo '```'
+            grep -vE '^(\{|\}| |\])' refresh.log | tail -n 80
+            echo '```'
+            echo "</details>"
+          } > pr-body.md
+
+          if gh pr view "$BR" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BR" --body-file pr-body.md
+            echo "Updated the open pull request."
+          else
+            gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BR" \
+              --title "Security advisory data refresh ($(date -u +%F))" --body-file pr-body.md
+          fi
