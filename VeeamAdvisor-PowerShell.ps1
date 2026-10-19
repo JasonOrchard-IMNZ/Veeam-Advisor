@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # NOTE: #Requires -Version 5.1 is the minimum for VBR v12 environments.
-#       VBR v13 requires Windows PowerShell 7.4.7 or later — if you are running
-#       against a v13 server, ensure PS 7.4.7+ is installed before running this
+#       Veeam PowerShell v13 requires PowerShell 7 (current Veeam docs: 7.6.3 or
+#       later) - if you are running against a v13 server, ensure it is installed before running this
 #       script. See: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 # =============================================================================
 #  Copyright (c) 2026 Jason Orchard. All Rights Reserved.
@@ -13,29 +13,29 @@
 # =============================================================================
 <#
 .SYNOPSIS
-    Veeam Advisor — VBR Infrastructure Validation Script
+    Veeam Advisor - VBR Infrastructure Validation Script
 
 .DESCRIPTION
     Validates all PowerShell cmdlets used in Veeam Advisor against a live VBR server.
     Designed to be run on a deployed VBR environment after initial setup.
 
     Tests:
-        B-1  Get-VBRServer          — managed servers, backup server identity
-        B-2  Get-VBRViProxy         — VMware proxy details and Host.Id filter
-        B-3  Get-VBRHvProxy         — Hyper-V proxy details and Host.Id filter
-        B-4  Get-VBRBackupRepository — repo types, Cloud filter, SOBR, GUID filter
-        B-5  Get-VBRJob             — backup + replica jobs, IsReplica filter, -Name param
-        B-6  Get-VBRComputerBackupJob — managed agent job policies
-        B-7  Get-VBREPJob           — legacy standalone agent jobs
-        B-8  Get-VBRCloudTenant     — Cloud Connect tenants (VCSP environments)
-        B-9  Get-VBRBackupCopyJob   — backup copy jobs
-        B-10 Get-VBRSureBackupJob   — SureBackup verification jobs
-        B-11 Get-VBRTapeJob         — tape backup jobs
-        B-12 Get-VBRUnstructuredBackupJob — unstructured data (NAS/object storage) jobs
+        B-1  Get-VBRServer          - managed servers, backup server identity
+        B-2  Get-VBRViProxy         - VMware proxy details and Host.Id filter
+        B-3  Get-VBRHvProxy         - Hyper-V proxy details and Host.Id filter
+        B-4  Get-VBRBackupRepository - repo types, Cloud filter, SOBR, GUID filter
+        B-5  Get-VBRJob             - backup + replica jobs, IsReplica filter, -Name param
+        B-6  Get-VBRComputerBackupJob - managed agent job policies
+        B-7  Get-VBREPJob           - legacy standalone agent jobs
+        B-8  Get-VBRCloudTenant     - Cloud Connect tenants (VCSP environments)
+        B-9  Get-VBRBackupCopyJob   - backup copy jobs
+        B-10 Get-VBRSureBackupJob   - SureBackup verification jobs
+        B-11 Get-VBRTapeJob         - tape backup jobs
+        B-12 Get-VBRUnstructuredBackupJob - unstructured data (NAS/object storage) jobs
 
     Analysis (mirrors the standalone app's published insights):
-        A-1  Protection coverage     — infra VMs vs jobs + agents, coverage %
-        A-2  Orphaned/disabled jobs  — jobs creating no restore points
+        A-1  Protection coverage     - infra VMs vs VMs in jobs (unknown if jobs use containers)
+        A-2  Orphaned/disabled jobs  - jobs creating no restore points
 
     All results are written to both the console and a timestamped log file.
 
@@ -44,8 +44,8 @@
 
 .PARAMETER Credential
     PSCredential for the VBR/VSA connection. If omitted:
-      - localhost target → uses the current Windows session (single sign-on)
-      - remote/VSA target → the script prompts for username and password
+      - localhost target -> uses the current Windows session (single sign-on)
+      - remote/VSA target -> the script prompts for username and password
     Pass a pre-built credential (Get-Credential) for unattended/automated runs.
 
 .PARAMETER PromptCredential
@@ -53,7 +53,14 @@
     Useful when the current Windows session does not have VBR rights.
 
 .PARAMETER Port
-    VBR console port. Default: 9392.
+    VBR console port. Default: 9392 (v12). If the connection fails, the script
+    retries on port 443 (the v13 Connect-VBRServer default).
+
+.PARAMETER AcceptAnyCertificate
+    Opt-in. Passes -ForceAcceptTlsCertificate to Connect-VBRServer (v13+ only),
+    which accepts the server's TLS certificate WITHOUT validating it. Off by default
+    because the credential is sent to whatever host answers. Use it only after you
+    have verified the server certificate thumbprint yourself.
 
 .PARAMETER LogFile
     Output log file path. Default: auto-generated in the script folder:
@@ -69,7 +76,7 @@
     .\VeeamAdvisor-PowerShell.ps1 -VBRServer vbr01.lab.local -Credential $cred -LogFile C:\Logs\vbr-check.txt
 
 .EXAMPLE
-    # Remote VSA appliance by IP — script prompts for username/password
+    # Remote VSA appliance by IP - script prompts for username/password
     .\VeeamAdvisor-PowerShell.ps1 -VBRServer 10.0.0.50 -ConnectionType VSA
 
 .EXAMPLE
@@ -83,43 +90,45 @@
     .\VeeamAdvisor-PowerShell.ps1 -VBRServer 192.168.1.20 -Port 9392 -ConnectionType Remote -Credential $cred
 
 .NOTES
-    Veeam Advisor v1.3 — VBR Validation (Module B standalone)
+    Veeam Advisor v1.3 - VBR Validation (Module B standalone)
     Reference: helpcenter.veeam.com/docs/vbr/powershell/
     Validated against: Veeam Backup & Replication v13
-    PowerShell requirement: 5.1+ for VBR v12 environments; 7.4.7+ for VBR v13.
+    PowerShell requirement: 5.1+ for VBR v12 environments; PowerShell 7 for VBR v13 (current docs: 7.6.3+).
     Ref: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 #>
 
 [CmdletBinding()]
 param(
     # VBR server to connect to. Accepts:
-    #   'localhost'            — run directly on the VBR server or VSA appliance console
-    #   '<hostname>' / '<FQDN>'— a remote VBR server or VSA by name
-    #   '<IP address>'         — a remote VBR server, VSA appliance, or remote console by IP
+    #   'localhost'            - run directly on the VBR server or VSA appliance console
+    #   '<hostname>' / '<FQDN>'- a remote VBR server or VSA by name
+    #   '<IP address>'         - a remote VBR server, VSA appliance, or remote console by IP
     [string]      $VBRServer = 'localhost',
     [PSCredential]$Credential,
     # Service port for Connect-VBRServer. Default 9392 (the classic console port,
-    # used by v12). On v13 the Identity Service prioritises 443 — if 9392 fails with
+    # used by v12). On v13 the Identity Service prioritises 443 - if 9392 fails with
     # "Failed to connect to Identity service", the script automatically retries on
     # 443. Pass -Port 443 explicitly to go straight there on a v13 server.
     [int]         $Port      = 9392,
-    # Connection target type — informational, tailors the connection messages.
-    #   Auto    — infer from $VBRServer (default)
-    #   Local   — this host is the VBR server / VSA appliance (localhost)
-    #   VSA     — remote Veeam Software Appliance (Linux) by host/IP
-    #   Remote  — remote VBR server or remote console by host/IP
+    # Connection target type - informational, tailors the connection messages.
+    #   Auto    - infer from $VBRServer (default)
+    #   Local   - this host is the VBR server / VSA appliance (localhost)
+    #   VSA     - remote Veeam Software Appliance (Linux) by host/IP
+    #   Remote  - remote VBR server or remote console by host/IP
     [ValidateSet('Auto','Local','VSA','Remote')]
     [string]      $ConnectionType = 'Auto',
     # Force an interactive Get-Credential prompt even for localhost. By default the
     # script auto-prompts only for remote/VSA targets when -Credential is omitted.
     [switch]      $PromptCredential,
+    # Opt-in: add -ForceAcceptTlsCertificate (v13+) to the connect attempts. See help.
+    [switch]      $AcceptAnyCertificate,
     [string]      $LogFile   = ''
 )
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 
-# ─── Enforce TLS 1.2 (and 1.3 where available) for all HTTPS calls ───────────
+# --- Enforce TLS 1.2 (and 1.3 where available) for all HTTPS calls -----------
 # PowerShell 5.1 defaults to TLS 1.0/1.1, which modern endpoints reject. Force a
 # secure protocol set so any HTTPS traffic negotiates over TLS 1.2 or higher.
 try {
@@ -132,7 +141,7 @@ try {
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 }
 
-# ─── Log file initialisation ──────────────────────────────────────────────────
+# --- Log file initialisation --------------------------------------------------
 if (-not $LogFile) {
     $stamp   = Get-Date -Format 'yyyyMMdd_HHmmss'
     $LogFile = Join-Path $PSScriptRoot "VeeamAdvisor-VBR-Validation_$stamp.txt"
@@ -141,7 +150,7 @@ $script:LogFile = $LogFile
 
 @(
     '======================================================================'
-    '  VEEAM ADVISOR — VBR INFRASTRUCTURE VALIDATION'
+    '  VEEAM ADVISOR - VBR INFRASTRUCTURE VALIDATION'
     "  Run at    : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     "  Host      : $($env:COMPUTERNAME)"
     "  User      : $($env:USERNAME)"
@@ -152,11 +161,11 @@ $script:LogFile = $LogFile
 ) | Set-Content -Path $LogFile -Encoding UTF8
 
 Write-Host ""
-Write-Host "  Veeam Advisor — VBR Infrastructure Validation" -ForegroundColor Cyan
+Write-Host "  Veeam Advisor - VBR Infrastructure Validation" -ForegroundColor Cyan
 Write-Host "  Log: $LogFile" -ForegroundColor DarkGray
 Write-Host ""
 
-# ─── Tee function — screen + file ────────────────────────────────────────────
+# --- Tee function - screen + file --------------------------------------------
 function Out-Log {
     param([string]$Text, [string]$Colour = 'White')
     Write-Host $Text -ForegroundColor $Colour
@@ -178,7 +187,7 @@ function Write-Head {
 }
 function Write-Sub  { param([string]$m) Out-Log "`n  --- $m ---" -Colour DarkGray }
 
-# ─── Counters ─────────────────────────────────────────────────────────────────
+# --- Counters -----------------------------------------------------------------
 $script:Pass  = 0
 $script:Fail  = 0
 $script:Skip  = 0
@@ -198,41 +207,41 @@ function Assert {
             Write-Pass $Name
             $script:Pass++
         } else {
-            Write-Fail "$Name — result: $result"
+            Write-Fail "$Name - result: $result"
             $script:Fail++
             $script:Fails.Add($Name)
         }
     } catch {
-        Write-Fail "$Name — $($_.Exception.Message)"
+        Write-Fail "$Name - $($_.Exception.Message)"
         $script:Fail++
         $script:Fails.Add($Name)
     }
 }
 
-# ─── GUID filter helper (safe for single-object or array returns) ─────────────
+# --- GUID filter helper (safe for single-object or array returns) -------------
 function Test-GuidFilter {
     param([string]$Label, [object[]]$Items, [string]$Prop = 'Id')
     $arr = @($Items)
     if ($arr.Count -eq 0) {
-        Write-Warn "$Label — empty collection, GUID filter skipped"
+        Write-Warn "$Label - empty collection, GUID filter skipped"
         $script:Skip++
         return
     }
     $id = $arr[0].$Prop
     if ($null -eq $id) {
-        Write-Warn "$Label — .$Prop is null, GUID filter skipped"
+        Write-Warn "$Label - .$Prop is null, GUID filter skipped"
         $script:Skip++
         return
     }
     $guid  = if ($id -is [System.Guid]) { $id } else { [System.Guid]$id }
     $match = @($arr | Where-Object { $_.$Prop -eq $guid })
-    Assert "$Label — [Guid] .$Prop filter returns ≥1 result" { $match.Count -ge 1 }
+    Assert "$Label - [Guid] .$Prop filter returns >=1 result" { $match.Count -ge 1 }
     if ($match.Count -ge 1) {
         $mname=if($null -ne $match[0].Name){$match[0].Name}else{$match[0].$Prop}; Write-Data "  Matched: $mname"
     }
 }
 
-# ─── SECTION SEPARATOR ────────────────────────────────────────────────────────
+# --- SECTION SEPARATOR --------------------------------------------------------
 function Write-Section {
     param([string]$Title)
     Out-Log ''
@@ -242,9 +251,9 @@ function Write-Section {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  PRE-FLIGHT — MODULE + CONNECTION
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  PRE-FLIGHT - MODULE + CONNECTION
+# ==============================================================================
 Write-Head "PRE-FLIGHT: Veeam PowerShell Module"
 
 $module = Get-Module -ListAvailable -Name 'Veeam.Backup.PowerShell' |
@@ -253,15 +262,25 @@ $module = Get-Module -ListAvailable -Name 'Veeam.Backup.PowerShell' |
 if (-not $module) {
     Write-Fail "Veeam.Backup.PowerShell module not found"
     Write-Info "  Install from the VBR server: Import-Module 'C:\Program Files\Veeam\Backup and Replication\Console\Veeam.Backup.PowerShell.dll'"
-    Add-Content -Path $script:LogFile -Value "`nRESULT: ABORTED — Veeam PS module not installed" -Encoding UTF8
+    Add-Content -Path $script:LogFile -Value "`nRESULT: ABORTED - Veeam PS module not installed" -Encoding UTF8
     exit 1
 }
 
 Write-Pass "Module found: $($module.Name) v$($module.Version)"
-Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction Stop
+try {
+    Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction Stop
+} catch {
+    $impErr = "$($_.Exception.Message)"
+    Write-Fail "Import-Module Veeam.Backup.PowerShell failed: $impErr"
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        Write-Info "  This is Windows PowerShell $($PSVersionTable.PSVersion). The VBR v13 module requires PowerShell 7 - re-run from pwsh.exe."
+    }
+    Add-Content -Path $script:LogFile -Value "`nRESULT: ABORTED - module import failed ($impErr)" -Encoding UTF8
+    exit 1
+}
 Write-Pass "Module imported successfully"
 
-# ─── VBR Connection ───────────────────────────────────────────────────────────
+# --- VBR Connection -----------------------------------------------------------
 # Resolve the connection type (Local / VSA / Remote) for clear messaging.
 $resolvedType = $ConnectionType
 if ($resolvedType -eq 'Auto') {
@@ -281,17 +300,20 @@ $targetDesc = switch ($resolvedType) {
 Write-Head "CONNECT to VBR: $targetDesc"
 
 $connected = $false
+# Set only when THIS script opens the session, so the disconnect step at the end
+# leaves a pre-existing session alone (and does close one we opened on localhost).
+$script:WeConnected = $false
 try {
     $session = Get-VBRServerSession
     if ($session -and ($session.Server -eq $VBRServer -or $resolvedType -eq 'Local')) {
-        Write-Pass "Active VBR session detected — skipping Connect-VBRServer"
+        Write-Pass "Active VBR session detected - skipping Connect-VBRServer"
         Write-Info "  Connected to: $($session.Server)"
         $connected = $true
     }
 } catch { }
 
 if (-not $connected) {
-    # ── Credential prompting ────────────────────────────────────────────────
+    # -- Credential prompting ------------------------------------------------
     # Prompt for username/password when:
     #   - the user explicitly asked (-PromptCredential), OR
     #   - the target is remote/VSA and no -Credential was supplied (SSO won't
@@ -312,7 +334,7 @@ if (-not $connected) {
             Write-Warn "Credential prompt cancelled or unavailable: $($_.Exception.Message)"
         }
         if (-not $Credential) {
-            Write-Warn "No credentials provided — attempting connection with the current Windows session."
+            Write-Warn "No credentials provided - attempting connection with the current Windows session."
         }
     }
 
@@ -320,16 +342,21 @@ if (-not $connected) {
     $baseParams = @{ Server = $VBRServer; Port = $Port }
     if ($Credential) { $baseParams['Credential'] = $Credential }
     # v13: -ForceAcceptTlsCertificate accepts the backup server's TLS certificate
-    # on connect, avoiding cert-trust failures. Added only if the running module
-    # supports it (v13+), so the script stays compatible with v12.
-    $supportsForceTls = [bool](Get-Command Connect-VBRServer | Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' })
+    # WITHOUT validating it. It is opt-in (-AcceptAnyCertificate), never automatic,
+    # because the credential is sent during the same handshake. It is added only if
+    # the running module supports it (v13+), so the script stays compatible with v12.
+    $hasForceTlsParam = [bool](Get-Command Connect-VBRServer | Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' })
+    $supportsForceTls = $AcceptAnyCertificate -and $hasForceTlsParam
+    if ($AcceptAnyCertificate -and -not $hasForceTlsParam) {
+        Write-Warn "-AcceptAnyCertificate ignored: this Connect-VBRServer has no -ForceAcceptTlsCertificate (v12)."
+    }
     if ($supportsForceTls) { $baseParams['ForceAcceptTlsCertificate'] = $true }
 
     # Try a sequence of connection variants over IPv4. First success wins.
     #
     # v13 ARCHITECTURE CHANGE: the Veeam Backup REST Service (the Identity Service
     # that Connect-VBRServer authenticates against) is hardcoded to prioritise port
-    # 443 — the classic console port 9392 is no longer the front door for the v13
+    # 443 - the classic console port 9392 is no longer the front door for the v13
     # identity handshake. On a v13 server, a connect on 9392 can therefore fail with
     # "Failed to connect to Identity service" even though everything is healthy,
     # while 443 succeeds. We try the configured port first, then 443.
@@ -359,6 +386,7 @@ if (-not $connected) {
             Connect-VBRServer @cp
             Write-Pass "Connected to $targetDesc via $($attempt.Desc)"
             $connected = $true
+            $script:WeConnected = $true
             break
         } catch {
             $lastErr = $_
@@ -369,12 +397,21 @@ if (-not $connected) {
         $errMsg = "$($lastErr.Exception.Message)"
         Write-Warn "Connection failed: $errMsg"
 
+        if ($errMsg -match 'certificate|thumbprint|SSL|TLS|trust') {
+            Write-Warn "  The connection failed on the server's TLS certificate."
+            if (-not $AcceptAnyCertificate) {
+                Write-Warn "  If you have verified the server certificate (thumbprint) yourself, re-run with"
+                Write-Warn "  -AcceptAnyCertificate to accept it without validation (v13+ only). Do not use"
+                Write-Warn "  this switch on an untrusted network: the credential is sent to whoever answers."
+            }
+        }
+
         # v13 introduced an Identity Service that Connect-VBRServer authenticates
         # against. "Failed to connect to Identity service" is a specific condition
-        # distinct from a plain service-down or wrong-host error — run live probes.
+        # distinct from a plain service-down or wrong-host error - run live probes.
         if ($errMsg -match 'Identity service|Identity Service') {
             Write-Warn ""
-            Write-Warn "  v13 IDENTITY SERVICE error — the module loaded, but the backend"
+            Write-Warn "  v13 IDENTITY SERVICE error - the module loaded, but the backend"
             Write-Warn "  Identity/authentication service did not accept the connection."
             Write-Warn "  Running diagnostics..."
             Write-Warn ""
@@ -410,11 +447,11 @@ if (-not $connected) {
 
             Write-Warn ""
             Write-Warn "  PROVEN REMEDIATION for this v13 error (services up, cert valid):"
-            Write-Warn "  1. Connect on port 443 — v13's Identity Service (Veeam Backup REST"
+            Write-Warn "  1. Connect on port 443 - v13's Identity Service (Veeam Backup REST"
             Write-Warn "     Service) is hardcoded to prioritise 443, not the classic 9392:"
             Write-Warn "        .\VeeamAdvisor-PowerShell.ps1 -Port 443"
             Write-Warn "     (this script now tries 443 automatically before failing)."
-            Write-Warn "  2. Ensure nothing else occupies 443 on this host — v13 requires it and"
+            Write-Warn "  2. Ensure nothing else occupies 443 on this host - v13 requires it and"
             Write-Warn "     the VBR/REST service will not bind if 443 is already in use:"
             Write-Warn "        Get-NetTCPConnection -State Listen -LocalPort 443"
             Write-Warn "  3. If 443 is bound by Veeam yet the connect still fails, restart the"
@@ -427,18 +464,18 @@ if (-not $connected) {
             Write-Warn "  Verify the host/IP and port ($Port) are reachable, the Veeam"
             Write-Warn "  Backup Service is running, and the credentials are valid."
         }
-        Add-Content -Path $script:LogFile -Value "`nRESULT: ABORTED — Could not connect to VBR ($errMsg)" -Encoding UTF8
+        Add-Content -Path $script:LogFile -Value "`nRESULT: ABORTED - Could not connect to VBR ($errMsg)" -Encoding UTF8
         exit 1
     }
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-1  Get-VBRServer
 #  Tests: runs, count, .Name, .Id (Guid), backup server identification,
 #         .Type enum values, [Guid] filter
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-1: Get-VBRServer — All managed servers"
+# ==============================================================================
+Write-Head "B-1: Get-VBRServer - All managed servers"
 
 $allServers = @()
 try {
@@ -483,24 +520,24 @@ if ($allServers.Count -gt 0) {
 
     Write-Sub "All managed servers"
     foreach ($s in $allServers) {
-        $tag = if ($s.Description -match 'This server') { ' ◄ BACKUP SERVER' } else { '' }
+        $tag = if ($s.Description -match 'This server') { ' <- BACKUP SERVER' } else { '' }
         Write-Data "  '$($s.Name)' | Type: $($s.Type) | Id: $($s.Id)$tag"
     }
 
     Test-GuidFilter -Label 'Get-VBRServer [Guid] Id filter' -Items $allServers
 
 } else {
-    Write-Warn "No servers returned — skipping B-1 property assertions"
+    Write-Warn "No servers returned - skipping B-1 property assertions"
     $script:Skip += 4
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-2  Get-VBRViProxy
 #  App pattern: Get-VBRViProxy | Select Name, @{N="HostId";E={$_.Host.Id}}
 #               Get-VBRViProxy | Where {$_.Host.Id -eq [Guid]"<paste>"}
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-2: Get-VBRViProxy — VMware backup proxies"
+# ==============================================================================
+Write-Head "B-2: Get-VBRViProxy - VMware backup proxies"
 
 $viProxies = @()
 try {
@@ -531,13 +568,13 @@ if ($viProxies.Count -gt 0) {
         @($viProxies | Where-Object { $null -eq $_.MaxTasksCount }).Count -eq 0
     }
 
-    # Validate computed HostId column — exact app pattern
+    # Validate computed HostId column - exact app pattern
     $table = @($viProxies | Select-Object Name, @{N='HostId'; E={$_.Host.Id}})
     Assert "Vi proxy: computed HostId column is [System.Guid]" {
         $null -ne $table[0].HostId -and $table[0].HostId -is [System.Guid]
     }
 
-    # Validate [Guid] Host.Id filter — exact app pattern
+    # Validate [Guid] Host.Id filter - exact app pattern
     $testHostId = $viProxies[0].Host.Id
     $filtered   = @(Get-VBRViProxy | Where-Object { $_.Host.Id -eq $testHostId })
     Assert "Vi proxy: [Guid] Host.Id filter returns match" { $filtered.Count -ge 1 }
@@ -552,16 +589,16 @@ if ($viProxies.Count -gt 0) {
     }
 
 } else {
-    Write-Info "No VMware proxies configured — B-2 assertions skipped"
+    Write-Info "No VMware proxies configured - B-2 assertions skipped"
     $script:Skip += 7
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-3  Get-VBRHvProxy
 #  App pattern: Get-VBRHvProxy | Select Name, @{N="HostId";E={$_.Host.Id}}
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-3: Get-VBRHvProxy — Hyper-V backup proxies"
+# ==============================================================================
+Write-Head "B-3: Get-VBRHvProxy - Hyper-V backup proxies"
 
 $hvProxies = @()
 try {
@@ -599,26 +636,26 @@ if ($hvProxies.Count -gt 0) {
         try { Write-Data "    MaxTasks   : $($p.MaxTasksCount)" } catch { }
     }
 
-    # Host.Id is a nested property — validate it inline (helper can't resolve dotted paths)
+    # Host.Id is a nested property - validate it inline (helper can't resolve dotted paths)
     $hvTestId = $hvProxies[0].Host.Id
     $hvFiltered = @(Get-VBRHvProxy | Where-Object { $_.Host.Id -eq $hvTestId })
     Assert "Hv proxy: [Guid] Host.Id filter returns match" { $hvFiltered.Count -ge 1 }
     Test-GuidFilter -Label 'Get-VBRHvProxy [Guid] Id filter' -Items $hvProxies
 
 } else {
-    Write-Info "No Hyper-V proxies configured — B-3 assertions skipped"
+    Write-Info "No Hyper-V proxies configured - B-3 assertions skipped"
     $script:Skip += 5
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-4  Get-VBRBackupRepository
 #  App patterns:
 #    Get-VBRBackupRepository | Where {$_.Type -eq 'Cloud'}
 #    Get-VBRBackupRepository | Where {$_.Id -eq [Guid]'...'} | Select Name
 #    Get-VBRBackupRepository -ScaleOut  (SOBRs)
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-4: Get-VBRBackupRepository — Repositories"
+# ==============================================================================
+Write-Head "B-4: Get-VBRBackupRepository - Repositories"
 
 $repos = @()
 try {
@@ -645,7 +682,7 @@ if ($repos.Count -gt 0) {
 
     Write-Sub "All repositories"
     foreach ($r in $repos) {
-        $capGB = '—'; $freeGB = '—'
+        $capGB = '-'; $freeGB = '-'
         try { $cont = $r.GetContainer(); $capGB = [Math]::Round($cont.CachedTotalSpace.InGigabytes,1); $freeGB = [Math]::Round($cont.CachedFreeSpace.InGigabytes,1) } catch { }
         Write-Data "  '$($r.Name)'"
         Write-Data "    Type     : $($r.Type)"
@@ -653,7 +690,7 @@ if ($repos.Count -gt 0) {
         Write-Data "    Capacity : $capGB GB   Free: $freeGB GB"
     }
 
-    # v2.2: encryption-posture inputs — the tool's per-repository at-rest column reads
+    # v2.2: encryption-posture inputs - the tool's per-repository at-rest column reads
     # immutability (VMC.log has no per-repo storage-encryption field). Validate that the
     # immutability API the tool relies on is present, so an API change is caught here.
     Write-Sub "Encryption posture inputs (v2.2): repository immutability"
@@ -671,7 +708,7 @@ if ($repos.Count -gt 0) {
         Write-Pass "GetImmutabilitySettings() returned settings for $immutOk repo(s)"
         $script:Pass++
     } else {
-        Write-Info "No repo returned immutability settings (older VBR or none configured) — encryption tab falls back gracefully"
+        Write-Info "No repo returned immutability settings (older VBR or none configured) - encryption tab falls back gracefully"
         $script:Skip++
     }
 
@@ -681,7 +718,7 @@ if ($repos.Count -gt 0) {
         Write-Data "  $($_.Name): $($_.Count)"
     }
 
-    # Cloud type filter — app pattern for CC tenant repos
+    # Cloud type filter - app pattern for CC tenant repos
     Write-Sub "Cloud-type repos (app pattern: .Type -eq 'Cloud')"
     $cloudRepos = @($repos | Where-Object { $_.Type -eq 'Cloud' })
     if ($cloudRepos.Count -gt 0) {
@@ -715,19 +752,54 @@ if ($repos.Count -gt 0) {
     }
 
 } else {
-    Write-Warn "No repositories returned — skipping B-4 assertions"
+    Write-Warn "No repositories returned - skipping B-4 assertions"
     $script:Skip += 5
 }
 
+# Object storage and external repositories are not returned by Get-VBRBackupRepository.
+# Guarded so builds without the cmdlet still run (same approach as MapCapture.ps1).
+Write-Sub "Object storage repositories (Get-VBRObjectStorageRepository)"
+if (Get-Command Get-VBRObjectStorageRepository -ErrorAction SilentlyContinue) {
+    try {
+        $objRepos = @(Get-VBRObjectStorageRepository)
+        Write-Pass "Get-VBRObjectStorageRepository runs without error"
+        $script:Pass++
+        Write-Info "Object storage repositories found: $($objRepos.Count)"
+        foreach ($o in $objRepos) { Write-Data "  Object: '$($o.Name)' | Id: $($o.Id)" }
+    } catch {
+        Write-Fail "Get-VBRObjectStorageRepository threw: $($_.Exception.Message)"
+        $script:Fail++
+    }
+} else {
+    Write-Info "SKIP: Get-VBRObjectStorageRepository not available on this build"
+    $script:Skip++
+}
+Write-Sub "External repositories (Get-VBRExternalRepository)"
+if (Get-Command Get-VBRExternalRepository -ErrorAction SilentlyContinue) {
+    try {
+        $extRepos = @(Get-VBRExternalRepository)
+        Write-Pass "Get-VBRExternalRepository runs without error"
+        $script:Pass++
+        Write-Info "External repositories found: $($extRepos.Count)"
+        foreach ($e in $extRepos) { Write-Data "  External: '$($e.Name)' | Id: $($e.Id)" }
+    } catch {
+        Write-Fail "Get-VBRExternalRepository threw: $($_.Exception.Message)"
+        $script:Fail++
+    }
+} else {
+    Write-Info "SKIP: Get-VBRExternalRepository not available on this build"
+    $script:Skip++
+}
 
-# ══════════════════════════════════════════════════════════════════════════════
+
+# ==============================================================================
 #  B-5  Get-VBRJob
 #  App patterns:
 #    Get-VBRJob | Where-Object {$_.Id -eq [Guid]'<JobID>'} | Select Name
 #    Get-VBRJob | Where {$_.IsReplica -eq $true} | Where {$_.Id -eq [Guid]'...'} | Select Name
-#  AUDIT NOTE: Get-VBRJob has NO -Type parameter in v13 — use .IsReplica instead
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-5: Get-VBRJob — Backup and replication jobs"
+#  AUDIT NOTE: Get-VBRJob has NO -Type parameter in v13 - use .IsReplica instead
+# ==============================================================================
+Write-Head "B-5: Get-VBRJob - Backup and replication jobs"
 
 $jobs = @()
 try {
@@ -760,7 +832,7 @@ if ($jobs.Count -gt 0) {
     $hasTypeParam = (Get-Command Get-VBRJob).Parameters.ContainsKey('Type')
     Assert "Get-VBRJob: no -Type parameter (use .IsReplica instead)" { -not $hasTypeParam }
     if ($hasTypeParam) {
-        Write-Warn "  -Type parameter found — may be an older VBR version"
+        Write-Warn "  -Type parameter found - may be an older VBR version"
     }
 
     # JobType breakdown
@@ -771,7 +843,7 @@ if ($jobs.Count -gt 0) {
 
     Write-Sub "All jobs"
     foreach ($j in $jobs) {
-        $schedEnabled = '—'
+        $schedEnabled = '-'
         try { $schedEnabled = $j.ScheduleOptions.Enabled } catch { }
         Write-Data "  '$($j.Name)'"
         Write-Data "    JobType   : $($j.JobType)"
@@ -780,7 +852,7 @@ if ($jobs.Count -gt 0) {
         Write-Data "    Scheduled : $schedEnabled"
     }
 
-    # v2.2: encryption-posture inputs — the tool's per-job at-rest column reads each job's
+    # v2.2: encryption-posture inputs - the tool's per-job at-rest column reads each job's
     # storage encryption (paired with retention). Validate the options API is present so a
     # VBR change to how encryption/retention are exposed is caught here.
     Write-Sub "Encryption posture inputs (v2.2): per-job encryption + retention"
@@ -799,11 +871,11 @@ if ($jobs.Count -gt 0) {
         Write-Pass "GetOptions().BackupStorageOptions exposed encryption + retention for $encOk job(s)"
         $script:Pass++
     } else {
-        Write-Info "No backup job exposed storage options (none present, or all replica) — encryption tab falls back gracefully"
+        Write-Info "No backup job exposed storage options (none present, or all replica) - encryption tab falls back gracefully"
         $script:Skip++
     }
 
-    # GUID lookup — app pattern
+    # GUID lookup - app pattern
     Test-GuidFilter -Label 'Get-VBRJob [Guid] Id filter' -Items $jobs
 
     # -Name parameter
@@ -811,39 +883,39 @@ if ($jobs.Count -gt 0) {
     try {
         $byName = @(Get-VBRJob -Name $jobs[0].Name)
         Assert "Get-VBRJob -Name returns result" { $byName.Count -ge 1 }
-        if ($byName.Count -ge 1) { Write-Data "  -Name '$($jobs[0].Name)' → found $($byName.Count)" }
+        if ($byName.Count -ge 1) { Write-Data "  -Name '$($jobs[0].Name)' -> found $($byName.Count)" }
     } catch {
         Write-Fail "Get-VBRJob -Name threw: $($_.Exception.Message)"
         $script:Fail++
     }
 
-    # Replica filter — use .IsReplica (not .JobType string comparison per v13 audit)
-    Write-Sub ".IsReplica -eq `$true filter (app pattern — replaces .JobType 'Replica')"
+    # Replica filter - use .IsReplica (not .JobType string comparison per v13 audit)
+    Write-Sub ".IsReplica -eq `$true filter (app pattern - replaces .JobType 'Replica')"
     $replJobs = @($jobs | Where-Object { $_.IsReplica -eq $true })
     if ($replJobs.Count -gt 0) {
-        Write-Pass ".IsReplica filter — $($replJobs.Count) replica job(s)"
+        Write-Pass ".IsReplica filter - $($replJobs.Count) replica job(s)"
         $script:Pass++
         foreach ($rj in $replJobs) {
             Write-Data "  Replica: '$($rj.Name)' | Id: $($rj.Id)"
         }
         Test-GuidFilter -Label 'Get-VBRJob (Replica) [Guid] Id filter' -Items $replJobs
     } else {
-        Write-Info "No replica jobs — .IsReplica filter test skipped"
+        Write-Info "No replica jobs - .IsReplica filter test skipped"
         $script:Skip++
     }
 
 } else {
-    Write-Warn "No jobs returned — skipping B-5 assertions"
+    Write-Warn "No jobs returned - skipping B-5 assertions"
     $script:Skip += 7
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-6  Get-VBRComputerBackupJob
 #  App pattern: Get-VBRComputerBackupJob | Where {$_.Id -eq [Guid]'...'} | Select Name, PolicyType
-#  Managed agent backup policies (modern — replaces legacy EndpointBackup)
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-6: Get-VBRComputerBackupJob — Managed agent policies"
+#  Managed agent backup policies (modern - replaces legacy EndpointBackup)
+# ==============================================================================
+Write-Head "B-6: Get-VBRComputerBackupJob - Managed agent policies"
 
 $agentJobs = @()
 try {
@@ -897,7 +969,7 @@ if ($agentJobs.Count -gt 0) {
             if ($xref -and $xref.JobType) {
                 Write-Data "    JobType    : $($xref.JobType)  (via Get-VBRJob)"
             } else {
-                Write-Data "    (type properties not populated on this object — see B-5 Get-VBRJob for JobType)"
+                Write-Data "    (type properties not populated on this object - see B-5 Get-VBRJob for JobType)"
             }
         }
     }
@@ -905,17 +977,17 @@ if ($agentJobs.Count -gt 0) {
     Test-GuidFilter -Label 'Get-VBRComputerBackupJob [Guid] Id filter' -Items $agentJobs
 
 } else {
-    Write-Pass "Get-VBRComputerBackupJob — 0 results (no managed agent policies, or none configured)"
+    Write-Pass "Get-VBRComputerBackupJob - 0 results (no managed agent policies, or none configured)"
     $script:Pass++
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-7  Get-VBREPJob
 #  Legacy standalone Veeam Agent backup jobs (EndpointBackup type).
-#  Veeam Advisor flags these as legacy — migrate to managed policies (B-6).
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-7: Get-VBREPJob — Legacy standalone agent jobs"
+#  Veeam Advisor flags these as legacy - migrate to managed policies (B-6).
+# ==============================================================================
+Write-Head "B-7: Get-VBREPJob - Legacy standalone agent jobs"
 
 $epJobs = @()
 try {
@@ -943,17 +1015,17 @@ if ($epJobs.Count -gt 0) {
     Test-GuidFilter -Label 'Get-VBREPJob [Guid] Id filter' -Items $epJobs
 
 } else {
-    Write-Pass "Get-VBREPJob — 0 results (no legacy standalone agent jobs — clean)"
+    Write-Pass "Get-VBREPJob - 0 results (no legacy standalone agent jobs - clean)"
     $script:Pass++
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-8  Get-VBRCloudTenant
 #  App pattern: Get-VBRCloudTenant | Where {$_.Id -eq [Guid]'...'} | Select Name
 #  Only returns results on Cloud Connect Provider (VCSP) environments.
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-8: Get-VBRCloudTenant — Cloud Connect tenants"
+# ==============================================================================
+Write-Head "B-8: Get-VBRCloudTenant - Cloud Connect tenants"
 
 $tenants = @()
 try {
@@ -962,10 +1034,10 @@ try {
     $script:Pass++
 } catch {
     # On a non-VCSP server the cmdlet throws "Veeam Cloud Connect service provider
-    # license is required" — this is EXPECTED, not a failure. Only a different error
+    # license is required" - this is EXPECTED, not a failure. Only a different error
     # is a genuine problem.
     if ($_.Exception.Message -match 'Cloud Connect service provider license') {
-        Write-Pass "Get-VBRCloudTenant — Cloud Connect not licensed (expected on non-VCSP environments)"
+        Write-Pass "Get-VBRCloudTenant - Cloud Connect not licensed (expected on non-VCSP environments)"
         $script:Pass++
     } else {
         Write-Fail "Get-VBRCloudTenant threw: $($_.Exception.Message)"
@@ -974,7 +1046,7 @@ try {
 }
 
 if ($tenants.Count -gt 0) {
-    Write-Info "Found $($tenants.Count) Cloud Connect tenant(s) — this is a VCSP environment"
+    Write-Info "Found $($tenants.Count) Cloud Connect tenant(s) - this is a VCSP environment"
 
     Assert "Tenants: .Name exists on all" {
         @($tenants | Where-Object { $null -eq $_.Name }).Count -eq 0
@@ -997,15 +1069,15 @@ if ($tenants.Count -gt 0) {
     Test-GuidFilter -Label 'Get-VBRCloudTenant [Guid] Id filter' -Items $tenants
 
 } else {
-    Write-Pass "Get-VBRCloudTenant — 0 results (expected on non-VCSP environments)"
+    Write-Pass "Get-VBRCloudTenant - 0 results (expected on non-VCSP environments)"
     $script:Pass++
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-9  Get-VBRBackupCopyJob
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-9: Get-VBRBackupCopyJob — Backup copy jobs"
+# ==============================================================================
+Write-Head "B-9: Get-VBRBackupCopyJob - Backup copy jobs"
 
 $copyJobs = @()
 try {
@@ -1017,7 +1089,7 @@ try {
         Write-Data "  '$($cj.Name)' | Id: $($cj.Id)"
     }
     if ($copyJobs.Count -eq 0) {
-        Write-Warn "  No backup copy jobs — 3-2-1 rule may not be satisfied"
+        Write-Warn "  No backup copy jobs - 3-2-1 rule may not be satisfied"
     }
 } catch {
     Write-Fail "Get-VBRBackupCopyJob threw: $($_.Exception.Message)"
@@ -1025,10 +1097,10 @@ try {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-10 Get-VBRSureBackupJob
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-10: Get-VBRSureBackupJob — Recovery verification jobs"
+# ==============================================================================
+Write-Head "B-10: Get-VBRSureBackupJob - Recovery verification jobs"
 
 $sbJobs = @()
 try {
@@ -1040,7 +1112,7 @@ try {
         Write-Data "  '$($sbj.Name)' | Id: $($sbj.Id)"
     }
     if ($sbJobs.Count -eq 0) {
-        Write-Warn "  No SureBackup jobs — restore points are unverified"
+        Write-Warn "  No SureBackup jobs - restore points are unverified"
     }
 } catch {
     Write-Fail "Get-VBRSureBackupJob threw: $($_.Exception.Message)"
@@ -1048,10 +1120,10 @@ try {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-11 Get-VBRTapeJob
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-11: Get-VBRTapeJob — Tape backup jobs"
+# ==============================================================================
+Write-Head "B-11: Get-VBRTapeJob - Tape backup jobs"
 
 $tapeJobs = @()
 try {
@@ -1087,12 +1159,12 @@ foreach ($probe in @(
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  B-12 Get-VBRUnstructuredBackupJob
 #  Unstructured data: file (NAS) backup jobs and object storage backup jobs.
-#  This is the modern cmdlet — Get-VBRNASBackupJob is obsolete and points here.
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "B-12: Get-VBRUnstructuredBackupJob — Unstructured data (NAS/object storage) jobs"
+#  This is the modern cmdlet - Get-VBRNASBackupJob is obsolete and points here.
+# ==============================================================================
+Write-Head "B-12: Get-VBRUnstructuredBackupJob - Unstructured data (NAS/object storage) jobs"
 
 $unstructJobs = @()
 try {
@@ -1112,7 +1184,7 @@ try {
 
         Test-GuidFilter -Label 'Get-VBRUnstructuredBackupJob [Guid] Id filter' -Items $unstructJobs
     } else {
-        Write-Pass "Get-VBRUnstructuredBackupJob — 0 results (no unstructured data jobs — clean)"
+        Write-Pass "Get-VBRUnstructuredBackupJob - 0 results (no unstructured data jobs - clean)"
         $script:Pass++
     }
 } catch {
@@ -1121,80 +1193,119 @@ try {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  A-1  PROTECTION COVERAGE ANALYSIS
-#  Mirrors the standalone app: compares infrastructure VM count against VMs
-#  covered by backup jobs + agents, to publish the protection-gap picture.
-# ══════════════════════════════════════════════════════════════════════════════
+#  Compares the infrastructure VM count against the unique VMs added directly to
+#  backup/replica jobs. Jobs built from containers (cluster, host, folder, datastore,
+#  resource pool, tag) make the protected count a lower bound, so coverage is then
+#  reported as 'unknown' instead of a percentage. Agent jobs are listed separately.
+# ==============================================================================
 Write-Head "A-1: Protection Coverage Analysis"
 
-# Discovered VMs in the virtual infrastructure (VMware + Hyper-V).
+# Discovered VMs in the virtual infrastructure (VMware + Hyper-V). Only entities
+# typed as a VM are counted (no templates, hosts, clusters or folders). If entities
+# come back but none are typed as a VM, the count is unknown rather than guessed.
 $infraVMs = 0
+$infraUnknown = $false
+$isVmType = { param($e) ("$($e.Type)" -match '^(Vm|VirtualMachine)$') -and ($e.IsTemplate -ne $true) }
+$viCount = 0; $hvCount = 0
 try {
-    # Count VMs across all managed vSphere/Hyper-V servers.
     $viVMs = @(try { Find-VBRViEntity -VMsAndTemplates } catch { @() } )
-    $viCount = @($viVMs | Where-Object { $_.Type -eq 'Vm' -or $_.VmHostName -or $_.Type -eq 'VirtualMachine' }).Count
-    if ($viCount -eq 0) { $viCount = @($viVMs).Count }
+    $viCount = @($viVMs | Where-Object { & $isVmType $_ }).Count
+    if ($viCount -eq 0 -and $viVMs.Count -gt 0) { $infraUnknown = $true }
 } catch { $viCount = 0 }
 try {
     $hvVMs = @(try { Find-VBRHvEntity } catch { @() })
-    $hvCount = @($hvVMs | Where-Object { $_.Type -eq 'Vm' -or $_.Type -eq 'VirtualMachine' }).Count
-    if ($hvCount -eq 0) { $hvCount = @($hvVMs).Count }
+    $hvCount = @($hvVMs | Where-Object { & $isVmType $_ }).Count
+    if ($hvCount -eq 0 -and $hvVMs.Count -gt 0) { $infraUnknown = $true }
 } catch { $hvCount = 0 }
 $infraVMs = $viCount + $hvCount
 
-# VMs covered by backup jobs — reuse $jobs from B-5. Sum object counts in each
-# job's includes. This is an estimate (jobs may target containers / overlap).
-$protectedVMs = 0
+# VMs covered by backup/replica jobs (reuse $jobs from B-5). Get-VBRJobObject returns
+# only the objects added to a job: a cluster, host, folder, datastore, resource pool
+# or tag is ONE object that stands for many VMs, and the cmdlet does not expand it.
+# So count only objects that are themselves VMs, de-duplicated across jobs (a VM in
+# a backup job and a replica job counts once), and note any container objects: when
+# a job uses containers, the protected-VM total is a lower bound, not a count.
+$protectedVmKeys = @{}
+$containerObjs   = 0
+$unknownObjs     = 0
+$containerJobs   = [System.Collections.Generic.List[string]]::new()
 foreach ($j in @($jobs)) {
-    try {
-        $objs = @(Get-VBRJobObject -Job $j -ErrorAction Stop)
-        $protectedVMs += @($objs).Count
-    } catch {
-        # Fallback: some job types expose GetObjectsInJob()
-        try { $protectedVMs += @($j.GetObjectsInJob()).Count } catch { }
+    $objs = @()
+    try { $objs = @(Get-VBRJobObject -Job $j -ErrorAction Stop) } catch { $unknownObjs++; continue }
+    $jobHasContainer = $false
+    foreach ($o in $objs) {
+        if ("$($o.Type)" -eq 'Exclude') { continue }       # exclusions protect nothing
+        $kind = "$(try { $o.Object.Type } catch { '' })"
+        if (-not $kind) { $kind = "$(try { $o.TypeDisplayName } catch { '' })" }
+        if ($kind -match '^(Vm|VirtualMachine|Virtual Machine)$') {
+            $key = "$(try { $o.ObjectId } catch { '' })"
+            if (-not $key) { $key = "$($o.Name)" }
+            $protectedVmKeys[$key] = $true
+        } elseif ($kind) {
+            $containerObjs++; $jobHasContainer = $true
+        } else {
+            $unknownObjs++
+        }
     }
+    if ($jobHasContainer) { $containerJobs.Add("$($j.Name)") }
 }
+$protectedVMs = $protectedVmKeys.Count
 
-# Agent-protected machines — managed agent jobs (B-6) + legacy agent jobs (B-7).
-$agentProtected = @($agentJobs).Count + @($epJobs).Count
+# Agent jobs/policies (B-6, B-7) are reported separately. A job or policy can cover
+# many machines, and agents usually protect physical servers, so they are not added
+# to the VM coverage figure.
+$agentJobCount = @($agentJobs).Count + @($epJobs).Count
 
-if ($infraVMs -gt 0) {
-    $effProt = [Math]::Min($protectedVMs + $agentProtected, $infraVMs)
+$vmCountKnown = ($infraVMs -gt 0) -and (-not $infraUnknown)
+$protCountExact = ($containerObjs -eq 0) -and ($unknownObjs -eq 0)
+
+Write-Info "Infrastructure VMs discovered : $(if ($vmCountKnown) { "$infraVMs (VMware $viCount + Hyper-V $hvCount)" } else { 'unknown' })"
+Write-Data "  VMs added to jobs directly  : $protectedVMs (unique)"
+Write-Data "  Container objects in jobs   : $containerObjs (clusters/hosts/folders/datastores/pools/tags - not expanded)"
+if ($unknownObjs -gt 0) { Write-Data "  Job objects of unknown type : $unknownObjs" }
+Write-Data "  Agent jobs/policies         : $agentJobCount (not counted toward VM coverage)"
+
+if (-not $vmCountKnown) {
+    Write-Warn "Coverage: unknown - the infrastructure VM count could not be determined"
+    $script:Skip++
+} elseif (-not $protCountExact) {
+    # Container-based jobs: the protected count is only a lower bound, so no
+    # coverage percentage or CRITICAL verdict is given.
+    $lowPct = [Math]::Round([Math]::Min($protectedVMs, $infraVMs) / $infraVMs * 100)
+    Write-Warn "Coverage: unknown - at least $lowPct% ($protectedVMs of $infraVMs VMs added directly); $($containerJobs.Count) job(s) protect containers whose VMs are not counted"
+    foreach ($cj in $containerJobs) { Write-Data "  container-based job: $cj" }
+    Write-Info "  For an exact figure use the Veeam ONE Protected VMs report, or the VMC.log in Veeam Advisor."
+    $script:Skip++
+} else {
+    $effProt = [Math]::Min($protectedVMs, $infraVMs)
     $unprotected = [Math]::Max(0, $infraVMs - $effProt)
     $coveragePct = [Math]::Round($effProt / $infraVMs * 100)
-
-    Write-Info "Infrastructure VMs discovered : $infraVMs (VMware $viCount + Hyper-V $hvCount)"
-    Write-Data "  VMs in backup jobs (est.)   : $protectedVMs"
-    Write-Data "  Agent-protected machines    : $agentProtected"
-    Write-Data "  Effective protected (capped): $effProt"
     Write-Data "  Estimated coverage          : $coveragePct%"
     Write-Data "  Potentially unprotected     : $unprotected VM(s)"
 
     if ($coveragePct -lt 50) {
         # This is a CRITICAL finding about the ENVIRONMENT, not a script/cmdlet
-        # assertion failure — flag it prominently but don't fail the validation run
+        # assertion failure - flag it prominently but don't fail the validation run
         # (the tool worked correctly; it's the coverage that's low).
-        Write-Host "  [CRITICAL FINDING] Coverage ~$coveragePct% — $unprotected VM(s) may be unprotected" -ForegroundColor Red
-        Add-Content -Path $script:LogFile -Value "  [CRITICAL FINDING] Coverage ~$coveragePct% — $unprotected VM(s) may be unprotected" -Encoding UTF8
+        Write-Host "  [CRITICAL FINDING] Coverage ~$coveragePct% - $unprotected VM(s) may be unprotected" -ForegroundColor Red
+        Add-Content -Path $script:LogFile -Value "  [CRITICAL FINDING] Coverage ~$coveragePct% - $unprotected VM(s) may be unprotected" -Encoding UTF8
         $script:Findings++
     } elseif ($coveragePct -lt 90) {
-        Write-Warn "Coverage ~$coveragePct% — $unprotected VM(s) may be unprotected"
+        Write-Warn "Coverage ~$coveragePct% - $unprotected VM(s) may be unprotected"
     } else {
-        Write-Pass "Coverage ~$coveragePct% — protection looks complete"
+        Write-Pass "Coverage ~$coveragePct% - protection looks complete"
         $script:Pass++
     }
     Write-Info "  NOTE: estimate only. Verify exact gaps with the Veeam ONE Protected VMs report."
-} else {
-    Write-Warn "Could not determine infrastructure VM count — coverage analysis skipped"
-    $script:Skip++
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  A-2  ORPHANED / DISABLED JOB DETECTION
 #  Jobs that are disabled or have no objects create no restore points.
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 Write-Head "A-2: Orphaned / Disabled Job Detection"
 
 $orphaned = [System.Collections.Generic.List[string]]::new()
@@ -1213,7 +1324,7 @@ foreach ($j in @($jobs)) {
 }
 
 if ($orphaned.Count -gt 0) {
-    Write-Warn "$($orphaned.Count) orphaned/disabled job(s) — these create no restore points:"
+    Write-Warn "$($orphaned.Count) orphaned/disabled job(s) - these create no restore points:"
     foreach ($o in $orphaned) { Write-Data "  $o" }
     Write-Info "  Re-enable, assign objects, or remove (confirm nothing depends on it first)."
 } else {
@@ -1222,29 +1333,30 @@ if ($orphaned.Count -gt 0) {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  DISCONNECT
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 Write-Sub "Disconnecting from VBR"
 try {
-    # Only disconnect if we connected ourselves (not a pre-existing session on localhost)
-    $currentSession = Get-VBRServerSession
-    if ($currentSession -and $VBRServer -ne 'localhost') {
+    # Only disconnect if this script opened the session ($script:WeConnected is set
+    # in the connect loop). A session that existed before the run is left alone,
+    # whatever the target; a session we opened is closed, including on localhost.
+    if ($script:WeConnected) {
         Disconnect-VBRServer
-        Write-Pass "Disconnected from $VBRServer"
+        Write-Pass "Disconnected the session this script opened ($VBRServer)"
         $script:Pass++
     } else {
-        Write-Info "Pre-existing session retained (localhost)"
+        Write-Info "Pre-existing session retained (not opened by this script)"
     }
 } catch {
     Write-Warn "Disconnect: $($_.Exception.Message)"
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  FINAL SUMMARY
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "RESULTS — Veeam Advisor VBR Validation"
+# ==============================================================================
+Write-Head "RESULTS - Veeam Advisor VBR Validation"
 
 $total = $script:Pass + $script:Fail + $script:Skip
 Out-Log ''
@@ -1254,14 +1366,14 @@ Out-Log "  SKIPPED : $($script:Skip)"  -Colour $(if ($script:Skip -gt 0) { 'Yell
 Out-Log "  TOTAL   : $total"           -Colour White
 if ($script:Findings -gt 0) {
     Out-Log ''
-    Out-Log "  ENVIRONMENT FINDINGS : $($script:Findings) (advisory — see [CRITICAL FINDING] above)" -Colour Red
+    Out-Log "  ENVIRONMENT FINDINGS : $($script:Findings) (advisory - see [CRITICAL FINDING] above)" -Colour Red
 }
 Out-Log ''
 
 if ($script:Fails.Count -gt 0) {
     Out-Log "  Failed assertions:" -Colour Red
     foreach ($f in $script:Fails) {
-        Out-Log "    ✗ $f" -Colour Red
+        Out-Log "    x $f" -Colour Red
     }
     Out-Log ''
 }

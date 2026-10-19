@@ -137,10 +137,11 @@ data is. See Calculations.txt §12 for details.
 | `Veeam_Advisor_v1.1.0.html` | Retained v1.1.0 snapshot (CI fixture — do not modify) |
 | `Veeam_Advisor_v1.0.3.html` | Retained v1.0.3 snapshot |
 | `Veeam_Advisor_v1.0.2.html` | Retained v1.0.2 snapshot |
-| `confirm-bp-findings.js` | Single-server BP Review regression assertions (v1.0.3 + v1.1.0 fixtures + reference logs) |
-| `fixtures.js` | Synthetic (fabricated) tape-parser log fixtures for the v2.1.01 tape tests |
-| `audit.sh` | Anonymisation audit — checks deliverables for customer-identifying data |
-| `.github/workflows/tests.yml` | BP Review fixture tests (CI — no customer data) |
+| `confirm-bp-findings.js` | Regression suite. Every layer runs the real page code from `index.html` |
+| `tests/harness.js`, `tests/synth.js` | Loads the page script in Node with a stub DOM; builds synthetic VMC.logs (no customer data) |
+| `tests/v3-fixes.test.js` | Tests for the v3.0 deep-audit fixes (run by `confirm-bp-findings.js`) |
+| `tools/leak-check.mjs` | Fails if tracked files contain customer-identifying data (GUIDs, IPs, emails, host names, names listed in `.leak-names.txt` or `LEAK_NAMES`) |
+| `.github/workflows/tests.yml` | CI: syntax checks, snapshot identical to `index.html`, regression suite, leak check |
 | `CHANGELOG.md` | Version history |
 | `POWERSHELL-REVIEW-v2.0.md` | v2.0 PowerShell review findings (read-only) |
 | `RELEASE-NOTES-v3.0.md` | v3.0 release notes |
@@ -173,7 +174,7 @@ console port **9392**. `VeeamAdvisor-PowerShell.ps1` and
 
 `VeeamAdvisor-PowerShell-QA.ps1` is the developer QA harness (Module A: the
 Help Center / BP reference URLs the tool links to; Module B: 13 VBR cmdlets;
-Module C: 39 BP-logic scenarios, 160+ assertions). `VeeamAdvisor-PowerShell.ps1` is the customer-facing tool — it
+Module C: the BP rules the app applies, printed for reference; they are not counted as tests). `VeeamAdvisor-PowerShell.ps1` is the customer-facing tool — it
 pulls (via Veeam PowerShell cmdlets) the same data the app consumes (including a live coverage /
 orphaned-job analysis). Both write timestamped results to a log file.
 
@@ -203,7 +204,7 @@ the data is refreshed. `.github/workflows/refresh-advisories.yml` does that auto
   (`auto/refresh-advisories`, updated in place by later runs) listing the new advisories,
   CVSS scores and builds, plus any warnings that need a maintainer (an advisory the parser
   cannot read, drift in the platform/Analyzer/upgrade tables, a broken link). The
-  regression tests and `audit.sh` run first; the locked version snapshot is kept identical
+  regression tests run first; the locked version snapshot is kept identical
   to `index.html`.
 - **When nothing changed**, nothing happens; the data date is re-stamped (one small PR) at
   most every 30 days, so the page's "advisory data is N days old" warning appears only if
@@ -240,9 +241,10 @@ App location `/` · Output location empty · Build preset Custom.
 The deployed site serves `index.html`.
 
 Because the app location is the repository root, every file is published. The
-`routes` in `staticwebapp.config.json` return 404 for `/tools/*` (the release scripts)
-and Markdown files (`README.md`, `CHANGELOG.md`, release notes), so those are not served.
-Other repository files (PowerShell scripts, snapshots, tests) remain downloadable.
+`routes` in `staticwebapp.config.json` return 404 for `/tools/*` (the release scripts),
+`/tests/*`, `/.github/*`, `/.claude/*`, `.mcp.json`, `confirm-bp-findings.js`, and Markdown,
+shell and `.mjs` files, so those are not served. The PowerShell scripts and the version
+snapshots remain downloadable.
 
 ## Author
 

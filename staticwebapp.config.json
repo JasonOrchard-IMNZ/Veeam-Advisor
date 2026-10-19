@@ -1,7 +1,12 @@
 {
   "routes": [
     { "route": "/tools/*", "statusCode": 404 },
-    { "route": "/*.{md,markdown}", "statusCode": 404 }
+    { "route": "/tests/*", "statusCode": 404 },
+    { "route": "/.github/*", "statusCode": 404 },
+    { "route": "/.claude/*", "statusCode": 404 },
+    { "route": "/.mcp.json", "statusCode": 404 },
+    { "route": "/confirm-bp-findings.js", "statusCode": 404 },
+    { "route": "/*.{md,markdown,sh,mjs}", "statusCode": 404 }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",

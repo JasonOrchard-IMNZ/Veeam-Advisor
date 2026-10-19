@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Veeam Advisor — Backup Map ground-truth capture (READ ONLY)
+    Veeam Advisor - Backup Map ground-truth capture (READ ONLY)
 
 .DESCRIPTION
     Collects the job/repository/replica linkage that VMC.log either omits or
@@ -29,7 +29,11 @@ param(
     # Port for the remote connection. Default 443 (v13 Identity Service); use 9392 for v12.
     [int]$Port = 443,
     # Credential for the remote connection. Omit to use the current Windows identity.
-    [System.Management.Automation.PSCredential]$Credential
+    [System.Management.Automation.PSCredential]$Credential,
+    # Opt-in only: pass -ForceAcceptTlsCertificate to Connect-VBRServer (v13+), which
+    # accepts the server's TLS certificate WITHOUT validating it. Use only when you
+    # have verified the certificate thumbprint yourself (e.g. a self-signed v13 cert).
+    [switch]$AcceptAnyCertificate
 )
 
 $ErrorActionPreference = 'Continue'
@@ -44,6 +48,38 @@ function Try-Get {
         if ($null -eq $v -or "$v" -eq '') { return 'n/a (null)' }
         return $v
     } catch { return "n/a ($($_.Exception.Message))" }
+}
+function Try-First {
+    # Tries each scriptblock in turn and returns the first value that is not null,
+    # empty or an 'n/a (...)' sentinel. Returns 'n/a (null)' if none resolve.
+    param([scriptblock[]]$Blocks)
+    foreach ($b in $Blocks) {
+        $v = Try-Get $b
+        if ("$v" -notlike 'n/a*') { return $v }
+    }
+    return 'n/a (null)'
+}
+function Get-TypeToken {
+    # Single-word type token for a job/repository line. The parser in index.html needs
+    # a \w+ token here (Section 1/2 '\S+', Section 5 '\w+'), so never return spaces or
+    # 'n/a'. Order: JobType (CBackupJob), Type (VBR* types), .NET type name, 'Unknown'.
+    param($Obj)
+    foreach ($b in @({ $Obj.JobType }, { $Obj.Type }, { $Obj.GetType().Name })) {
+        $v = ''
+        try { $v = "$(& $b)" } catch { $v = '' }
+        $v = $v -replace '[^A-Za-z0-9_]', ''
+        if ($v) { return $v }
+    }
+    return 'Unknown'
+}
+function Get-ReplicaFlag {
+    # Always 'True' or 'False' (the parser needs one of these). Objects without an
+    # IsReplica member (agent jobs, backup copy jobs) are not replica jobs.
+    param($Obj)
+    $v = $null
+    try { $v = $Obj.IsReplica } catch { $v = $null }
+    if ("$v" -eq 'True') { return 'True' }
+    return 'False'
 }
 function Try-List {
     # Collection lookup: ALWAYS returns an array, empty on failure.
@@ -60,26 +96,39 @@ function Try-List {
     }
 }
 
-Emit "Veeam Advisor — Backup Map capture"
+Emit "Veeam Advisor Backup Map capture"
 Emit "Host: $env:COMPUTERNAME   Date: $(Get-Date -Format 'u')"
-Emit "READ ONLY — this script does not modify the VBR configuration."
+Emit "READ ONLY - this script does not modify the VBR configuration."
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 if (-not (Get-Module -ListAvailable -Name Veeam.Backup.PowerShell)) {
     Emit "ERROR: Veeam.Backup.PowerShell module not found. Run this on the VBR server."
     return
 }
-Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction SilentlyContinue
+try {
+    Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction Stop
+} catch {
+    # Report the real import error instead of failing later with a misleading
+    # "could not connect" message.
+    Emit "ERROR: Import-Module Veeam.Backup.PowerShell failed: $($_.Exception.Message)"
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        Emit "  This is Windows PowerShell $($PSVersionTable.PSVersion). The VBR v13 module requires"
+        Emit "  PowerShell 7 - re-run this script from pwsh.exe on a v13 server."
+    }
+    return
+}
 
-# ─── Connection ──────────────────────────────────────────────────────────────
+# --- Connection --------------------------------------------------------------
 # This reuses the connection pattern proven in VeeamAdvisor-PowerShell.ps1:
 #   1. If a session is already active (running on the server, or the console is
 #      open), use it and connect nothing.
 #   2. Otherwise connect to the local server. On v13 the Identity Service that
 #      Connect-VBRServer authenticates against prioritises port 443, so a default
 #      connect (classic 9392) can fail with "Failed to connect to Identity service"
-#      even on a healthy server. So we try the machine name on 443 with
-#      -ForceAcceptTlsCertificate (v13+), then fall back to localhost.
+#      even on a healthy server. So we try the machine name on 443, then fall back
+#      to localhost. -ForceAcceptTlsCertificate (v13+) is added ONLY when the caller
+#      passes -AcceptAnyCertificate, because it skips certificate validation while
+#      the credential is being sent.
 # Disconnects only the session THIS script opened.
 $script:WeConnected = $false
 $existing = $null
@@ -102,18 +151,22 @@ if ($existingServer -ne '') {
 }
 
 if ($reuseOk) {
-    Emit "Active VBR session detected ($existingServer) — reusing it, connecting nothing."
+    Emit "Active VBR session detected ($existingServer) - reusing it, connecting nothing."
 } else {
     if ($VBRServer -and $existingServer -ne '') {
-        Emit "Existing session is to '$existingServer' but -VBRServer '$VBRServer' was requested — disconnecting and reconnecting to the requested host."
+        Emit "Existing session is to '$existingServer' but -VBRServer '$VBRServer' was requested - disconnecting and reconnecting to the requested host."
         try { Disconnect-VBRServer -ErrorAction SilentlyContinue } catch {}
     }
-    if ($VBRServer) { Emit "No active VBR session — connecting to $VBRServer (read-only)…" }
-    else            { Emit "No active VBR session — connecting to the local VBR server (read-only)…" }
-    # -ForceAcceptTlsCertificate exists on v13+ only; add it only if supported so
-    # the script stays v12-compatible.
-    $forceTls = [bool](Get-Command Connect-VBRServer -ErrorAction SilentlyContinue |
+    if ($VBRServer) { Emit "No active VBR session - connecting to $VBRServer (read-only)..." }
+    else            { Emit "No active VBR session - connecting to the local VBR server (read-only)..." }
+    # -ForceAcceptTlsCertificate exists on v13+ only, and is opt-in: it is added only
+    # when -AcceptAnyCertificate was passed AND the module supports it (v12-compatible).
+    $supportsForceTls = [bool](Get-Command Connect-VBRServer -ErrorAction SilentlyContinue |
                        Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' })
+    $forceTls = $AcceptAnyCertificate -and $supportsForceTls
+    if ($AcceptAnyCertificate -and -not $supportsForceTls) {
+        Emit "NOTE: -AcceptAnyCertificate ignored - this Connect-VBRServer has no -ForceAcceptTlsCertificate (v12)."
+    }
     $attempts = @()
     if ($VBRServer) {
         # Explicit remote target. Try the requested port first; if that is the v13 default
@@ -147,10 +200,18 @@ if ($reuseOk) {
         } catch { $lastErr = $_ }
     }
     if (-not $script:WeConnected) {
-        Emit "ERROR: could not connect to the local VBR server. Last error: $($lastErr.Exception.Message)"
-        if ("$($lastErr.Exception.Message)" -match 'Identity [Ss]ervice') {
+        $target = if ($VBRServer) { $VBRServer } else { 'the local VBR server' }
+        Emit "ERROR: could not connect to $target. Last error: $($lastErr.Exception.Message)"
+        if ("$($lastErr.Exception.Message)" -match 'certificate|thumbprint|SSL|TLS|trust') {
+            Emit "  The connection failed on the server's TLS certificate."
+            if (-not $AcceptAnyCertificate) {
+                Emit "  If you have verified the server certificate (thumbprint) yourself, re-run with"
+                Emit "  -AcceptAnyCertificate to accept it without validation (v13+ only). Do not use"
+                Emit "  this switch on an untrusted network: the credential is sent to whoever answers."
+            }
+        } elseif ("$($lastErr.Exception.Message)" -match 'Identity [Ss]ervice') {
             Emit "  This is the v13 Identity Service on 443. Open the Veeam console once"
-            Emit "  (which establishes a session), leave it open, and re-run this script —"
+            Emit "  (which establishes a session), leave it open, and re-run this script -"
             Emit "  it will reuse that session and connect nothing itself."
         } else {
             if ($VBRServer) { Emit "  Check the host is reachable on the port, the VBR service is running, and the credential is valid." }
@@ -164,7 +225,7 @@ Section "VERSION"
 Emit ("VBR: " + (Try-Get { (Get-VBRServerSession).Server } ))
 Emit ("PS : " + $PSVersionTable.PSVersion)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 Section "0. PROPERTY DISCOVERY  (so nothing below has to be guessed)"
 
 # Get-VBRJob warns that it no longer returns computer/agent backup jobs; those
@@ -174,6 +235,14 @@ $allJobs = @()
 $allJobs += Try-List { Get-VBRJob } 'Get-VBRJob'
 $allJobs += Try-List { Get-VBRComputerBackupJob } 'Get-VBRComputerBackupJob'
 $allJobs = @($allJobs | Where-Object { $_ } | Sort-Object Id -Unique)
+
+# Backup copy jobs are not returned by Get-VBRJob on current builds (v13 reference),
+# so add them for the Section 2 / Section 5 tables. Skip any Id Get-VBRJob already
+# returned (older builds list BackupSync copy jobs there) so no job appears twice.
+$copyJobs = Try-List { Get-VBRBackupCopyJob } 'Get-VBRBackupCopyJob'
+$knownIds = @{}
+foreach ($j in $allJobs) { $knownIds["$($j.Id)"] = $true }
+$mapJobs = @($allJobs) + @($copyJobs | Where-Object { $_ -and -not $knownIds.ContainsKey("$($_.Id)") })
 
 $sampleBackup  = $allJobs | Where-Object { -not $_.IsReplica } | Select-Object -First 1
 $sampleReplica = $allJobs | Where-Object { $_.IsReplica }      | Select-Object -First 1
@@ -202,7 +271,7 @@ foreach ($pair in @(
         Select-Object -ExpandProperty Name) -join ', ' | ForEach-Object { Emit "   $_" }
 }
 
-$sampleCopy = (Try-List { Get-VBRBackupCopyJob } 'Get-VBRBackupCopyJob') | Select-Object -First 1
+$sampleCopy = $copyJobs | Select-Object -First 1
 $sampleConf = (Try-List { Get-VBRConfigurationBackupJob } 'Get-VBRConfigurationBackupJob') | Select-Object -First 1
 Emit ""
 Emit "--- Configuration backup job: property names ---"
@@ -219,7 +288,7 @@ if ($sampleTenant -and $sampleTenant -notlike 'n/a*') {
     Emit "   TypeName: $($sampleTenant.GetType().FullName)"
     ($sampleTenant | Get-Member -MemberType Property,ScriptProperty |
         Select-Object -ExpandProperty Name) -join ', ' | ForEach-Object { Emit "   $_" }
-} else { Emit "   (this server hosts no cloud tenants — not a provider)" }
+} else { Emit "   (this server hosts no cloud tenants - not a provider)" }
 
 $sampleProvider = (Try-List { Get-VBRCloudProvider } 'Get-VBRCloudProvider') | Select-Object -First 1
 Emit ""
@@ -237,8 +306,8 @@ if ($sampleCopy -and $sampleCopy -notlike 'n/a*') {
         Select-Object -ExpandProperty Name) -join ', ' | ForEach-Object { Emit "   $_" }
 } else { Emit "   (no backup copy jobs on this server)" }
 
-# ─────────────────────────────────────────────────────────────────────────────
-Section "1. REPOSITORIES  (simple + scale-out + external)"
+# -----------------------------------------------------------------------------
+Section "1. REPOSITORIES  (simple + scale-out + object storage + external)"
 
 $repoIndex = @{}
 
@@ -267,12 +336,34 @@ foreach ($s in $sobrs) {
     Emit ("      archive tier  : " + (Try-Get { $s.ArchiveExtent.Repository.Name }))
 }
 
+# Object storage repositories (S3, Azure Blob, Wasabi, Veeam Data Cloud Vault...) are
+# NOT returned by Get-VBRBackupRepository; the Veeam reference says to use
+# Get-VBRObjectStorageRepository. Guarded so builds without the cmdlet still run.
+$objRepos = @()
+if (Get-Command Get-VBRObjectStorageRepository -ErrorAction SilentlyContinue) {
+    $objRepos = Try-List { Get-VBRObjectStorageRepository } 'Get-VBRObjectStorageRepository'
+    Emit ""
+    Emit "Object storage repositories: $($objRepos.Count)"
+    foreach ($o in $objRepos) {
+        if (-not $o -or $repoIndex.ContainsKey("$($o.Id)")) { continue }
+        $repoIndex["$($o.Id)"] = $o.Name
+        $oType = Get-TypeToken $o
+        if ($oType -eq 'Unknown') { $oType = 'ObjectStorage' }
+        Emit ("  {0,-38} {1,-28} {2}" -f $o.Id, $oType, $o.Name)
+    }
+} else {
+    Emit ""
+    Emit "Object storage repositories: n/a (Get-VBRObjectStorageRepository not available on this build)"
+}
+
 $ext = Try-List { Get-VBRExternalRepository } 'Get-VBRExternalRepository'
 Emit ""
 Emit "External repositories: $($ext.Count)"
 foreach ($e in $ext) {
     $repoIndex["$($e.Id)"] = $e.Name
-    Emit ("  {0,-38} {1,-28} {2}" -f $e.Id, (Try-Get { $e.Type }), $e.Name)
+    $eType = Get-TypeToken $e
+    if ($eType -eq 'Unknown') { $eType = 'External' }
+    Emit ("  {0,-38} {1,-28} {2}" -f $e.Id, $eType, $e.Name)
 }
 
 # The tool observes this GUID as the replica-metadata repository on every server
@@ -286,15 +377,19 @@ if ($hit) {
     Emit "Default-repository hypothesis: GUID $defaultGuid NOT present on this server"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 Section "2. JOB -> REPOSITORY  (the map's primary edge; VMC.log has GUIDs, no names)"
 
 Emit ("{0,-38} {1,-22} {2,-9} {3,-38} {4}" -f 'JobId','JobType','IsReplica','TargetRepositoryId','JobName')
-foreach ($j in $allJobs) {
-    $repoId = Try-Get { $j.Info.TargetRepositoryId }
-    if ("$repoId" -like 'n/a*') { $repoId = Try-Get { $j.FindTargetRepository().Id } }
+# Every line always carries a one-word JobType and True/False IsReplica (see
+# Get-TypeToken / Get-ReplicaFlag): parseMapCapture() needs both to recognise the
+# header line, otherwise the next 'repo name'/'size' lines land on the previous job.
+# An unknown repository prints as 'n/a', which the parser maps to "no target".
+foreach ($j in $mapJobs) {
+    $repoId = Try-First @({ $j.Info.TargetRepositoryId }, { $j.FindTargetRepository().Id }, { $j.Target.Id })
+    if ("$repoId" -like 'n/a*') { $repoId = 'n/a' }
     $repoNm = if ($repoIndex.ContainsKey("$repoId")) { $repoIndex["$repoId"] } else { '(unresolved)' }
-    Emit ("{0,-38} {1,-22} {2,-9} {3,-38} {4}" -f $j.Id, $j.JobType, $j.IsReplica, $repoId, $j.Name)
+    Emit ("{0,-38} {1,-22} {2,-9} {3,-38} {4}" -f $j.Id, (Get-TypeToken $j), (Get-ReplicaFlag $j), $repoId, $j.Name)
     Emit ("    repo name : $repoNm")
     Emit ("    size      : " + (Try-Get { $j.Info.IncludedSize }))
     # v2.2: per-job encryption + retention, so the encryption posture tab pairs each
@@ -304,8 +399,8 @@ foreach ($j in $allJobs) {
     Emit ("    retention : " + (Try-Get { $j.GetOptions().BackupStorageOptions.RetainCycles }) + " cycles / " + (Try-Get { $j.GetOptions().GfsPolicy.IsEnabled }) + " GFS")
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-Section "3. REPLICA TARGET HOST  (VMC.log records NOTHING here — this is the gap)"
+# -----------------------------------------------------------------------------
+Section "3. REPLICA TARGET HOST  (VMC.log records NOTHING here - this is the gap)"
 
 $replicas = $allJobs | Where-Object { $_.IsReplica }
 Emit "Replica jobs: $($replicas.Count)"
@@ -324,26 +419,25 @@ foreach ($j in $replicas) {
     Emit ("    TargetHost (raw): " + (Try-Get { $j.TargetHost }))
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 Section "4. BACKUP COPY: SOURCE JOBS  (VMC.log gives SourceBackupJobs GUIDs only)"
 
-$copyJobs = Try-List { Get-VBRBackupCopyJob } 'Get-VBRBackupCopyJob'
 Emit "Backup copy jobs: $($copyJobs.Count)"
 foreach ($cj in $copyJobs) {
     Emit ""
     Emit "  Copy job '$($cj.Name)'  Id: $($cj.Id)"
     Emit ("    Target repository : " + (Try-Get { $cj.Target }))
     Emit ("    TargetRepositoryId: " + (Try-Get { $cj.Info.TargetRepositoryId }))
-    W  "    --- source jobs ---"
+    Emit "    --- source jobs ---"
     $srcs = Try-Get { $cj.LinkedJobs }
     if ("$srcs" -like 'n/a*') { $srcs = Try-Get { $cj.GetLinkedJobs() } }
     if ("$srcs" -like 'n/a*') { $srcs = Try-Get { $cj.Backups } }
-    if ("$srcs" -like 'n/a*') { Emit "      (no LinkedJobs/GetLinkedJobs/Backups property — see Section 0 dump)" }
+    if ("$srcs" -like 'n/a*') { Emit "      (no LinkedJobs/GetLinkedJobs/Backups property - see Section 0 dump)" }
     else { foreach ($s in $srcs) { Emit ("      {0,-38} {1}" -f (Try-Get { $s.Id }), (Try-Get { $s.Name })) } }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-Section "4b. CONFIGURATION BACKUP  (its own cmdlet — Get-VBRJob does NOT return it)"
+# -----------------------------------------------------------------------------
+Section "4b. CONFIGURATION BACKUP  (its own cmdlet - Get-VBRJob does NOT return it)"
 
 # The config backup job appears in VMC.log as Type: ConfBackup and the map draws
 # it, but it is NOT returned by Get-VBRJob. It has a dedicated cmdlet. Capture it
@@ -352,22 +446,32 @@ $confJob = Try-List { Get-VBRConfigurationBackupJob } 'Get-VBRConfigurationBacku
 Emit "Configuration backup jobs: $($confJob.Count)"
 foreach ($c in $confJob) {
     Emit ""
-    Emit "  Config backup '$($c.Name)'  Id: $(Try-Get { $c.Id })"
-    Emit ("    Target        : " + (Try-Get { $c.Target }))
-    Emit ("    TargetRepositoryId: " + (Try-Get { $c.Info.TargetRepositoryId }))
+    # VBRConfigurationBackupJob documents only Enabled, Repository, ScheduleOptions,
+    # RestorePointsToKeep and EncryptionOptions - it has no Id, Name or LastResult,
+    # so none of those are printed. There is one configuration backup job per server.
+    Emit "  Config backup 'Configuration Backup'"
+    Emit ("    Enabled       : " + (Try-Get { $c.Enabled }))
     Emit ("    Repository    : " + (Try-Get { $c.Repository.Name }))
     Emit ("    Repository Id : " + (Try-Get { $c.Repository.Id }))
-    Emit ("    Enabled       : " + (Try-Get { $c.Enabled }))
+    $sch = Try-Get { $c.ScheduleOptions }
+    $schText = if ("$sch" -like 'n/a*') { $sch } else {
+        # VBRConfigurationBackupScheduleOptions: Type, Enabled, DailyOptions, MonthlyOptions.
+        $parts = @("Type=$(Try-Get { $sch.Type })", "Enabled=$(Try-Get { $sch.Enabled })")
+        if ("$(Try-Get { $sch.Type })" -match 'Daily')   { $parts += "Daily at=$(Try-Get { $sch.DailyOptions.Period })" }
+        if ("$(Try-Get { $sch.Type })" -match 'Monthly') { $parts += "Monthly at=$(Try-Get { $sch.MonthlyOptions.Period })" }
+        $parts -join '; '
+    }
+    Emit ("    Schedule      : " + $schText)
+    Emit ("    RestorePoints : " + (Try-Get { $c.RestorePointsToKeep }))
     Emit ("    Encryption    : " + (Try-Get { $c.EncryptionOptions.Enabled }))
-    Emit ("    LastResult    : " + (Try-Get { $c.LastResult }))
 }
 if ($confJob.Count -eq 0) {
-    Emit "  (Get-VBRConfigurationBackupJob returned nothing — on some builds the config"
+    Emit "  (Get-VBRConfigurationBackupJob returned nothing - on some builds the config"
     Emit "   backup is read via Get-VBRConfigurationBackupJob without arguments only when"
     Emit "   configured; if VMC.log shows a ConfBackup job but this is empty, note it.)"
 }
 
-Section "4c. CLOUD CONNECT — PROVIDER ROLE  (tenants THIS server hosts)"
+Section "4c. CLOUD CONNECT - PROVIDER ROLE  (tenants THIS server hosts)"
 
 # If this VBR is a Cloud Connect provider, its tenants are the destination for
 # inbound backup/replica traffic. VMC.log records these only as aggregate counts
@@ -382,26 +486,35 @@ foreach ($t in $tenants) {
     Emit ("    Enabled           : " + (Try-Get { $t.Enabled }))
     Emit ("    Lease expiration  : " + (Try-Get { $t.LeaseExpirationDate }))
     Emit ("    Max tasks         : " + (Try-Get { $t.MaxConcurrentTask }))
-    Emit ("    Backup resources  : " + (Try-Get { ($t.Resources | Measure-Object).Count }))
-    foreach ($r in @(Try-Get { $t.Resources })) {
+    # Collections use Try-List (never @(Try-Get ...)): an empty or failed lookup must
+    # give zero items, not a phantom 'n/a (null)' entry, and must let fallbacks run.
+    $backupRes = @((Try-List { $t.Resources } 'tenant Resources') | Where-Object { $null -ne $_ })
+    Emit ("    Backup resources  : " + $backupRes.Count)
+    foreach ($r in $backupRes) {
         Emit ("      repo -> {0,-38} friendly: {1}" -f (Try-Get { $r.RepositoryId }), (Try-Get { $r.RepositoryFriendlyName }))
     }
-    # Replica resources: the property surface differs by version. Prefer the explicit
-    # ReplicaResources collection; fall back to hardware-plan assignments (what the
-    # console lists under "Replica Resources"). Count and name whichever resolves.
-    $replRes = @(Try-Get { $t.ReplicaResources })
-    if (-not $replRes -or $replRes.Count -eq 0) { $replRes = @(Try-Get { $t.ReplicaResource }) }
-    if (-not $replRes -or $replRes.Count -eq 0) { $replRes = @(Try-Get { Get-VBRCloudTenantResource -Tenant $t }) }
-    Emit ("    Replica resources : " + (@($replRes | Where-Object { $_ }) | Measure-Object).Count)
-    foreach ($rr in @($replRes | Where-Object { $_ })) {
-        $hpName = (Try-Get { $rr.HardwarePlanName }); if (-not $hpName) { $hpName = (Try-Get { $rr.Name }) }
-        $hpId   = (Try-Get { $rr.HardwarePlanId });   if (-not $hpId)   { $hpId   = (Try-Get { $rr.Id }) }
+    # Replica resources: the property surface differs by version. Try, in order:
+    #   1. ReplicaResources / ReplicaResource (older object surfaces)
+    #   2. ReplicationResources.HardwarePlanOptions (documented VBRCloudTenant ->
+    #      VBRCloudTenantReplicationResources -> VBRCloudTenantHwPlanOptions[])
+    #   3. Get-VBRCloudTenantResource -Tenant, only if that cmdlet exists here
+    # Each step runs only when the previous one returned nothing.
+    $replRes = @((Try-List { $t.ReplicaResources } 'tenant ReplicaResources') | Where-Object { $null -ne $_ })
+    if ($replRes.Count -eq 0) { $replRes = @((Try-List { $t.ReplicaResource } 'tenant ReplicaResource') | Where-Object { $null -ne $_ }) }
+    if ($replRes.Count -eq 0) { $replRes = @((Try-List { $t.ReplicationResources.HardwarePlanOptions } 'tenant ReplicationResources.HardwarePlanOptions') | Where-Object { $null -ne $_ }) }
+    if ($replRes.Count -eq 0 -and (Get-Command Get-VBRCloudTenantResource -ErrorAction SilentlyContinue)) {
+        $replRes = @((Try-List { Get-VBRCloudTenantResource -Tenant $t } 'Get-VBRCloudTenantResource') | Where-Object { $null -ne $_ })
+    }
+    Emit ("    Replica resources : " + $replRes.Count)
+    foreach ($rr in $replRes) {
+        $hpName = Try-First @({ $rr.HardwarePlanName }, { $rr.HardwarePlan.Name }, { $rr.Name })
+        $hpId   = Try-First @({ $rr.HardwarePlanId },   { $rr.HardwarePlan.Id },   { $rr.Id })
         Emit ("      hwplan -> {0,-38} name: {1}" -f $hpId, $hpName)
     }
     Emit ("    Gateway pool      : " + (Try-Get { $t.GatewayPool.Name }))
 }
 
-Section "4d. CLOUD CONNECT — GATEWAY / SERVER"
+Section "4d. CLOUD CONNECT - GATEWAY / SERVER"
 
 $gws = Try-List { Get-VBRCloudGateway } 'Get-VBRCloudGateway'
 Emit "Cloud gateways: $($gws.Count)"
@@ -411,10 +524,10 @@ foreach ($g in $gws) {
 $pools = Try-List { Get-VBRCloudGatewayPool } 'Get-VBRCloudGatewayPool'
 Emit "Cloud gateway pools: $($pools.Count)"
 foreach ($p in $pools) {
-    Emit ("  pool '{0}' — gateways: {1}" -f (Try-Get { $p.Name }), (Try-Get { ($p.CloudGateways | Measure-Object).Count }))
+    Emit ("  pool '{0}' - gateways: {1}" -f (Try-Get { $p.Name }), (Try-Get { ($p.CloudGateways | Measure-Object).Count }))
 }
 
-Section "4e. CLOUD CONNECT — PROVIDER THIS SERVER IS A TENANT OF"
+Section "4e. CLOUD CONNECT - PROVIDER THIS SERVER IS A TENANT OF"
 
 # The other direction: this VBR sending backups/replicas UP to a provider. The map
 # already shows the provider's BackupStorage repo (VMC.log [CloudProviders] line);
@@ -425,15 +538,16 @@ foreach ($p in $providers) {
     Emit ""
     Emit "  Provider '$(Try-Get { $p.DNSName })'  Id: $(Try-Get { $p.Id })"
     Emit ("    Address           : " + (Try-Get { $p.DNSName }) + " : " + (Try-Get { $p.Port }))
-    Emit ("    Backup resources  : " + (Try-Get { ($p.Resources | Measure-Object).Count }))
-    foreach ($r in @(Try-Get { $p.Resources })) {
+    $provRes = @((Try-List { $p.Resources } 'provider Resources') | Where-Object { $null -ne $_ })
+    Emit ("    Backup resources  : " + $provRes.Count)
+    foreach ($r in $provRes) {
         Emit ("      cloud repo -> {0,-38} {1}" -f (Try-Get { $r.ServerId }), (Try-Get { $r.RepositoryName }))
     }
     Emit ("    Replica resources : " + (Try-Get { ($p.ReplicaResources | Measure-Object).Count }))
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 Section "6. TAPE  (VMC.log gives GUIDs + source COUNTS only; the source job GUIDs live here)"
 
 # The map's tape edge needs the source backup-job GUIDs behind each VM-to-tape job.
@@ -450,7 +564,7 @@ foreach ($tj in $tapeJobs) {
     Emit ("    Type            : " + (Try-Get { $tj.Type }))
     Emit ("    GFS media pool  : " + (Try-Get { $tj.FullBackupMediaPool.Name }))
     Emit ("    Incr media pool : " + (Try-Get { $tj.IncrementalBackupMediaPool.Name }))
-    W  "    --- source objects (the GUIDs VMC.log omits) ---"
+    Emit "    --- source objects (the GUIDs VMC.log omits) ---"
     # VM-to-tape sources are backup jobs; file-to-tape sources are file/NAS objects.
     $srcJobs = Try-Get { $tj.Object }
     if ("$srcJobs" -like 'n/a*') { $srcJobs = Try-Get { $tj.GetObject() } }
@@ -495,9 +609,26 @@ foreach ($ts in $tapeSrv) {
     Emit ("  {0,-38} {1}" -f (Try-Get { $ts.Id }), (Try-Get { $ts.Name }))
 }
 
+# -----------------------------------------------------------------------------
+Section "7. MANAGED SERVERS  (hypervisor versions for the platform support check; VMC.log has none)"
+# Read-only. Get-VBRBackupServerInfo gives the build and patch level (the patch level is
+# not in VMC.log, and some security fixes do not change the build number). Get-VBRServer
+# lists managed hosts; ApiVersion is the vSphere API / Hyper-V server version.
+$bsi = Try-Get { Get-VBRBackupServerInfo }
+Emit ("Backup server build : " + (Try-Get { $bsi.Build }))
+Emit ("Backup server patch : " + (Try-Get { $bsi.PatchLevel }))
+$servers = Try-List { Get-VBRServer } 'Get-VBRServer'
+$hv = @($servers | Where-Object { "$($_.Type)" -match '^(ESXi|VC|HvServer|HvCluster|Scvmm|VcdSystem)$' })
+Emit "Virtualization servers: $($hv.Count)"
+foreach ($s in $hv) {
+    Emit ("  SRV | {0} | {1} | {2} | {3}" -f "$($s.Type)", (Try-Get { $s.ApiVersion }), (Try-Get { $s.Info.Info }), $s.Name)
+}
+
 Section "5. JOB NAME <-> JOB ID  (join key: VMC.log has the ID, never the name)"
 Emit "JobId,JobName,JobType,IsReplica"
-foreach ($j in $allJobs) { Emit ("{0},{1},{2},{3}" -f $j.Id, $j.Name, $j.JobType, $j.IsReplica) }
+# Includes backup copy jobs ($mapJobs). JobType is always one \w+ token and IsReplica
+# always True/False, as the parser's GUID,Name,Type,True|False pattern requires.
+foreach ($j in $mapJobs) { Emit ("{0},{1},{2},{3}" -f $j.Id, $j.Name, (Get-TypeToken $j), (Get-ReplicaFlag $j)) }
 
 Emit ""
 if ($script:WeConnected) {

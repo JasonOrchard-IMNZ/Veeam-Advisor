@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # NOTE: #Requires -Version 5.1 is the minimum for VBR v12 environments.
-#       VBR v13 requires Windows PowerShell 7.4.7 or later — if you are running
-#       against a v13 server, ensure PS 7.4.7+ is installed before running this
+#       Veeam PowerShell v13 requires PowerShell 7 (current Veeam docs: 7.6.3 or
+#       later) - if you are running against a v13 server, ensure it is installed before running this
 #       script. See: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 # =============================================================================
 #  Copyright (c) 2026 Jason Orchard. All Rights Reserved.
@@ -18,12 +18,15 @@
 .DESCRIPTION
     Three test modules run in sequence:
 
-    MODULE A — URL validation
-        Checks every reference URL in the app returns HTTP 200 (not 404/403).
+    MODULE A - URL validation
+        Checks the bp.veeam.com and other reference URLs return HTTP 200 (not 404/403).
+        Help Center and Veeam KB links are skipped here: Help Center returns 403 to
+        automated requests, so they are checked against the knowledge-service topic index
+        by  node tools/build-links.mjs --check  instead (v3.0).
         Uses a browser User-Agent to bypass bot-detection on Veeam/Broadcom sites.
         Tests are run with Invoke-WebRequest -UseBasicParsing.
 
-    MODULE B — PowerShell cmdlet validation
+    MODULE B - PowerShell cmdlet validation
         Tests every cmdlet shown in the app against a live VBR server.
         Covers: Get-VBRServer, Get-VBRViProxy, Get-VBRHvProxy,
                 Get-VBRBackupRepository, Get-VBRJob, Get-VBRComputerBackupJob,
@@ -32,12 +35,14 @@
         .Count errors on single-object returns.
         GUID filter patterns are validated against real IDs from the live server.
 
-    MODULE C — Best Practice logic validation
-        For each BP check in the app, validates the logic against known-good
-        and known-bad examples. Does NOT require a VBR connection.
+    MODULE C - Best Practice rule reference (INFORMATIONAL, not tests)
+        Lists the BP rules the app applies, with their known-good and known-bad
+        conditions. It does NOT load or run the app's logic, so nothing here is
+        counted as passed, failed or skipped. The real logic is tested by
+        confirm-bp-findings.js against index.html. Does NOT require a VBR connection.
         Covers: MFA, backup copy 3-2-1, immutability, GFS, config backup,
                 encryption, CBT, job sizing, retention, proxy sizing,
-                StoreOnce decompress, WAN accel deprecation, >5000 VMs,
+                StoreOnce decompress, WAN accelerators, >5000 VMs,
                 Virtual Lab / SureBackup, Enterprise Manager, malware response.
 
 .PARAMETER VBRServer
@@ -45,15 +50,16 @@
 
 .PARAMETER Credential
     PSCredential for the VBR/VSA connection. If omitted:
-      - localhost target → uses the current Windows session (single sign-on)
-      - remote/VSA target → the script prompts for username and password
+      - localhost target -> uses the current Windows session (single sign-on)
+      - remote/VSA target -> the script prompts for username and password
     Pass a pre-built credential (Get-Credential) for unattended/automated runs.
 
 .PARAMETER PromptCredential
     Force an interactive username/password prompt even for a localhost target.
 
 .PARAMETER Port
-    VBR console port. Default: 9392.
+    VBR console port. Default: 9392 (v12). If the connection fails, the script
+    retries on the other port (443 is the v13 Connect-VBRServer default).
 
 .PARAMETER SkipModuleA
     Skip URL validation (use if running offline).
@@ -62,7 +68,12 @@
     Skip PowerShell cmdlet tests (use if no VBR server available).
 
 .PARAMETER SkipModuleC
-    Skip BP logic tests.
+    Skip the informational BP rule reference (Module C).
+
+.PARAMETER AcceptAnyCertificate
+    Opt-in. Passes -ForceAcceptTlsCertificate to Connect-VBRServer (v13+ only),
+    which accepts the server's TLS certificate WITHOUT validating it. Off by default
+    because the credential is sent to whatever host answers.
 
 .PARAMETER UrlTimeoutSec
     HTTP request timeout in seconds. Default: 15.
@@ -86,7 +97,7 @@
     .\VeeamAdvisor-PowerShell-QA.ps1 -VBRServer vbr01.lab.local -Credential $cred
 
 .EXAMPLE
-    # Remote VSA appliance by IP — script prompts for username/password
+    # Remote VSA appliance by IP - script prompts for username/password
     .\VeeamAdvisor-PowerShell-QA.ps1 -VBRServer 10.0.0.50 -ConnectionType VSA
 
 .EXAMPLE
@@ -100,35 +111,35 @@
     .\VeeamAdvisor-PowerShell-QA.ps1 -VBRServer 192.168.1.20 -Port 9392 -ConnectionType Remote -Credential $cred
 
 .NOTES
-    Veeam Advisor v1.0 — Test Suite v1.1
+    Veeam Advisor v1.0 - Test Suite v1.1
     Changelog v1.1:
       - Fixed 25 broken URLs (Veeam helpcenter restructured /docs/backup/vsphere/
         to /docs/vbr/userguide/?ver=13 between v12 and v13 documentation)
       - Fixed bp.veeam.com backup server and repo introduction paths
-      - Fixed www.veeam.com/download-version.html → /downloads.html
+      - Fixed www.veeam.com/download-version.html -> /downloads.html
       - All URL fixes validated against live test results 2026-06-04
       - v1.2: Fixed remaining 20 URLs (404) using confirmed-passing helpcenter targets
       - v1.2: VBR connection failure changed from FAIL to WARN (environment-dependent)
     Reference: helpcenter.veeam.com/docs/vbr/powershell/ (v13)
                bp.veeam.com/vbr  |  bp.veeam.com/security
-    PowerShell requirement: 5.1+ for VBR v12 environments; 7.4.7+ for VBR v13.
+    PowerShell requirement: 5.1+ for VBR v12 environments; PowerShell 7 for VBR v13 (current docs: 7.6.3+).
     Ref: https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13
 #>
 
 [CmdletBinding()]
 param(
     # VBR server to connect to. Accepts:
-    #   'localhost'            — run directly on the VBR server or VSA appliance console
-    #   '<hostname>' / '<FQDN>'— a remote VBR server or VSA by name
-    #   '<IP address>'         — a remote VBR server, VSA appliance, or remote console by IP
+    #   'localhost'            - run directly on the VBR server or VSA appliance console
+    #   '<hostname>' / '<FQDN>'- a remote VBR server or VSA by name
+    #   '<IP address>'         - a remote VBR server, VSA appliance, or remote console by IP
     [string]      $VBRServer     = 'localhost',
     [PSCredential]$Credential,
     [int]         $Port          = 9392,
-    # Connection target type — purely informational, used to tailor messages/guidance.
-    #   Auto    — infer from $VBRServer (default)
-    #   Local   — this host is the VBR server / VSA appliance (localhost)
-    #   VSA     — remote Veeam Software Appliance (Linux) by host/IP
-    #   Remote  — remote VBR server or remote console by host/IP
+    # Connection target type - purely informational, used to tailor messages/guidance.
+    #   Auto    - infer from $VBRServer (default)
+    #   Local   - this host is the VBR server / VSA appliance (localhost)
+    #   VSA     - remote Veeam Software Appliance (Linux) by host/IP
+    #   Remote  - remote VBR server or remote console by host/IP
     [ValidateSet('Auto','Local','VSA','Remote')]
     [string]      $ConnectionType = 'Auto',
     # Force an interactive Get-Credential prompt even for localhost. By default the
@@ -137,14 +148,16 @@ param(
     [switch]      $SkipModuleA,
     [switch]      $SkipModuleB,
     [switch]      $SkipModuleC,
+    # Opt-in: add -ForceAcceptTlsCertificate (v13+) to the connect attempts. See help.
+    [switch]      $AcceptAnyCertificate,
     [int]         $UrlTimeoutSec = 15,
     [string]      $LogFile        = ""
 )
 
-Set-StrictMode -Off   # Disabled globally — we use manual null checks throughout
+Set-StrictMode -Off   # Disabled globally - we use manual null checks throughout
 $ErrorActionPreference = 'Stop'
 
-# ─── Enforce TLS 1.2 (and 1.3 where available) for all HTTPS calls ───────────
+# --- Enforce TLS 1.2 (and 1.3 where available) for all HTTPS calls -----------
 # PowerShell 5.1 defaults to TLS 1.0/1.1, which Veeam helpcenter and most modern
 # endpoints reject. Force a modern protocol set so URL validation (Module A) and
 # any HTTPS traffic negotiate securely.
@@ -161,7 +174,7 @@ try {
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 }
 
-# ─── Log file setup ───────────────────────────────────────────────────────────
+# --- Log file setup -----------------------------------------------------------
 if (-not $LogFile) {
     $stamp    = Get-Date -Format 'yyyyMMdd_HHmmss'
     $LogFile  = Join-Path $PSScriptRoot "VeeamAdvisor-PowerShell-Results_$stamp.txt"
@@ -171,7 +184,7 @@ if (-not $LogFile) {
 $script:LogFile = $LogFile
 @(
     '======================================================================',
-    "  VEEAM ADVISOR v1.0 — TEST SUITE v1.2",
+    "  VEEAM ADVISOR v1.0 - TEST SUITE v1.2",
     "  Run at  : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "  Host    : $($env:COMPUTERNAME)",
     "  User    : $($env:USERNAME)",
@@ -182,7 +195,7 @@ $script:LogFile = $LogFile
 ) | Set-Content -Path $LogFile -Encoding UTF8
 Write-Host "  Log file: $LogFile" -ForegroundColor DarkGray
 
-# ─── Core tee function — writes to screen AND log file ───────────────────────
+# --- Core tee function - writes to screen AND log file -----------------------
 function Out-Log {
     param(
         [string]$Text,
@@ -201,7 +214,7 @@ function Out-Log {
     Add-Content -Path $script:LogFile -Value $line -Encoding UTF8
 }
 
-# ─── Output helpers (screen + file) ──────────────────────────────────────────
+# --- Output helpers (screen + file) ------------------------------------------
 function Write-Pass { param([string]$m) Out-Log "  [PASS] $m" -Colour Green  }
 function Write-Fail { param([string]$m) Out-Log "  [FAIL] $m" -Colour Red    }
 function Write-Warn { param([string]$m) Out-Log "  [WARN] $m" -Colour Yellow }
@@ -215,7 +228,7 @@ function Write-Head {
 }
 function Write-Sub  { param([string]$m) Out-Log "`n  --- $m ---" -Colour Gray }
 
-# ─── Global counters ──────────────────────────────────────────────────────────
+# --- Global counters ----------------------------------------------------------
 $script:TotalPass = 0
 $script:TotalFail = 0
 $script:TotalSkip = 0
@@ -238,18 +251,30 @@ function Assert {
             Write-Pass $Name
             $script:TotalPass++
         } else {
-            Write-Fail "$Name — returned: $result"
+            Write-Fail "$Name - returned: $result"
             $script:TotalFail++
             $script:FailedTests.Add($Name)
         }
     } catch {
-        Write-Fail "$Name — Exception: $($_.Exception.Message)"
+        Write-Fail "$Name - Exception: $($_.Exception.Message)"
         $script:TotalFail++
         $script:FailedTests.Add($Name)
     }
 }
 
-# ─── GUID filter helper (safe for single-object returns) ─────────────────────
+# Module C helper: prints a documented BP rule WITHOUT running it or touching the
+# pass/fail/skip counters. Module C's checks only restate constants (they set a value
+# and then test that same value), so counting them as passed tests would be false
+# assurance. The scriptblock is accepted for readability and is not executed.
+function Show-Rule {
+    param(
+        [string]     $Name,
+        [scriptblock]$Test
+    )
+    Out-Log "  [RULE] $Name" -Colour DarkCyan
+}
+
+# --- GUID filter helper (safe for single-object returns) ---------------------
 function Test-GuidFilter {
     param(
         [string]   $Label,
@@ -258,13 +283,13 @@ function Test-GuidFilter {
     )
     $arr = @($Items)
     if ($arr.Count -eq 0) {
-        Write-Warn "$Label — empty collection, GUID filter test skipped"
+        Write-Warn "$Label - empty collection, GUID filter test skipped"
         $script:TotalSkip++
         return
     }
     $id = $arr[0].$Prop
     if ($null -eq $id) {
-        Write-Warn "$Label — .$Prop is null on first object"
+        Write-Warn "$Label - .$Prop is null on first object"
         $script:TotalSkip++
         return
     }
@@ -274,16 +299,18 @@ function Test-GuidFilter {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MODULE A — URL VALIDATION
-#  Every reference URL in Veeam Advisor v1.0 must return HTTP 200.
+# ==============================================================================
+#  MODULE A - URL VALIDATION
+#  The Help Center / BP reference URLs the tool links to must return HTTP 200.
+#  Each label must point at the page that actually documents that topic - a
+#  generic page that merely loads is NOT a valid substitute (v2.2.1 audit).
 #  Sites block automated scrapers with 403; we use a real browser UA.
 #  A 200 means the page exists. A 404 means the URL is broken.
 #  403 from bot-detection = URL exists (we record as WARN not FAIL).
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 if (-not $SkipModuleA) {
 
-    Write-Head "MODULE A — URL VALIDATION (72 URLs — v1.3)"
+    Write-Head "MODULE A - URL VALIDATION (v2.2.1 link set)"
 
     # Browser User-Agent that bypasses basic bot detection
     $UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -291,7 +318,7 @@ if (-not $SkipModuleA) {
 
     $urls = [ordered]@{
 
-        # ── bp.veeam.com ──────────────────────────────────────────────────────
+        # -- bp.veeam.com ------------------------------------------------------
         'BP: Home'                         = 'https://bp.veeam.com/vbr'
         'BP: Security home'                = 'https://bp.veeam.com/vbr/Security/'
         'BP: Security infrastructure'      = 'https://bp.veeam.com/vbr/Security/infrastructure_hardening.html'
@@ -306,60 +333,62 @@ if (-not $SkipModuleA) {
         'BP: Design structures (overview)' = 'https://bp.veeam.com/vbr/2_Design_Structures/'
         'BP: Tape sizing & GFS media pools' = 'https://bp.veeam.com/vbr/3_Build_structures/B_Veeam_Components/tape.html'
 
-        # ── helpcenter.veeam.com — main sections ─────────────────────────────
-        'HC: vSphere home'                 = 'https://helpcenter.veeam.com/docs/backup/vsphere/'
-        'HC: Agents home'                  = 'https://helpcenter.veeam.com/docs/backup/agents/'
-        'HC: Cloud Connect home'           = 'https://helpcenter.veeam.com/docs/backup/em/'
-        'HC: Enterprise Manager home'      = 'https://helpcenter.veeam.com/docs/backup/em/'
-        'HC: VeeamONE deployment'          = 'https://helpcenter.veeam.com/docs/one/deployment/'
+        # -- helpcenter.veeam.com - main sections -----------------------------
         'HC: System requirements v13'      = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements.html?ver=13'
-        'HC: VBR Licensing'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/licensing.html?ver=13'
-        'HC: Veeam Backup for Azure'       = 'https://helpcenter.veeam.com/docs/vba/userguide/'
-        'HC: Agent management (quickstart)' = 'https://helpcenter.veeam.com/docs/backup/agents/quickstart.html'
+        'HC: Backup server / VSA sys req'  = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_server.html'
         'HC: Backup repo system requirements' = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_backup_repo.html'
+        'HC: Unstructured data sys req'    = 'https://helpcenter.veeam.com/docs/vbr/userguide/system_requirements_unstructured_data.html'
+        'HC: VBR Licensing'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/licensing.html?ver=13'
+        'HC: Agent licensing requirements' = 'https://helpcenter.veeam.com/docs/vbr/userguide/agents_licensing_requirements.html'
+        'HC: Agent backup policy'          = 'https://helpcenter.veeam.com/docs/vbr/userguide/agents_policy.html'
+        'HC: Cloud Connect (SP & tenants)' = 'https://helpcenter.veeam.com/docs/vbr/cloud/cloud_roles.html'
+        'HC: Enterprise Manager UI'        = 'https://helpcenter.veeam.com/docs/vbr/em/em_know_ui.html'
+        'HC: EM encryption keys'           = 'https://helpcenter.veeam.com/docs/vbr/em/em_manage_keys.html?ver=13'
+        'HC: VeeamONE deployment'          = 'https://helpcenter.veeam.com/docs/one/deployment/'
+        'HC: Veeam Backup for Azure'       = 'https://helpcenter.veeam.com/docs/vba/userguide/'
         'Veeam Licensing Policy (Capacity Pack)' = 'https://www.veeam.com/legal/licensing-policy.html'
 
-        # ── helpcenter.veeam.com — vSphere feature pages ─────────────────────
-        'HC: Backup copy'                  = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
-        'HC: Backup job'                   = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html'
-        'HC: Backup job schedule'          = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job.html'
-        'HC: Backup job advanced maint'    = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_job_advanced_maintenance_vm.html'
-        'HC: Backup proxy'                 = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_proxy.html'
-        'HC: Backup server HA'             = 'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html'
-        'HC: CBT'                          = 'https://helpcenter.veeam.com/docs/backup/vsphere/changed_block_tracking.html'
+        # -- helpcenter.veeam.com - feature pages (v13 User Guide) -------------
+        'HC: Application-aware processing' = 'https://helpcenter.veeam.com/docs/vbr/userguide/application_aware_processing.html'
+        'HC: Backup copy'                  = 'https://helpcenter.veeam.com/docs/vbr/userguide/backup_copy.html'
+        'HC: Backup job'                   = 'https://helpcenter.veeam.com/docs/vbr/userguide/backup_job.html'
+        'HC: Backup job maintenance'       = 'https://helpcenter.veeam.com/docs/vbr/userguide/backup_job_advanced_maintenance_vm.html'
+        'HC: Backup proxy (VMware)'        = 'https://helpcenter.veeam.com/docs/vbr/userguide/backup_proxy.html'
+        'HC: Proxy NBDSSL / transport'     = 'https://helpcenter.veeam.com/docs/vbr/userguide/vmware_proxy_server.html'
+        'HC: Backup server HA cluster'     = 'https://helpcenter.veeam.com/docs/vbr/userguide/high_availability_cluster.html'
+        'HC: CBT'                          = 'https://helpcenter.veeam.com/docs/vbr/userguide/changed_block_tracking.html'
         'HC: CDP'                          = 'https://helpcenter.veeam.com/docs/vbr/userguide/cdp_replication.html?ver=13'
-        'HC: Config backup'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'
-        'HC: Credentials manager'          = 'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'
-        'HC: Data encryption'              = 'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'
-        'HC: Failover plan'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/failover_plan.html'
-        'HC: File copy job'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
-        'HC: GFS retention'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/gfs_retention_policy.html'
-        'HC: Immutable backup'             = 'https://helpcenter.veeam.com/docs/vbr/userguide/data_encryption.html?ver=13'
-        'HC: Job storage encryption'       = 'https://helpcenter.veeam.com/docs/backup/vsphere/data_encryption.html'
-        'HC: Linux server trust'           = 'https://helpcenter.veeam.com/docs/backup/vsphere/credentials_manager.html'
-        'HC: Malware detection'            = 'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html'
-        'HC: MFA'                          = 'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html'
-        'HC: NAS backup'                   = 'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html'
-        'HC: Email notifications'          = 'https://helpcenter.veeam.com/docs/backup/vsphere/malware_detection.html'
-        'HC: Security options'             = 'https://helpcenter.veeam.com/docs/backup/vsphere/mfa.html'
-        'HC: Oracle backup'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/oracle_backup.html'
-        'HC: Replication'                  = 'https://helpcenter.veeam.com/docs/backup/vsphere/replication.html'
-        'HC: SQL log backup'               = 'https://helpcenter.veeam.com/docs/backup/vsphere/oracle_backup.html'
-        'HC: Storage latency control'      = 'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html'
-        'HC: SureBackup'                   = 'https://helpcenter.veeam.com/docs/backup/vsphere/surebackup_job.html'
-        'HC: File to tape'                 = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
-        'HC: VM to tape'                   = 'https://helpcenter.veeam.com/docs/backup/vsphere/backup_copy.html'
-        'HC: VSA appliance'                = 'https://helpcenter.veeam.com/docs/backup/vsphere/'
+        'HC: Compression & deduplication'  = 'https://helpcenter.veeam.com/docs/vbr/userguide/compression_deduplication.html'
+        'HC: Config backup'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/export_vbr_config.html'
+        'HC: Config backup encryption'     = 'https://helpcenter.veeam.com/docs/vbr/userguide/config_backup_encrypted.html'
+        'HC: Credentials manager'          = 'https://helpcenter.veeam.com/docs/vbr/userguide/credentials_manager.html'
+        'HC: Data encryption'              = 'https://helpcenter.veeam.com/docs/vbr/userguide/data_encryption.html?ver=13'
+        'HC: Job encryption'               = 'https://helpcenter.veeam.com/docs/vbr/userguide/encryption_job.html'
+        'HC: Network traffic encryption'   = 'https://helpcenter.veeam.com/docs/vbr/userguide/enable_network_encryption.html'
+        'HC: Deleted items retention'      = 'https://helpcenter.veeam.com/docs/vbr/userguide/retention_deleted_vms.html'
+        'HC: Email notifications'          = 'https://helpcenter.veeam.com/docs/vbr/userguide/email_notification_settings.html'
+        'HC: Failover plan'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/failover_plan.html'
+        'HC: GFS retention'                = 'https://helpcenter.veeam.com/docs/vbr/userguide/gfs_retention_policy.html'
+        'HC: Hardened repository'          = 'https://helpcenter.veeam.com/docs/vbr/userguide/hardened_repository.html'
+        'HC: Immutability'                 = 'https://helpcenter.veeam.com/docs/vbr/userguide/immutability.html'
+        'HC: I/O control (storage latency)' = 'https://helpcenter.veeam.com/docs/vbr/userguide/io_settings.html'
+        'HC: Linux host authentication'    = 'https://helpcenter.veeam.com/docs/vbr/userguide/linux_fingerprint_check.html'
+        'HC: Malware detection'            = 'https://helpcenter.veeam.com/docs/vbr/userguide/malware_detection.html'
+        'HC: Inline scan settings'         = 'https://helpcenter.veeam.com/docs/vbr/userguide/malware_detection_inline_scan_configuring.html'
+        'HC: Malware status (console)'     = 'https://helpcenter.veeam.com/docs/vbr/userguide/malware_detection_managing_status_console.html'
+        'HC: MFA / auto logoff'            = 'https://helpcenter.veeam.com/docs/vbr/userguide/mfa.html'
+        'HC: Oracle log backup'            = 'https://helpcenter.veeam.com/docs/vbr/userguide/oracle_backup.html'
+        'HC: SQL log backup'               = 'https://helpcenter.veeam.com/docs/vbr/userguide/sql_backup.html'
+        'HC: Replication'                  = 'https://helpcenter.veeam.com/docs/vbr/userguide/replication.html'
+        'HC: SureBackup'                   = 'https://helpcenter.veeam.com/docs/vbr/userguide/surebackup_job.html'
+        'HC: Virtual Lab'                  = 'https://helpcenter.veeam.com/docs/vbr/userguide/virtual_lab.html'
+        'HC: Backup to tape'               = 'https://helpcenter.veeam.com/docs/vbr/userguide/backup_to_tape.html'
+        'HC: File to tape'                 = 'https://helpcenter.veeam.com/docs/vbr/userguide/creating_file_to_tape_jobs.html'
         'HC: VeeamZIP'                     = 'https://helpcenter.veeam.com/docs/vbr/userguide/veeamzip.html?ver=13'
-        'HC: Virtual Lab'                  = 'https://helpcenter.veeam.com/docs/backup/vsphere/virtual_lab.html'
-        'HC: Guest processing'             = 'https://helpcenter.veeam.com/docs/backup/vsphere/vm_processing.html'
-        'HC: WAN accelerator'              = 'https://helpcenter.veeam.com/docs/backup/vsphere/wan_accelerator.html'
-        'HC: Agent backup job'             = 'https://helpcenter.veeam.com/docs/backup/agents/'
-        'HC: CC gateway pools'             = 'https://helpcenter.veeam.com/docs/backup/em/'
-        'HC: CC gateways'                  = 'https://helpcenter.veeam.com/docs/backup/em/'
-        'HC: CC HW plans'                  = 'https://helpcenter.veeam.com/docs/backup/em/'
+        'HC: WAN acceleration'             = 'https://helpcenter.veeam.com/docs/vbr/userguide/wan_acceleration.html'
+        'HC: Running PS sessions (v13)'    = 'https://helpcenter.veeam.com/docs/vbr/powershell/running_ps_sessions_windows.html?ver=13'
 
-        # ── PS reference ──────────────────────────────────────────────────────
+        # -- PS reference ------------------------------------------------------
         'PS: Get-VBRViProxy'               = 'https://helpcenter.veeam.com/docs/vbr/powershell/get-vbrviproxy.html'
         'PS: Get-VBRHvProxy'               = 'https://helpcenter.veeam.com/docs/vbr/powershell/get-vbrhvproxy.html'
         'PS: Get-VBRBackupRepository'      = 'https://helpcenter.veeam.com/docs/vbr/powershell/get-vbrbackuprepository.html'
@@ -367,7 +396,7 @@ if (-not $SkipModuleA) {
         'PS: Get-VBRCloudTenant'           = 'https://helpcenter.veeam.com/docs/vbr/powershell/get-vbrcloudtenant.html'
         'PS: Get-VBRComputerBackupJob'     = 'https://helpcenter.veeam.com/docs/vbr/powershell/get-vbrcomputerbackupjob.html'
 
-        # ── Third-party ───────────────────────────────────────────────────────
+        # -- Third-party -------------------------------------------------------
         'Broadcom KB321259 (NIC guide)'    = 'https://knowledge.broadcom.com/external/article/321259/'
         'Veeam downloads'                  = 'https://www.veeam.com/downloads.html'
         'Veeam KB4542 (PostgreSQL)'        = 'https://www.veeam.com/kb4542'
@@ -378,6 +407,17 @@ if (-not $SkipModuleA) {
 
     foreach ($label in $urls.Keys) {
         $url = $urls[$label]
+        # v3.0: Help Center answers automated requests with 403 whether or not the page
+        # exists, so an HTTP request cannot tell a good link from a broken one. Help Center
+        # and Veeam KB links are checked at release time against the knowledge-service topic
+        # index instead:  node tools/build-links.mjs --check   (also reports the topic title,
+        # to catch links that resolve to the wrong page). Only other sites are requested here.
+        if ($url -match '^https://(helpcenter\.veeam\.com|www\.veeam\.com/kb)') {
+            Write-Warn "$label - checked by tools/build-links.mjs (topic index), not by HTTP - $url"
+            $urlWarn++
+            $script:TotalSkip++
+            continue
+        }
         try {
             $response = Invoke-WebRequest -Uri $url `
                 -UseBasicParsing `
@@ -389,43 +429,49 @@ if (-not $SkipModuleA) {
 
             $code = [int]$response.StatusCode
             if ($code -eq 200) {
-                Write-Pass "$label — HTTP $code — $url"
+                Write-Pass "$label - HTTP $code - $url"
                 $urlPass++
                 $script:TotalPass++
             } elseif ($code -lt 400) {
-                # 2xx/3xx — redirect resolved, still valid
-                Write-Pass "$label — HTTP $code (redirect) — $url"
+                # 2xx/3xx - redirect resolved, still valid
+                Write-Pass "$label - HTTP $code (redirect) - $url"
                 $urlPass++
                 $script:TotalPass++
             } else {
-                Write-Fail "$label — HTTP $code — $url"
+                Write-Fail "$label - HTTP $code - $url"
                 $urlFail++
                 $script:TotalFail++
                 $script:FailedTests.Add("URL: $label ($code)")
             }
-        } catch [System.Net.WebException] {
-            $code = [int]$_.Exception.Response.StatusCode
-            if ($code -eq 403) {
-                # 403 = bot-detection block — page EXISTS, not a 404
+        } catch {
+            # Windows PowerShell 5.1 throws System.Net.WebException; PowerShell 7 throws
+            # Microsoft.PowerShell.Commands.HttpResponseException. Both expose
+            # .Exception.Response.StatusCode, so read the code generically. No response
+            # means a genuine network error (DNS, TLS, timeout).
+            $code = 0
+            $resp = $_.Exception.Response
+            if ($resp) { try { $code = [int]$resp.StatusCode } catch { $code = 0 } }
+            if ($code -eq 0) {
+                Write-Warn "$label - Network error: $($_.Exception.Message) - $url"
+                $urlWarn++
+                $script:TotalSkip++
+            } elseif ($code -eq 403) {
+                # 403 = bot-detection block - page EXISTS, not a 404
                 # Veeam and Broadcom block automated HEAD/GET without JS
-                Write-Warn "$label — HTTP 403 (bot-block, page exists) — $url"
+                Write-Warn "$label - HTTP 403 (bot-block, page exists) - $url"
                 $urlWarn++
                 $script:TotalSkip++
             } elseif ($code -eq 404) {
-                Write-Fail "$label — HTTP 404 NOT FOUND — $url"
+                Write-Fail "$label - HTTP 404 NOT FOUND - $url"
                 $urlFail++
                 $script:TotalFail++
                 $script:FailedTests.Add("URL 404: $label")
             } else {
-                Write-Fail "$label — HTTP $code — $url"
+                Write-Fail "$label - HTTP $code - $url"
                 $urlFail++
                 $script:TotalFail++
                 $script:FailedTests.Add("URL $code : $label")
             }
-        } catch {
-            Write-Warn "$label — Network error: $($_.Exception.Message) — $url"
-            $urlWarn++
-            $script:TotalSkip++
         }
     }
 
@@ -434,36 +480,47 @@ if (-not $SkipModuleA) {
     Write-Host "  HTTP 200 OK  : $urlPass"              -ForegroundColor Green
     Write-Host "  HTTP 403 (bot-block, not 404) : $urlWarn"  -ForegroundColor Yellow
     Write-Host "  HTTP 404/ERR : $urlFail"              -ForegroundColor $(if ($urlFail -gt 0) {'Red'} else {'Green'})
-    Write-Info "  NOTE: 403 responses are bot-detection blocks — the pages exist and"
+    Write-Info "  NOTE: 403 responses are bot-detection blocks - the pages exist and"
     Write-Info "        load correctly in a browser. Only 404 responses indicate broken links."
 
 } # end Module A
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MODULE B — POWERSHELL CMDLET VALIDATION
+# ==============================================================================
+#  MODULE B - POWERSHELL CMDLET VALIDATION
 #  All cmdlets shown in Veeam Advisor app validated against live VBR.
 #  @() wrapping prevents Set-StrictMode .Count errors on scalar returns.
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 if (-not $SkipModuleB) {
 
-    Write-Head "MODULE B — POWERSHELL CMDLET VALIDATION"
+    Write-Head "MODULE B - POWERSHELL CMDLET VALIDATION"
 
-    # ── Module availability ───────────────────────────────────────────────────
+    # -- Module availability ---------------------------------------------------
     Write-Sub "Pre-flight: Veeam PowerShell module"
     $module = Get-Module -ListAvailable -Name 'Veeam.Backup.PowerShell' | Select-Object -First 1
     if (-not $module) {
-        Write-Fail "Veeam.Backup.PowerShell not found — skipping Module B"
+        Write-Fail "Veeam.Backup.PowerShell not found - skipping Module B"
         $script:TotalFail++
         $script:FailedTests.Add("Veeam PS module not found")
     } else {
         Write-Pass "Module found: $($module.Name) v$($module.Version)"
         $script:TotalPass++
-        Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction Stop
-        Write-Pass "Module imported"
-        $script:TotalPass++
+        $moduleImported = $false
+        try {
+            Import-Module Veeam.Backup.PowerShell -DisableNameChecking -ErrorAction Stop
+            $moduleImported = $true
+            Write-Pass "Module imported"
+            $script:TotalPass++
+        } catch {
+            Write-Fail "Import-Module Veeam.Backup.PowerShell failed: $($_.Exception.Message)"
+            if ($PSVersionTable.PSVersion.Major -lt 7) {
+                Write-Info "  This is Windows PowerShell $($PSVersionTable.PSVersion). The VBR v13 module requires PowerShell 7 - re-run from pwsh.exe."
+            }
+            $script:TotalFail++
+            $script:FailedTests.Add("Veeam PS module import failed")
+        }
 
-        # ── VBR Connection ────────────────────────────────────────────────────
+        # -- VBR Connection ----------------------------------------------------
         # Resolve the connection type (Local / VSA / Remote) for clear messaging.
         $resolvedType = $ConnectionType
         if ($resolvedType -eq 'Auto') {
@@ -483,18 +540,24 @@ if (-not $SkipModuleB) {
         Write-Sub "Connect to VBR: $targetDesc"
 
         $connected = $false
+        $script:WeConnected = $false   # set only when THIS script opens the session
+        if (-not $moduleImported) {
+            Write-Warn "  Module B tests will be skipped (module import failed)."
+            $script:TotalSkip++
+        }
         try {
+            if (-not $moduleImported) { throw 'module not imported' }
             # Check if already connected (running on VBR server / VSA via PS module)
             $session = Get-VBRServerSession
             if ($session) {
-                Write-Pass "Existing session detected — connected to $($session.Server)"
+                Write-Pass "Existing session detected - connected to $($session.Server)"
                 $script:TotalPass++
                 $connected = $true
             }
         } catch { }
 
-        if (-not $connected) {
-            # ── Credential prompting ──────────────────────────────────────────
+        if (-not $connected -and $moduleImported) {
+            # -- Credential prompting ------------------------------------------
             # Prompt for username/password when the user asked (-PromptCredential)
             # or the target is remote/VSA and no -Credential was supplied. For
             # localhost we default to the current Windows session (single sign-on).
@@ -513,30 +576,59 @@ if (-not $SkipModuleB) {
                     Write-Warn "Credential prompt cancelled or unavailable: $($_.Exception.Message)"
                 }
                 if (-not $Credential) {
-                    Write-Warn "No credentials provided — attempting with the current Windows session."
+                    Write-Warn "No credentials provided - attempting with the current Windows session."
                 }
             }
 
             try {
-                $p = @{ Server = $VBRServer; Port = $Port }
-                if ($Credential) { $p['Credential'] = $Credential }
-                # v13: accept the backup server's TLS certificate on connect (avoids
-                # Identity-service/cert-trust failures). Added only if supported (v13+).
-                if (Get-Command Connect-VBRServer | Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' }) {
-                    $p['ForceAcceptTlsCertificate'] = $true
+                # v13: Connect-VBRServer defaults to port 443; v12 uses 9392. Try the
+                # requested port first, then the other one, so either generation works.
+                $ports = @($Port)
+                if ($Port -ne 443)  { $ports += 443 }
+                if ($Port -ne 9392) { $ports += 9392 }
+                # v13: -ForceAcceptTlsCertificate accepts the server's TLS certificate
+                # WITHOUT validating it, so it is opt-in (-AcceptAnyCertificate) and
+                # added only if the module supports it (v13+).
+                $hasForceTlsParam = [bool](Get-Command Connect-VBRServer | Where-Object { $_.Parameters.Keys -contains 'ForceAcceptTlsCertificate' })
+                $supportsForceTls = $AcceptAnyCertificate -and $hasForceTlsParam
+                if ($AcceptAnyCertificate -and -not $hasForceTlsParam) {
+                    Write-Warn "-AcceptAnyCertificate ignored: this Connect-VBRServer has no -ForceAcceptTlsCertificate (v12)."
                 }
-                Connect-VBRServer @p
+                $lastConnErr = $null
+                foreach ($tryPort in $ports) {
+                    $p = @{ Server = $VBRServer; Port = $tryPort }
+                    if ($Credential)       { $p['Credential'] = $Credential }
+                    if ($supportsForceTls) { $p['ForceAcceptTlsCertificate'] = $true }
+                    try {
+                        Connect-VBRServer @p
+                        $lastConnErr = $null
+                        break
+                    } catch {
+                        $lastConnErr = $_
+                        Write-Info "Connect on port $tryPort failed: $($_.Exception.Message)"
+                    }
+                }
+                if ($lastConnErr) { throw $lastConnErr }
+                $script:WeConnected = $true
                 Write-Pass "Connected to $targetDesc"
                 $script:TotalPass++
                 $connected = $true
             } catch {
                 # Connection failure is environment-dependent (service may not be running).
-                # Record as WARN not FAIL — Module B tests are skipped automatically.
+                # Record as WARN not FAIL - Module B tests are skipped automatically.
                 $errMsg = "$($_.Exception.Message)"
                 Write-Warn "Cannot connect to $targetDesc"
                 Write-Warn "  $errMsg"
+                if ($errMsg -match 'certificate|thumbprint|SSL|TLS|trust') {
+                    Write-Warn "  The connection failed on the server's TLS certificate."
+                    if (-not $AcceptAnyCertificate) {
+                        Write-Warn "  If you have verified the server certificate (thumbprint) yourself, re-run with"
+                        Write-Warn "  -AcceptAnyCertificate to accept it without validation (v13+ only). Do not use"
+                        Write-Warn "  this switch on an untrusted network: the credential is sent to whoever answers."
+                    }
+                }
                 if ($errMsg -match 'Identity service|Identity Service') {
-                    Write-Warn "  v13 Identity Service error — the module loaded but the identity/auth"
+                    Write-Warn "  v13 Identity Service error - the module loaded but the identity/auth"
                     Write-Warn "  service did not respond. On the VBR server, check that Veeam services"
                     Write-Warn "  are fully Running (not 'Starting') and the server certificate is valid:"
                     Write-Warn "     Get-Service Veeam* | Where-Object {`$_.Status -ne 'Running'}"
@@ -557,11 +649,11 @@ if (-not $SkipModuleB) {
 
         if ($connected) {
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-1: Get-VBRServer
             # Purpose: Identify all managed servers and locate the backup server.
             # App shows: server list in VBR Windows tab.
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-1: Get-VBRServer"
 
             $allServers = @()
@@ -584,13 +676,13 @@ if (-not $SkipModuleB) {
                     Write-Info "  Backup server: $($bs.Name) | Type: $($bs.Type) | Id: $($bs.Id)"
                 }
 
-                # Validate .Name is present on all objects — use @() to prevent
+                # Validate .Name is present on all objects - use @() to prevent
                 # .Count error if only one server returned (scalar not array)
                 Assert "All servers have .Name" {
                     @($allServers | Where-Object { $null -eq $_.Name }).Count -eq 0
                 }
 
-                # .Id must be a Guid — not a string representation
+                # .Id must be a Guid - not a string representation
                 Assert "All servers have .Id as [System.Guid]" {
                     @($allServers | Where-Object { $_.Id -isnot [System.Guid] }).Count -eq 0
                 }
@@ -603,15 +695,15 @@ if (-not $SkipModuleB) {
 
                 Test-GuidFilter -Label 'Get-VBRServer' -Items $allServers
             } else {
-                Write-Warn "No servers returned — skipping B-1 property tests"
+                Write-Warn "No servers returned - skipping B-1 property tests"
                 $script:TotalSkip += 3
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-2: Get-VBRViProxy
             # App: Get-VBRViProxy | Select Name, @{N="HostId";E={$_.Host.Id}}
             #      Get-VBRViProxy | Where {$_.Host.Id -eq [Guid]"<paste>"} | Select Name
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-2: Get-VBRViProxy (VMware proxies)"
 
             $viProxies = @(try { Get-VBRViProxy } catch { @() })
@@ -649,14 +741,14 @@ if (-not $SkipModuleB) {
                     Write-Info "  '$($p.Name)' | Host.Id: $($p.Host.Id) | Mode: $($p.TransportMode)"
                 }
             } else {
-                Write-Info "No VMware proxies — B-2 property tests skipped"
+                Write-Info "No VMware proxies - B-2 property tests skipped"
                 $script:TotalSkip += 6
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-3: Get-VBRHvProxy
             # App: Get-VBRHvProxy | Select Name, @{N="HostId";E={$_.Host.Id}}
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-3: Get-VBRHvProxy (Hyper-V proxies)"
 
             $hvProxies = @(try { Get-VBRHvProxy } catch { @() })
@@ -686,16 +778,16 @@ if (-not $SkipModuleB) {
                 }
                 Test-GuidFilter -Label 'Get-VBRHvProxy' -Items $hvProxies
             } else {
-                Write-Info "No HV proxies — skipped"
+                Write-Info "No HV proxies - skipped"
                 $script:TotalSkip += 5
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-4: Get-VBRBackupRepository
             # App (1): Get-VBRBackupRepository | Where {$_.Type -eq 'Cloud'}
             # App (2): Get-VBRBackupRepository | Where {$_.Id -eq [Guid]'...'} | Select Name
             # App (3): Get-VBRBackupRepository -ScaleOut  (SOBRs)
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-4: Get-VBRBackupRepository"
 
             $repos = @(try { Get-VBRBackupRepository } catch { @() })
@@ -746,17 +838,17 @@ if (-not $SkipModuleB) {
                     $script:TotalSkip++
                 }
             } else {
-                Write-Warn "No repos returned — skipping property tests"
+                Write-Warn "No repos returned - skipping property tests"
                 $script:TotalSkip += 6
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-5: Get-VBRJob
             # App (1): Get-VBRJob | Where-Object {$_.Id -eq [Guid]'<JobID>'} | Select Name
             # App (2): Get-VBRJob | Where {$_.IsReplica -eq $true} | Where {$_.Id -eq [Guid]'...'} | Select Name
             # Audit confirms: Get-VBRJob has NO -Type parameter in v13.
             # Use .IsReplica -eq $true to filter replication jobs (not .JobType string).
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-5: Get-VBRJob (backup + replication jobs)"
 
             $jobs = @(try { Get-VBRJob } catch { @() })
@@ -777,7 +869,7 @@ if (-not $SkipModuleB) {
 
                 Write-Sub "Job type breakdown"
                 $jobs | Group-Object JobType | Sort-Object Count -Descending | ForEach-Object {
-                    Write-Info "  JobType: '$($_.Name)' — $($_.Count) job(s)"
+                    Write-Info "  JobType: '$($_.Name)' - $($_.Count) job(s)"
                 }
 
                 Write-Sub "All jobs"
@@ -792,16 +884,16 @@ if (-not $SkipModuleB) {
                 $byName = @(Get-VBRJob -Name $jobs[0].Name)
                 Assert "Get-VBRJob -Name returns result" { $byName.Count -ge 1 }
 
-                # Replica filter — use .IsReplica (validated in audit)
+                # Replica filter - use .IsReplica (validated in audit)
                 Write-Sub ".IsReplica -eq $true filter"
                 $replJobs = @($jobs | Where-Object { $_.IsReplica -eq $true })
                 if ($replJobs.Count -gt 0) {
-                    Write-Pass ".IsReplica filter — $($replJobs.Count) replica job(s)"
+                    Write-Pass ".IsReplica filter - $($replJobs.Count) replica job(s)"
                     $script:TotalPass++
                     foreach ($rj in $replJobs) { Write-Info "  Replica: '$($rj.Name)' | Id: $($rj.Id)" }
                     Test-GuidFilter -Label 'Get-VBRJob (Replica)' -Items $replJobs
                 } else {
-                    Write-Info "No replica jobs — .IsReplica filter test skipped"
+                    Write-Info "No replica jobs - .IsReplica filter test skipped"
                     $script:TotalSkip++
                 }
 
@@ -811,15 +903,15 @@ if (-not $SkipModuleB) {
                 Assert "Get-VBRJob: no -Type parameter (v13 confirmed)" { -not $hasType }
 
             } else {
-                Write-Warn "No jobs returned — skipping B-5 tests"
+                Write-Warn "No jobs returned - skipping B-5 tests"
                 $script:TotalSkip += 8
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-6: Get-VBRComputerBackupJob
             # App: Get-VBRComputerBackupJob | Where {$_.Id -eq [Guid]'...'} | Select Name, PolicyType
             # For managed agent backup jobs and policies.
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-6: Get-VBRComputerBackupJob (managed agent jobs)"
 
             $agentJobs = @(try { Get-VBRComputerBackupJob } catch { @() })
@@ -842,22 +934,22 @@ if (-not $SkipModuleB) {
                 }
                 Test-GuidFilter -Label 'Get-VBRComputerBackupJob' -Items $agentJobs
             } else {
-                Write-Pass "Get-VBRComputerBackupJob — 0 results (valid if no managed agent policies)"
+                Write-Pass "Get-VBRComputerBackupJob - 0 results (valid if no managed agent policies)"
                 $script:TotalPass++
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-7: Get-VBREPJob
             # Legacy/standalone Veeam Agent backup jobs (EndpointBackup type).
-            # App notes these as "legacy" — migrate to managed policies.
-            # ──────────────────────────────────────────────────────────────────
+            # App notes these as "legacy" - migrate to managed policies.
+            # ------------------------------------------------------------------
             Write-Head "B-7: Get-VBREPJob (standalone/legacy agent jobs)"
 
             $epJobs = @(try { Get-VBREPJob } catch { @() })
             Assert "Get-VBREPJob runs" { $true }
 
             if ($epJobs.Count -gt 0) {
-                Write-Info "Found $($epJobs.Count) standalone agent job(s) — LEGACY"
+                Write-Info "Found $($epJobs.Count) standalone agent job(s) - LEGACY"
                 Assert "EP jobs: .Name exists" {
                     @($epJobs | Where-Object { $null -eq $_.Name }).Count -eq 0
                 }
@@ -865,15 +957,15 @@ if (-not $SkipModuleB) {
                 foreach ($ej in $epJobs) { Write-Info "  '$($ej.Name)' | Id: $($ej.Id)" }
                 Test-GuidFilter -Label 'Get-VBREPJob' -Items $epJobs
             } else {
-                Write-Pass "Get-VBREPJob — 0 results (clean, no legacy jobs)"
+                Write-Pass "Get-VBREPJob - 0 results (clean, no legacy jobs)"
                 $script:TotalPass++
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-8: Get-VBRCloudTenant
             # App: Get-VBRCloudTenant | Where {$_.Id -eq [Guid]'...'} | Select Name
             # Only returns results on VCSP/Cloud Connect provider environments.
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-8: Get-VBRCloudTenant (Cloud Connect tenants)"
 
             $tenants = @(try { Get-VBRCloudTenant } catch { @() })
@@ -894,45 +986,45 @@ if (-not $SkipModuleB) {
                 }
                 Test-GuidFilter -Label 'Get-VBRCloudTenant' -Items $tenants
             } else {
-                Write-Pass "Get-VBRCloudTenant — 0 results (expected on non-VCSP environments)"
+                Write-Pass "Get-VBRCloudTenant - 0 results (expected on non-VCSP environments)"
                 $script:TotalPass++
             }
 
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             # B-9: Get-VBRBackupCopyJob
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-9: Get-VBRBackupCopyJob (backup copy jobs)"
             $copyJobs = @(try { Get-VBRBackupCopyJob } catch { @() })
             Assert "Get-VBRBackupCopyJob runs without error" { $true }
             Write-Info "Backup copy jobs: $($copyJobs.Count)"
             foreach ($cj in $copyJobs) { Write-Info "  '$($cj.Name)' | Id: $($cj.Id)" }
-            if ($copyJobs.Count -eq 0) { Write-Warn "  No backup copy jobs — 3-2-1 rule may not be satisfied" }
+            if ($copyJobs.Count -eq 0) { Write-Warn "  No backup copy jobs - 3-2-1 rule may not be satisfied" }
 
             # B-10: Get-VBRSureBackupJob
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-10: Get-VBRSureBackupJob (recovery verification)"
             $sbJobs = @(try { Get-VBRSureBackupJob } catch { @() })
             Assert "Get-VBRSureBackupJob runs without error" { $true }
             Write-Info "SureBackup jobs: $($sbJobs.Count)"
             foreach ($sbj in $sbJobs) { Write-Info "  '$($sbj.Name)' | Id: $($sbj.Id)" }
-            if ($sbJobs.Count -eq 0) { Write-Warn "  No SureBackup jobs — restore points are unverified" }
+            if ($sbJobs.Count -eq 0) { Write-Warn "  No SureBackup jobs - restore points are unverified" }
 
             # B-11: Get-VBRTapeJob
-            # ──────────────────────────────────────────────────────────────────
+            # ------------------------------------------------------------------
             Write-Head "B-11: Get-VBRTapeJob (tape backup jobs)"
             $tapeJobs = @(try { Get-VBRTapeJob } catch { @() })
             Assert "Get-VBRTapeJob runs without error" { $true }
             Write-Info "Tape jobs: $($tapeJobs.Count)"
             foreach ($tj in $tapeJobs) { Write-Info "  '$($tj.Name)' | Id: $($tj.Id)" }
 
-            # ── Disconnect ────────────────────────────────────────────────────
+            # -- Disconnect ----------------------------------------------------
             Write-Sub "Disconnect"
-            $wasPreConnected = (Get-VBRServerSession) -and ($VBRServer -eq 'localhost')
-            if (-not $wasPreConnected) {
+            # Disconnect only a session this script opened; leave a pre-existing one.
+            if ($script:WeConnected) {
                 try { Disconnect-VBRServer; Write-Pass "Disconnected"; $script:TotalPass++ }
                 catch { Write-Warn "Disconnect: $($_.Exception.Message)" }
             } else {
-                Write-Info "Pre-existing session — leaving connected"
+                Write-Info "Pre-existing session - leaving connected"
             }
 
         } # end $connected
@@ -941,701 +1033,716 @@ if (-not $SkipModuleB) {
 } # end Module B
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MODULE C — BEST PRACTICE LOGIC VALIDATION
-#  Tests every BP check in Veeam Advisor against known-good and known-bad
-#  synthetic data. Does not require a VBR connection.
-#  Each test validates: (a) bad case fires a finding, (b) good case clears it.
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  MODULE C - BEST PRACTICE RULE REFERENCE (INFORMATIONAL)
+#  Documents each BP rule in Veeam Advisor with its known-good and known-bad
+#  conditions. The blocks below only restate constants, so they are printed with
+#  Show-Rule (not executed, not counted) rather than asserted as tests.
+#  Does not require a VBR connection.
+# ==============================================================================
 if (-not $SkipModuleC) {
 
-    Write-Head "MODULE C — BEST PRACTICE LOGIC VALIDATION"
+    Write-Head "MODULE C - BEST PRACTICE RULE REFERENCE (informational, not tests)"
     Write-Info "  Reference: bp.veeam.com/vbr | bp.veeam.com/security"
-    Write-Info "  Each check tests both the FAIL case and the PASS case."
+    Write-Info "  These [RULE] lines document the conditions each BP check uses. They do not"
+    Write-Info "  run the app's logic and are NOT counted in PASSED/FAILED/SKIPPED. The app's"
+    Write-Info "  real logic is tested by: node confirm-bp-findings.js"
 
-    # ── C-1: MFA ──────────────────────────────────────────────────────────────
-    Write-Sub "C-1: MFA — must be enabled (v13 only)"
-    Assert "MFA=False should fire Critical finding" {
-        # BP: bp.veeam.com/security — MFA required on console
+
+    # -- C-1: MFA --------------------------------------------------------------
+    Write-Sub "C-1: MFA - must be enabled (v13 only)"
+    Show-Rule "MFA=False should fire Critical finding" {
+        # BP: bp.veeam.com/security - MFA required on console
         $mfaDisabled = $false   # simulates parsed MFAEnabled: False
         -not $mfaDisabled       # finding fires when false
     }
-    Assert "MFA=True should clear finding" {
+    Show-Rule "MFA=True should clear finding" {
         $mfaEnabled = $true
         $mfaEnabled             # no finding when true
     }
-    Assert "MFA=null (v12) should NOT fire (field absent in v12 logs)" {
+    Show-Rule "MFA=null (v12) should NOT fire (field absent in v12 logs)" {
         $mfaNull = $null
-        $null -eq $mfaNull      # null means v12 — no finding
+        $null -eq $mfaNull      # null means v12 - no finding
     }
 
-    # ── C-2: Backup copy (3-2-1 rule) ────────────────────────────────────────
-    Write-Sub "C-2: Backup copy — 3-2-1 rule"
-    Assert "No backup copy should fire Critical" {
-        # BP: bp.veeam.com/vbr — 3-2-1 requires offsite copy
+    # -- C-2: Backup copy (3-2-1 rule) ----------------------------------------
+    Write-Sub "C-2: Backup copy - 3-2-1 rule"
+    Show-Rule "No backup copy should fire Critical" {
+        # BP: bp.veeam.com/vbr - 3-2-1 requires offsite copy
         $secDest = $false; $copyJobs = 0; $bcsm = 0; $isTenant = $false
         $hasBackupCopy = $secDest -or ($copyJobs -gt 0) -or ($bcsm -gt 0) -or $isTenant
         -not $hasBackupCopy     # finding fires when no copy
     }
-    Assert "BCSMPolicy jobs should satisfy 3-2-1" {
+    Show-Rule "BCSMPolicy jobs should satisfy 3-2-1" {
         $bcsm = 5               # 5 BCSMPolicy jobs detected
         $bcsm -gt 0
     }
-    Assert "CC tenant connection satisfies 3-2-1 (offsite = SP infra)" {
+    Show-Rule "CC tenant connection satisfies 3-2-1 (offsite = SP infra)" {
         $isTenant = $true
         $isTenant
     }
-    Assert "SecondaryDestinations:True satisfies 3-2-1" {
+    Show-Rule "SecondaryDestinations:True satisfies 3-2-1" {
         $secDest = $true
         $secDest
     }
 
-    # ── C-3: Immutability ─────────────────────────────────────────────────────
-    Write-Sub "C-3: Immutability — backup data must be protected"
-    Assert "No immutable repos should fire Critical" {
+    # -- C-3: Immutability -----------------------------------------------------
+    Write-Sub "C-3: Immutability - backup data must be protected"
+    Show-Rule "No immutable repos should fire Critical" {
         $hasLH = $false; $hasVDC = $false; $hasExplicit = $false
         $isImmut = $hasLH -or $hasVDC -or $hasExplicit
         -not $isImmut
     }
-    Assert "LinuxHardened repo satisfies immutability" {
+    Show-Rule "LinuxHardened repo satisfies immutability" {
         $hasLH = $true
         $hasLH
     }
-    Assert "VeeamDataCloudObjStgVersion2 satisfies immutability" {
+    Show-Rule "VeeamDataCloudObjStgVersion2 satisfies immutability" {
         $rtc = @{ VeeamDataCloudObjStgVersion2 = 3 }
         $v1=if($rtc.ContainsKey('VeeamDataCloudObjStg')){$rtc['VeeamDataCloudObjStg']}else{0}; $v2=if($rtc.ContainsKey('VeeamDataCloudObjStgVersion2')){$rtc['VeeamDataCloudObjStgVersion2']}else{0}; ($v1+$v2) -gt 0
     }
-    Assert "Explicit ImmutabilitySettings:True satisfies immutability" {
+    Show-Rule "Explicit ImmutabilitySettings:True satisfies immutability" {
         $hasExplicit = $true
         $hasExplicit
     }
 
-    # ── C-4: Immutability minimum days ────────────────────────────────────────
-    Write-Sub "C-4: Immutability lock period — minimum 14 days"
-    Assert "7-day lock period should fire Warning" {
-        # BP: bp.veeam.com/security — WORM storage guide recommends >=14 days
+    # -- C-4: Immutability period (advisory) ----------------------------------
+    Write-Sub "C-4: Immutability period - informational below 14 days (v2.2.1)"
+    Show-Rule "7-day immutability period should raise an Info (not a Warning)" {
+        # v2.2.1: Veeam sets no minimum; 14 days is the tool's advisory threshold
         $immutDays = 7
-        $immutDays -lt 14       # finding fires when <14
+        $sev = if ($immutDays -lt 14) { 'i' } else { $null }
+        $sev -eq 'i'
     }
-    Assert "14-day lock period should clear Warning" {
+    Show-Rule "14-day immutability period raises nothing" {
         $immutDays = 14
         -not ($immutDays -lt 14)
     }
-    Assert "30-day lock period should clear Warning" {
+    Show-Rule "30-day immutability period raises nothing" {
         $immutDays = 30
         -not ($immutDays -lt 14)
     }
 
-    # ── C-5: Encryption ───────────────────────────────────────────────────────
-    Write-Sub "C-5: Job encryption — backup data at rest"
-    Assert "Encryption=False should fire Critical" {
+    # -- C-5: Encryption -------------------------------------------------------
+    Write-Sub "C-5: Job encryption - backup data at rest"
+    Show-Rule "Encryption=False should fire Critical" {
         $enc = 'False'
         $enc -eq 'False'
     }
-    Assert "Encryption=True should clear finding" {
+    Show-Rule "Encryption=True should clear finding" {
         $enc = 'True'
         $enc -eq 'True'
     }
 
-    # v2.2: encryption posture — the three-tier surface adds states beyond a single
+    # v2.2: encryption posture - the three-tier surface adds states beyond a single
     # job-encryption boolean. Validate the posture logic the tool now applies.
-    Write-Sub "C-5b: Encryption posture (v2.2) — combined at-rest / in-transit states"
-    Assert "All jobs encrypted -> atRest 'on'" {
+    Write-Sub "C-5b: Encryption posture (v2.2) - combined at-rest / in-transit states"
+    Show-Rule "All jobs encrypted -> atRest 'on'" {
         $jobsEnc = 5; $jobsTot = 5
         ($jobsTot -gt 0 -and $jobsEnc -eq $jobsTot)
     }
-    Assert "Some jobs encrypted -> atRest 'partial'" {
+    Show-Rule "Some jobs encrypted -> atRest 'partial'" {
         $jobsEnc = 3; $jobsTot = 5
         ($jobsEnc -gt 0 -and $jobsEnc -lt $jobsTot)
     }
-    Assert "No jobs encrypted -> atRest 'off'" {
+    Show-Rule "No jobs encrypted -> atRest 'off'" {
         $jobsEnc = 0; $jobsTot = 5
         ($jobsTot -gt 0 -and $jobsEnc -eq 0)
     }
-    Assert "In-transit shown 'off' only when BPA violation present" {
+    Show-Rule "In-transit shown 'off' only when BPA violation present" {
         $bpaViProxy = $true
         $bpaViProxy -eq $true
     }
-    Assert "In-transit shown 'not-flagged' (never confirmed on) when BPA absent" {
+    Show-Rule "In-transit shown 'not-flagged' (never confirmed on) when BPA absent" {
         $bpaViProxy = $false
         # absence of the flag must NOT be reported as encrypted
         (-not $bpaViProxy)
     }
-    Assert "Per-repo at-rest uses immutability (no storage-encryption field in log)" {
+    Show-Rule "Per-repo at-rest uses immutability (no storage-encryption field in log)" {
         $repoImmut = $true
         $repoImmut -eq $true
     }
 
-    # ── C-6: Config backup ───────────────────────────────────────────────────
-    Write-Sub "C-6: Config backup — must exist, be offsite, be encrypted"
-    Assert "No config backup jobs should fire Critical" {
+    # -- C-6: Config backup ---------------------------------------------------
+    Write-Sub "C-6: Config backup - must exist, be offsite, be encrypted"
+    Show-Rule "No config backup jobs should fire Critical" {
         $confJobCount = 0
         $confJobCount -eq 0
     }
-    Assert "Config backup not encrypted should fire Warning" {
+    Show-Rule "Config backup not encrypted should fire Warning" {
         $confEncrypted = $false
         -not $confEncrypted
     }
-    Assert "Config backup local (BPA violation) should fire Critical" {
+    Show-Rule "Config backup local (BPA violation) should fire Critical" {
         $bpaLocalConfig = $true  # ConfigurationBackupRepositoryNotLocal in BPA
         $bpaLocalConfig
     }
-    Assert "Config backup encrypted + remote should clear all findings" {
+    Show-Rule "Config backup encrypted + remote should clear all findings" {
         $confEncrypted = $true; $confCount = 1; $bpaLocal = $false
         $confEncrypted -and ($confCount -gt 0) -and (-not $bpaLocal)
     }
 
-    # ── C-7: CBT ─────────────────────────────────────────────────────────────
+    # -- C-7: CBT -------------------------------------------------------------
     Write-Sub "C-7: Changed Block Tracking (CBT)"
-    Assert "CBT=False should fire Critical" {
+    Show-Rule "CBT=False should fire Critical" {
         # BP: Required for incremental backup performance
         $cbt = 'False'
         $cbt -eq 'False'
     }
-    Assert "CBT=True should clear finding" {
+    Show-Rule "CBT=True should clear finding" {
         $cbt = 'True'
         $cbt -eq 'True'
     }
-    Assert "CBT=null (no CBT lines in log) should NOT fire" {
+    Show-Rule "CBT=null (no CBT lines in log) should NOT fire" {
         $cbt = $null
         $null -eq $cbt
     }
 
-    # ── C-8: GFS (long-term retention) ───────────────────────────────────────
-    Write-Sub "C-8: GFS — long-term retention policy"
-    Assert "No GFS should fire Warning" {
-        # BP: bp.veeam.com/vbr — GFS recommended for compliance
+    # -- C-8: GFS (long-term retention) ---------------------------------------
+    Write-Sub "C-8: GFS - long-term retention policy"
+    Show-Rule "No GFS should fire Warning" {
+        # BP: bp.veeam.com/vbr - GFS recommended for compliance
         $gfsW = 0; $gfsM = 0; $gfsY = 0
         ($gfsW + $gfsM + $gfsY) -eq 0
     }
-    Assert "GFS configured should clear Warning" {
+    Show-Rule "GFS configured should clear Warning" {
         $gfsM = 12  # 12 monthly points
         $gfsM -gt 0
     }
-    Assert "VCSP environment should skip GFS check (not applicable)" {
+    Show-Rule "VCSP environment should skip GFS check (not applicable)" {
         $isProvider = $true
-        $isProvider  # skip condition — VCSP doesn't manage its own retention
+        $isProvider  # skip condition - VCSP doesn't manage its own retention
     }
 
-    # ── C-9: Job sizing (>30 VMs per job) ────────────────────────────────────
-    Write-Sub "C-9: Job sizing — max 30 VMs per job"
-    Assert ">30 VMs per job should fire Warning" {
-        # BP: bp.veeam.com/vbr — 30 VM limit for manageability and performance
-        $avgVmsPerJob = 45
-        $avgVmsPerJob -gt 30
+    # -- C-9: Job sizing (VMs per job, per-machine chains) -------------------
+    Write-Sub "C-9: Job sizing - >300 VMs critical, 100-300 informational (v2.2.1)"
+    Show-Rule ">300 VMs in the largest job should fire Critical" {
+        $maxVmsPerJob = 320
+        $maxVmsPerJob -gt 300
     }
-    Assert "<=30 VMs per job should clear Warning" {
-        $avgVmsPerJob = 25
-        -not ($avgVmsPerJob -gt 30)
+    Show-Rule "100-300 VMs in the largest job should be Info only" {
+        $maxVmsPerJob = 150
+        $sev = if ($maxVmsPerJob -gt 300) { 'crit' } elseif ($maxVmsPerJob -gt 100) { 'i' } else { 'ok' }
+        $sev -eq 'i'
     }
-    Assert "VCSP should skip job sizing check (no own backup jobs)" {
+    Show-Rule "<=100 VMs in the largest job is OK" {
+        $maxVmsPerJob = 45
+        -not ($maxVmsPerJob -gt 100)
+    }
+    Show-Rule "VCSP should skip job sizing check (no own backup jobs)" {
         $isProvider = $true
         $isProvider
     }
 
-    # ── C-10: Storage latency control ────────────────────────────────────────
+    # -- C-10: Storage latency control ----------------------------------------
     Write-Sub "C-10: Storage latency control"
-    Assert "LatencyControlEnabled=False should fire Warning" {
+    Show-Rule "LatencyControlEnabled=False should fire Warning" {
         $latency = $false
         -not $latency
     }
-    Assert "LatencyControlEnabled=True should clear Warning" {
+    Show-Rule "LatencyControlEnabled=True should clear Warning" {
         $latency = $true
         $latency
     }
-    Assert "VCSP should skip latency check (no production VMs)" {
+    Show-Rule "VCSP should skip latency check (no production VMs)" {
         $isProvider = $true
         $isProvider
     }
 
-    # ── C-11: Guest processing ───────────────────────────────────────────────
+    # -- C-11: Guest processing -----------------------------------------------
     Write-Sub "C-11: Guest processing / application-aware"
-    Assert "GuestProcessingEnabled=False should fire Warning" {
+    Show-Rule "GuestProcessingEnabled=False should fire Warning" {
         $guestProc = $false
         -not $guestProc
     }
-    Assert "GuestProcessingEnabled=True should clear Warning" {
+    Show-Rule "GuestProcessingEnabled=True should clear Warning" {
         $guestProc = $true
         $guestProc
     }
-    Assert "VCSP should skip guest processing check" {
+    Show-Rule "VCSP should skip guest processing check" {
         $isProvider = $true
         $isProvider
     }
-    Assert "No own backup jobs should skip guest processing check" {
+    Show-Rule "No own backup jobs should skip guest processing check" {
         $hasOwnJobs = $false
         -not $hasOwnJobs
     }
 
-    # ── C-12: Proxy count adequacy ───────────────────────────────────────────
-    Write-Sub "C-12: Proxy sizing — recommended vs actual"
-    Assert "Fewer proxies than recommended should fire Info" {
-        # BP: proxy count formula — taskUnit/bkW/tasksPerProxy
+    # -- C-12: Proxy count adequacy -------------------------------------------
+    Write-Sub "C-12: Proxy sizing - recommended vs actual"
+    Show-Rule "Fewer proxies than recommended should fire Info" {
+        # BP: proxy count formula - taskUnit/bkW/tasksPerProxy
         $existingProxies = 1
         $recommendedProxies = 3
         $existingProxies -lt $recommendedProxies
     }
-    Assert "Proxy count meeting recommendation should clear finding" {
+    Show-Rule "Proxy count meeting recommendation should clear finding" {
         $existingProxies = 3
         $recommendedProxies = 3
         $existingProxies -ge $recommendedProxies
     }
-    Assert "Proxy sizing: VMware task unit = VMs x 2 (avg 2 disks/VM)" {
-        # BP: bp.veeam.com/vbr — vmware_proxies.html
+    Show-Rule "Proxy sizing: VMware task unit = VMs x 2 (1 task per VM disk, avg 2 disks/VM)" {
+        # Help Center: one task per VM disk (VMware and Hyper-V)
         $vms = 100; $platform = 'VMware'
-        $taskUnit = if ($platform -eq 'VMware') { $vms * 2 } else { $vms }
+        $taskUnit = if ($platform -eq 'VMware' -or $platform -eq 'HyperV') { $vms * 2 } else { $vms }
         $taskUnit -eq 200
     }
-    Assert "Proxy sizing: HV task unit = VMs (1 VM per task)" {
+    Show-Rule "Proxy sizing: HV task unit = VMs x 2 (1 task per VM disk)" {
         $vms = 100; $platform = 'HyperV'
-        $taskUnit = if ($platform -eq 'VMware') { $vms * 2 } else { $vms }
-        $taskUnit -eq 100
+        $taskUnit = if ($platform -eq 'VMware' -or $platform -eq 'HyperV') { $vms * 2 } else { $vms }
+        $taskUnit -eq 200
     }
-    Assert "Proxy count minimum = 2 (HA requirement)" {
+    Show-Rule "Proxy sizing: worker platforms (Proxmox/AHV) = 1 task per VM, 4 tasks per worker" {
+        $vms = 100; $platform = 'Proxmox'
+        $taskUnit = if ($platform -eq 'VMware' -or $platform -eq 'HyperV') { $vms * 2 } else { $vms }
+        $workerRam = 6 + [Math]::Max(0, 4 - 4)   # 6 GB for the default 4 tasks
+        ($taskUnit -eq 100) -and ($workerRam -eq 6)
+    }
+    Show-Rule "Proxy count minimum = 2 (HA requirement)" {
         $vms = 5; $bkW = 8; $taskUnit = $vms
         $tasksNeeded = [Math]::Max(4, [Math]::Min([Math]::Ceiling($taskUnit / $bkW), 128))
         $pCnt = [Math]::Max(2, [Math]::Ceiling($tasksNeeded / 12))
         $pCnt -ge 2
     }
 
-    # ── C-13: NIC bandwidth (NBD mode) ───────────────────────────────────────
-    Write-Sub "C-13: NIC bandwidth — NBD proxy throughput"
-    Assert "1 GbE NIC should warn — only 1 concurrent task in NBD mode" {
+    # -- C-13: NIC bandwidth (NBD mode) ---------------------------------------
+    Write-Sub "C-13: NIC bandwidth - NBD proxy throughput"
+    Show-Rule "1 GbE NIC should warn - only 1 concurrent task in NBD mode" {
         # BP: 60% NIC utilisation, 52 MB/s per task
         $nicGbE = 1
         $usableMBps = $nicGbE * 1000 / 8 * 0.6  # 75 MB/s
         $nicTaskCap = [Math]::Floor($usableMBps / 52)  # 1 task
         $nicTaskCap -lt 6  # warning threshold
     }
-    Assert "10 GbE NIC should NOT warn — 14 tasks available" {
+    Show-Rule "10 GbE NIC should NOT warn - 14 tasks available" {
         $nicGbE = 10
         $usableMBps = $nicGbE * 1000 / 8 * 0.6  # 750 MB/s
         $nicTaskCap = [Math]::Floor($usableMBps / 52)  # 14 tasks
         $nicTaskCap -ge 12  # no bottleneck
     }
-    Assert "2.5 GbE NIC: 3 concurrent tasks (bottleneck for >3 task workloads)" {
+    Show-Rule "2.5 GbE NIC: 3 concurrent tasks (bottleneck for >3 task workloads)" {
         $nicGbE = 2.5
         $usableMBps = $nicGbE * 1000 / 8 * 0.6  # 187.5 MB/s
         $nicTaskCap = [Math]::Floor($usableMBps / 52)  # 3 tasks
         $nicTaskCap -eq 3
     }
-    Assert "HotAdd/SAN: nicGbE=0 means no NIC cap applies" {
+    Show-Rule "HotAdd/SAN: nicGbE=0 means no NIC cap applies" {
         $nicGbE = 0
         $nicGbE -eq 0  # no cap applied in code
     }
 
-    # ── C-14: StoreOnce Decompress ───────────────────────────────────────────
-    Write-Sub "C-14: HPE StoreOnce — Decompress before storing"
-    Assert "StoreOnce without Decompress should fire Warning" {
-        # BP: bp.veeam.com/vbr — storeonce.html — must decompress for dedup efficiency
+    # -- C-14: StoreOnce Decompress -------------------------------------------
+    Write-Sub "C-14: HPE StoreOnce - Decompress before storing"
+    Show-Rule "StoreOnce without Decompress should fire Warning" {
+        # BP: bp.veeam.com/vbr - storeonce.html - must decompress for dedup efficiency
         $storeOnceRepos = @(@{ Type='HPStoreOnceIntegration'; Decompress=$false })
         ($storeOnceRepos | Where-Object { $_.Type -eq 'HPStoreOnceIntegration' -and $_.Decompress -eq $false }).Count -gt 0
     }
-    Assert "StoreOnce with Decompress should clear Warning" {
+    Show-Rule "StoreOnce with Decompress should clear Warning" {
         $storeOnceRepos = @(@{ Type='HPStoreOnceIntegration'; Decompress=$true })
         ($storeOnceRepos | Where-Object { $_.Type -eq 'HPStoreOnceIntegration' -and $_.Decompress -eq $false }).Count -eq 0
     }
 
-    # ── C-15: WAN Accelerator deprecation ────────────────────────────────────
-    Write-Sub "C-15: WAN Accelerator — deprecated in v12+"
-    Assert "WAN Accel present on v13 should fire Info" {
-        $wanAccel = 2; $isV13 = $true
-        $wanAccel -gt 0 -and $isV13
+    # -- C-15: WAN Accelerators (supported - informational) -------------------
+    Write-Sub "C-15: WAN Accelerator - informational, not deprecated (v2.2.1)"
+    Show-Rule "WAN Accel present should raise Info on v12 and v13" {
+        $wanAccel = 2
+        $wanAccel -gt 0
     }
-    Assert "WAN Accel on v12 should NOT fire (not deprecated in that version)" {
-        $wanAccel = 2; $isV13 = $false
-        -not ($wanAccel -gt 0 -and $isV13)
-    }
-    Assert "No WAN Accel should not fire" {
+    Show-Rule "No WAN Accel should not fire" {
         $wanAccel = 0
         $wanAccel -eq 0
     }
 
-    # ── C-16: Enterprise scale (>5000 VMs) ───────────────────────────────────
-    Write-Sub "C-16: Enterprise scale — >5000 VMs"
-    Assert ">5000 VMs should fire Warning (multiple VBR instances recommended)" {
+    # -- C-16: Enterprise scale (>5000 VMs) -----------------------------------
+    Write-Sub "C-16: Enterprise scale - >5000 VMs"
+    Show-Rule ">5000 VMs should fire Warning (multiple VBR instances recommended)" {
         # BP: bp.veeam.com/vbr/2_Design_Structures/D_enterprise_design
         $vms = 6000
         $vms -gt 5000
     }
-    Assert "<=5000 VMs should not fire" {
+    Show-Rule "<=5000 VMs should not fire" {
         $vms = 500
         -not ($vms -gt 5000)
     }
 
-    # ── C-17: SureBackup / Virtual Lab ───────────────────────────────────────
+    # -- C-17: SureBackup / Virtual Lab ---------------------------------------
     Write-Sub "C-17: SureBackup + Virtual Lab"
-    Assert "SureBackup jobs with 0 Virtual Labs should fire Warning" {
+    Show-Rule "SureBackup jobs with 0 Virtual Labs should fire Warning" {
         # BP: SureBackup requires a Virtual Lab to boot VMs in isolation
         $sbJobs = 3; $virtualLabs = 0
         $sbJobs -gt 0 -and $virtualLabs -eq 0
     }
-    Assert "No SureBackup jobs should not fire VL warning" {
+    Show-Rule "No SureBackup jobs should not fire VL warning" {
         $sbJobs = 0; $virtualLabs = 0
         -not ($sbJobs -gt 0 -and $virtualLabs -eq 0)
     }
-    Assert "SureBackup + Virtual Lab configured should clear warning" {
+    Show-Rule "SureBackup + Virtual Lab configured should clear warning" {
         $sbJobs = 3; $virtualLabs = 2
         -not ($sbJobs -gt 0 -and $virtualLabs -eq 0)
     }
 
-    # ── C-18: Enterprise Manager ─────────────────────────────────────────────
+    # -- C-18: Enterprise Manager ---------------------------------------------
     Write-Sub "C-18: Enterprise Manager"
-    Assert "EM not added should fire Info" {
+    Show-Rule "EM not added should fire Info" {
         $emAdded = $false
         -not $emAdded
     }
-    Assert "EM added (Remote) should clear Info" {
+    Show-Rule "EM added (Remote) should clear Info" {
         $emAdded = $true; $emLocal = $false
         $emAdded -and -not $emLocal
     }
 
-    # ── C-19: Email notifications ────────────────────────────────────────────
+    # -- C-19: Email notifications --------------------------------------------
     Write-Sub "C-19: Email notifications BPA violation"
-    Assert "EmailNotificationsEnabled BPA violation should fire Warning" {
+    Show-Rule "EmailNotificationsEnabled BPA violation should fire Warning" {
         $bpa = @{ EmailNotificationsEnabled = $true }
         $bpa.ContainsKey('EmailNotificationsEnabled')
     }
-    Assert "No EmailNotifications BPA should clear Warning" {
+    Show-Rule "No EmailNotifications BPA should clear Warning" {
         $bpa = @{}
         -not $bpa.ContainsKey('EmailNotificationsEnabled')
     }
 
-    # ── C-20: Proxy traffic encryption ───────────────────────────────────────
+    # -- C-20: Proxy traffic encryption ---------------------------------------
     Write-Sub "C-20: Proxy traffic encryption"
-    Assert "ViProxyTrafficEncrypted BPA violation should fire Warning" {
+    Show-Rule "ViProxyTrafficEncrypted BPA violation should fire Warning" {
         $bpa = @{ ViProxyTrafficEncrypted = $true }
         $bpa.ContainsKey('ViProxyTrafficEncrypted')
     }
 
-    # ── C-21: Malware — critical event threshold ──────────────────────────────
-    Write-Sub "C-21: Malware — critical events"
-    Assert "ransomExt + ransomText + encrypted > 0 should fire Critical" {
+    # -- C-21: Malware - critical event threshold ------------------------------
+    Write-Sub "C-21: Malware - critical events"
+    Show-Rule "ransomExt + ransomText + encrypted > 0 should fire Critical" {
         $ransomExt = 4000; $ransomText = 0; $encrypted = 0
         ($ransomExt + $ransomText + $encrypted) -gt 0
     }
-    Assert "Only deleted events should NOT be Critical (not in crit count)" {
+    Show-Rule "Only deleted events should NOT be Critical (not in crit count)" {
         # Deleted files = suspicious but not confirmed ransomware
         $ransomExt = 0; $ransomText = 0; $encrypted = 0; $deleted = 150
         ($ransomExt + $ransomText + $encrypted) -eq 0
     }
-    Assert "MarkAsClean events represent back-change / resolution" {
+    Show-Rule "MarkAsClean events represent back-change / resolution" {
         $markAsClean = 5  # admin dismissed 5 events as clean
         $markAsClean -gt 0
     }
 
-    # ── C-22: Repository sizing formulas ─────────────────────────────────────
-    Write-Sub "C-22: Repository sizing — FFI mode, 10TB source, 5% change, 14 days"
-    Assert "Compressed full = dataTB x 1024 x 0.5 (2:1 compression)" {
+    # -- C-22: Repository sizing formulas -------------------------------------
+    Write-Sub "C-22: Repository sizing - FFI mode, 10TB source, 5% change, 14 days"
+    Show-Rule "Compressed full = dataTB x 1024 x 0.5 (2:1 compression)" {
         $dataTB = 10
         $fullGB = $dataTB * 1024 * 0.5  # 5120 GB
         $fullGB -eq 5120
     }
-    Assert "Daily incremental = fullGB x changeRate" {
+    Show-Rule "Daily incremental = fullGB x changeRate" {
         $fullGB = 5120; $chR = 0.05
         $incrGB = $fullGB * $chR  # 256 GB
         $incrGB -eq 256
     }
-    Assert "FFI retention chain = fullGB + incrGB x ret" {
+    Show-Rule "FFI retention chain = fullGB + incrGB x ret" {
         $fullGB = 5120; $incrGB = 256; $ret = 14
         $retGB = $fullGB + $incrGB * $ret  # 5120 + 3584 = 8704
         $retGB -eq 8704
     }
-    Assert "Active Full chain = fullGB x weeks + incrGB x remaining days" {
+    Show-Rule "Active Full chain = fullGB x weeks + incrGB x remaining days" {
         $fullGB = 5120; $incrGB = 256; $ret = 14
         $fc = [Math]::Ceiling($ret / 7)  # 2 fulls
         $retGB = $fullGB * $fc + $incrGB * ($ret - $fc)  # 10240 + 3072 = 13312
         $retGB -eq 13312
     }
-    Assert "Repo total = (retGB + gfsTotal) x 1.20 overhead" {
+    Show-Rule "Repo total = (retGB + gfsTotal) x 1.20 overhead" {
         $retGB = 8704; $gfsTotal = 0
         $totGB = ($retGB + $gfsTotal) * 1.20  # 10444.8
         [Math]::Round($totGB) -eq 10445
     }
-    Assert "Repo TB = round(totGB / 1024, 1 decimal)" {
+    Show-Rule "Repo TB = round(totGB / 1024, 1 decimal)" {
         $totGB = 10444.8
         $repoTB = [Math]::Round($totGB / 1024, 1)  # 10.2
         $repoTB -eq 10.2
     }
 
-    # ── C-23: VSA warning suppression logic ──────────────────────────────────
-    Write-Sub "C-23: VSA warning logic"
-    Assert "VSA warning suppressed when isVSA=True" {
+    # -- C-23: VSA messaging (v2.2.1) -----------------------------------------
+    Write-Sub "C-23: VSA messaging"
+    Show-Rule "No VSA upgrade warning on a VSA" {
         $isVSA = $true; $v13 = $true
-        $warn = -not $isVSA -and -not $v13
-        -not $warn  # suppressed
+        $warn = $false   # v2.2.1: no standalone 'VSA requires v13' finding
+        -not $warn
     }
-    Assert "VSA warning suppressed on v13 Windows (not needed)" {
+    Show-Rule "No VSA upgrade warning on v13 Windows (passing note offers VSA instead)" {
         $isVSA = $false; $v13 = $true
-        $warn = -not $isVSA -and -not $v13
-        -not $warn  # suppressed on v13
+        $warn = $false
+        -not $warn
     }
-    Assert "VSA warning fires on v12 non-VSA (upgrade required)" {
-        $isVSA = $false; $v13 = $false
-        $warn = -not $isVSA -and -not $v13
-        $warn  # fires on v12
+    Show-Rule "v12 server gets the 'Running VBR v12.x' finding (covers VSA)" {
+        $v13 = $false
+        $v12Finding = -not $v13
+        $v12Finding
     }
 
-    # ── C-24: Auto logoff ────────────────────────────────────────────────────
+    # -- C-24: Auto logoff ----------------------------------------------------
     Write-Sub "C-24: Auto logoff"
-    Assert "AutoLogoff=False should fire Warning" {
+    Show-Rule "AutoLogoff=False should fire Warning" {
         $autoLogoff = $false
         -not $autoLogoff
     }
-    Assert "AutoLogoff=True should clear Warning" {
+    Show-Rule "AutoLogoff=True should clear Warning" {
         $autoLogoff = $true
         $autoLogoff
     }
-    Assert "AutoLogoff=null (v12 log) should NOT fire" {
+    Show-Rule "AutoLogoff=null (v12 log) should NOT fire" {
         $autoLogoff = $null
         $null -eq $autoLogoff
     }
 
-    # ── C-25: Protection coverage (infrastructure VMs vs protected) ──────────────
-    Write-Sub "C-25: Protection coverage — unprotected VM detection"
-    Assert "Coverage <50% should fire Critical" {
+    # -- C-25: Protection coverage (infrastructure VMs vs protected) --------------
+    Write-Sub "C-25: Protection coverage - unprotected VM detection"
+    Show-Rule "Coverage <50% should fire Critical" {
         # effProt = min(protectedVMs + agentProtected, infraVMs); cov = effProt/infra
         $infra = 590; $vmjob = 259; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
-        $cov -lt 50   # 44% → critical
+        $cov -lt 50   # 44% -> critical
     }
-    Assert "Coverage 50-89% should fire Warning" {
+    Show-Rule "Coverage 50-89% should fire Warning" {
         $infra = 100; $vmjob = 70; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
-        $cov -ge 50 -and $cov -lt 90   # 70% → warning
+        $cov -ge 50 -and $cov -lt 90   # 70% -> warning
     }
-    Assert "Coverage >=90% should pass" {
+    Show-Rule "Coverage >=90% should pass" {
         $infra = 100; $vmjob = 95; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
         $cov -ge 90
     }
-    Assert "Unprotected count = infra - effProt" {
+    Show-Rule "Unprotected count = infra - effProt" {
         $infra = 590; $vmjob = 259; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $unprot = [Math]::Max(0, $infra - $eff)
         $unprot -eq 331
     }
-    Assert "effProt capped at infra (no negative gap from overlap)" {
+    Show-Rule "effProt capped at infra (no negative gap from overlap)" {
         $infra = 23; $vmjob = 50; $agent = 0   # jobs overlap, exceed infra
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $eff -eq 23 -and ([Math]::Max(0, $infra - $eff)) -eq 0
     }
-    Assert "Coverage skipped when infraVMs=0 (no infrastructure data)" {
+    Show-Rule "Coverage skipped when infraVMs=0 (no infrastructure data)" {
         $infra = 0
         $infra -eq 0   # calc guarded by infraVMs>0
     }
-    Assert "VCSP provider should skip coverage check" {
+    Show-Rule "VCSP provider should skip coverage check" {
         $isProvider = $true
         $isProvider
     }
 
-    # ── C-26: Agent backups included in coverage ─────────────────────────────────
+    # -- C-26: Agent backups included in coverage ---------------------------------
     Write-Sub "C-26: Veeam Agent backups count toward protection"
-    Assert "Agent-protected machines offset the gap" {
-        # VMC.log scenario: 23 infra, 0 VM jobs, 67 agent → should be 100%
+    Show-Rule "Agent-protected machines offset the gap" {
+        # VMC.log scenario: 23 infra, 0 VM jobs, 67 agent -> should be 100%
         $infra = 23; $vmjob = 0; $agent = 67
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
         $cov -eq 100
     }
-    Assert "agentProtected = EndpointBackup + EpAgentBackup" {
+    Show-Rule "agentProtected = EndpointBackup + EpAgentBackup" {
         $endpointBackup = 5; $epAgentBackup = 62
         $agentProtected = $endpointBackup + $epAgentBackup
         $agentProtected -eq 67
     }
-    Assert "Mixed VM-job + agent coverage (host-A: 2 VM + 7 agent of 45)" {
+    Show-Rule "Mixed VM-job + agent coverage (host-A: 2 VM + 7 agent of 45)" {
         $infra = 45; $vmjob = 2; $agent = 7
         $eff = [Math]::Min($vmjob + $agent, $infra)
         $cov = [Math]::Round($eff / $infra * 100)
         $cov -eq 20 -and ([Math]::Max(0,$infra-$eff)) -eq 36
     }
-    Assert "No agents: coverage unchanged (host-B stays 44%)" {
+    Show-Rule "No agents: coverage unchanged (host-B stays 44%)" {
         $infra = 590; $vmjob = 259; $agent = 0
         $eff = [Math]::Min($vmjob + $agent, $infra)
         [Math]::Round($eff / $infra * 100) -eq 44
     }
 
-    # ── C-27: Orphaned / disabled jobs ───────────────────────────────────────────
+    # -- C-27: Orphaned / disabled jobs -------------------------------------------
     Write-Sub "C-27: Orphaned / disabled job detection"
-    Assert "Disabled job (ScheduleEnabled=False) flagged as orphaned" {
+    Show-Rule "Disabled job (ScheduleEnabled=False) flagged as orphaned" {
         $sched = $false; $vms = 5
         (-not $sched)   # 'Schedule disabled' reason
     }
-    Assert "Empty job (VMsCount=0) flagged as orphaned" {
+    Show-Rule "Empty job (VMsCount=0) flagged as orphaned" {
         $sched = $true; $vms = 0
         ($vms -eq 0)   # 'No VMs assigned' reason
     }
-    Assert "Disabled + empty job flagged" {
+    Show-Rule "Disabled + empty job flagged" {
         $sched = $false; $vms = 0
         (-not $sched -and $vms -eq 0)   # 'Disabled + empty'
     }
-    Assert "Active job with VMs is NOT orphaned" {
+    Show-Rule "Active job with VMs is NOT orphaned" {
         $sched = $true; $vms = 10
         -not (-not $sched -or $vms -eq 0)
     }
-    Assert "Disabled replica job flagged as orphaned" {
+    Show-Rule "Disabled replica job flagged as orphaned" {
         $replicaSched = $false
         -not $replicaSched
     }
-    Assert "Orphan count fires Warning when >0" {
+    Show-Rule "Orphan count fires Warning when >0" {
         $orphanCount = 49   # host-B scenario
         $orphanCount -gt 0
     }
 
-    # ── C-28: Linux server trust (SSH fingerprint) ───────────────────────────────
-    Write-Sub "C-28: Linux manual credentials vs SSH fingerprint"
-    Assert "Linux manual credentials should fire Warning" {
-        $linuxManualCreds = $true
-        $linuxManualCreds
+    # -- C-28: Unknown Linux hosts trusted automatically ---------------------------
+    Write-Sub "C-28: Linux host authentication - add unknown hosts manually"
+    Show-Rule "ManualLinuxHostAuthentication BPA violation should fire Warning" {
+        # Security & Compliance Analyzer: Options > Security > Linux hosts authentication
+        $bpa = @{ ManualLinuxHostAuthentication = $true }
+        $bpa.ContainsKey('ManualLinuxHostAuthentication')
     }
-    Assert "SSH fingerprint trust should clear Warning" {
-        $linuxManualCreds = $false
-        -not $linuxManualCreds
+    Show-Rule "No violation should clear Warning" {
+        $bpa = @{}
+        -not $bpa.ContainsKey('ManualLinuxHostAuthentication')
     }
 
-    # ── C-29: Windows Credential Guard ───────────────────────────────────────────
+    # -- C-29: Windows Credential Guard -------------------------------------------
     Write-Sub "C-29: Windows Credential Guard"
-    Assert "Credential Guard not configured should fire Warning" {
+    Show-Rule "Credential Guard not configured should fire Warning" {
         $credGuard = $false
         -not $credGuard
     }
-    Assert "Credential Guard enabled should clear Warning" {
+    Show-Rule "Credential Guard enabled should clear Warning" {
         $credGuard = $true
         $credGuard
     }
 
-    # ── C-30: Backup server High Availability ────────────────────────────────────
+    # -- C-30: Backup server High Availability ------------------------------------
     Write-Sub "C-30: Backup server HA"
-    Assert "No HA configured should fire Warning" {
+    Show-Rule "No HA configured should fire Warning" {
         $haConfigured = $false
         -not $haConfigured
     }
-    Assert "HA configured should clear Warning" {
+    Show-Rule "HA configured should clear Warning" {
         $haConfigured = $true
         $haConfigured
     }
 
-    # ── C-31: Cloud-targeted job encryption ──────────────────────────────────────
+    # -- C-31: Cloud-targeted job encryption --------------------------------------
     Write-Sub "C-31: Cloud-targeted jobs must be encrypted"
-    Assert "Cloud target without encryption should fire Critical" {
+    Show-Rule "Cloud target without encryption should fire Critical" {
         $isCloudTarget = $true; $encrypted = $false
         $isCloudTarget -and -not $encrypted
     }
-    Assert "Cloud target with encryption should clear" {
+    Show-Rule "Cloud target with encryption should clear" {
         $isCloudTarget = $true; $encrypted = $true
         -not ($isCloudTarget -and -not $encrypted)
     }
-    Assert "Non-cloud target should not trigger this check" {
+    Show-Rule "Non-cloud target should not trigger this check" {
         $isCloudTarget = $false; $encrypted = $false
         -not ($isCloudTarget -and -not $encrypted)
     }
 
-    # ── C-32: Repository health check ────────────────────────────────────────────
+    # -- C-32: Repository health check --------------------------------------------
     Write-Sub "C-32: Repository health check"
-    Assert "Health check disabled should fire Warning" {
+    Show-Rule "Health check disabled should fire Warning" {
         $healthCheck = $false
         -not $healthCheck
     }
-    Assert "Health check enabled should clear Warning" {
+    Show-Rule "Health check enabled should clear Warning" {
         $healthCheck = $true
         $healthCheck
     }
 
-    # ── C-33: Deleted VM retention ───────────────────────────────────────────────
-    Write-Sub "C-33: Deleted VM retention"
-    Assert "Deleted VM retention disabled should fire Warning" {
+    # -- C-33: Remove deleted items data (space reclaim, not protection) ----------
+    Write-Sub "C-33: Remove deleted items data (v2.2.1)"
+    Show-Rule "Setting disabled raises nothing (data of removed VMs is kept)" {
         $deletedVMRet = $false
-        -not $deletedVMRet
+        $fires = $deletedVMRet
+        -not $fires
     }
-    Assert "Deleted VM retention enabled should clear Warning" {
+    Show-Rule "Setting enabled raises an Info (keep N >= 7 days)" {
         $deletedVMRet = $true
-        $deletedVMRet
+        $sev = if ($deletedVMRet) { 'i' } else { $null }
+        $sev -eq 'i'
     }
 
-    # ── C-34: Compression level ──────────────────────────────────────────────────
+    # -- C-34: Compression level --------------------------------------------------
     Write-Sub "C-34: Compression level"
-    Assert "Compression 'None' should fire Warning" {
+    Show-Rule "Compression 'None' should fire Warning" {
         $compression = 'None'
         $compression -eq 'None'
     }
-    Assert "Compression 'Optimal' should clear Warning" {
+    Show-Rule "Compression 'Optimal' should clear Warning" {
         $compression = 'Optimal'
         $compression -ne 'None'
     }
 
-    # ── C-35: Concurrent job count ───────────────────────────────────────────────
-    Write-Sub "C-35: Concurrent job count sweet spot"
-    Assert "Concurrent jobs >100 should fire Warning" {
-        $concJ = 132   # host-B scenario
-        $concJ -gt 100
+    # -- C-35: Concurrent jobs (v2.2.1) -------------------------------------------
+    Write-Sub "C-35: Concurrent jobs = configured jobs (no 1.15 inflation)"
+    Show-Rule "concJ equals the configured job count" {
+        $jobs = 115
+        $concJ = [Math]::Ceiling($jobs)
+        $concJ -eq 115
     }
-    Assert "Concurrent jobs <=100 should clear Warning" {
-        $concJ = 80
-        -not ($concJ -gt 100)
+    Show-Rule "v13 backup server RAM = 16 GB + 0.5 GB per concurrent job" {
+        $concJ = 50
+        (16 + 0.5 * $concJ) -eq 41
     }
 
-    # ── C-36: Inline malware scan ────────────────────────────────────────────────
+    # -- C-36: Inline malware scan ------------------------------------------------
     Write-Sub "C-36: Inline malware scan"
-    Assert "Inline scan disabled (non-VCSP) should fire Warning" {
+    Show-Rule "Inline scan disabled (non-VCSP) should fire Warning" {
         $inlineScan = $false; $isProvider = $false
         -not $inlineScan -and -not $isProvider
     }
-    Assert "Inline scan disabled (VCSP) should be Info not Warning" {
+    Show-Rule "Inline scan disabled (VCSP) should be Info not Warning" {
         $inlineScan = $false; $isProvider = $true
         -not $inlineScan -and $isProvider   # privacy/perf note for providers
     }
-    Assert "Inline scan enabled should clear" {
+    Show-Rule "Inline scan enabled should clear" {
         $inlineScan = $true
         $inlineScan
     }
 
-    # ── C-37: VeeamONE + backup window ───────────────────────────────────────────
+    # -- C-37: VeeamONE + backup window -------------------------------------------
     Write-Sub "C-37: VeeamONE monitoring + backup window"
-    Assert "VeeamONE not connected should fire Warning" {
+    Show-Rule "VeeamONE not connected should fire Warning" {
         $veeamOne = $false
         -not $veeamOne
     }
-    Assert "VeeamONE connected should clear Warning" {
+    Show-Rule "VeeamONE connected should clear Warning" {
         $veeamOne = $true
         $veeamOne
     }
-    Assert "Backup window not configured should fire Warning" {
+    Show-Rule "Backup window not configured should fire Warning" {
         $backupWindow = $false
         -not $backupWindow
     }
-    Assert "Backup window configured should clear Warning" {
+    Show-Rule "Backup window configured should clear Warning" {
         $backupWindow = $true
         $backupWindow
     }
 
-    # ── C-38: Failover plans + VBR version gate ──────────────────────────────────
+    # -- C-38: Failover plans + VBR version gate ----------------------------------
     Write-Sub "C-38: Failover plans + v12/v13 version gate"
-    Assert "Failover plans present should fire Info (positive)" {
+    Show-Rule "Failover plans present should fire Info (positive)" {
         $failoverPlans = 67   # site-1-DR scenario
         $failoverPlans -gt 0
     }
-    Assert "VBR v12 should note v13 features unavailable" {
+    Show-Rule "VBR v12 should note v13 features unavailable" {
         $vbrV13 = $false
         -not $vbrV13
     }
-    Assert "VBR v13 should not fire version warning" {
+    Show-Rule "VBR v13 should not fire version warning" {
         $vbrV13 = $true
         $vbrV13
     }
 
-    # ── C-39: Multi-run log selection (most recent by date/time) ─────────────────
+    # -- C-39: Multi-run log selection (most recent by date/time) -----------------
     Write-Sub "C-39: Most-recent collection run selection (by timestamp)"
-    Assert "Run timestamp [DD.MM.YYYY HH:MM:SS.mmm] parses to sortable number" {
-        # YYYYMMDDHHMMSSmmm ordering — newer time yields a larger number.
+    Show-Rule "Run timestamp [DD.MM.YYYY HH:MM:SS.mmm] parses to sortable number" {
+        # YYYYMMDDHHMMSSmmm ordering - newer time yields a larger number.
         $a = '26.05.2026 10:00:00.000'  # newer
         $b = '24.05.2026 10:00:00.000'  # older
         function ToNum($s){ if($s -match '(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})'){ return [double]($matches[3]+$matches[2]+$matches[1]+$matches[4]+$matches[5]+$matches[6]+$matches[7]) } return -1 }
         (ToNum $a) -gt (ToNum $b)
     }
-    Assert "Newest run wins even when it appears FIRST in the file" {
+    Show-Rule "Newest run wins even when it appears FIRST in the file" {
         # Out-of-order: newest run placed before older run. Timestamp selection
         # must still pick the newest (the bug a position-based approach would miss).
         function ToNum($s){ if($s -match '(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})'){ return [double]($matches[3]+$matches[2]+$matches[1]+$matches[4]+$matches[5]+$matches[6]+$matches[7]) } return -1 }
@@ -1645,12 +1752,12 @@ if (-not $SkipModuleC) {
         $best = if((ToNum $runNewestFirst) -ge (ToNum $runOlderLast)){ $runNewestFirst } else { $runOlderLast }
         $best -eq '26.05.2026 10:00:00.000'
     }
-    Assert "Day-first dot format is parsed unambiguously" {
+    Show-Rule "Day-first dot format is parsed unambiguously" {
         # Line prefix is always DD.MM.YYYY regardless of the locale UTC header.
         $prefix = '24.05.2026 20:48:01.025'
         ($prefix -match '^(\d{2})\.(\d{2})\.(\d{4})') -and ($matches[1] -eq '24') -and ($matches[2] -eq '05')
     }
-    Assert "Marker absent falls back to whole file" {
+    Show-Rule "Marker absent falls back to whole file" {
         $marker = 'STARTCOLLECTINFRASTATISTIC'
         $sample = "old format log with no collection marker"
         $sample.IndexOf($marker) -eq -1
@@ -1659,10 +1766,10 @@ if (-not $SkipModuleC) {
 } # end Module C
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  FINAL SUMMARY
-# ══════════════════════════════════════════════════════════════════════════════
-Write-Head "FINAL RESULTS — Veeam Advisor v1.0 Test Suite"
+# ==============================================================================
+Write-Head "FINAL RESULTS - Veeam Advisor v1.0 Test Suite"
 
 $total = $script:TotalPass + $script:TotalFail + $script:TotalSkip
 Out-Log ""
@@ -1683,7 +1790,7 @@ if ($script:FailedTests.Count -gt 0) {
     Out-Log "  RESULT: ALL TESTS PASSED" -Colour Green
 }
 
-# ─── Write clean summary block at end of log file ─────────────────────────────
+# --- Write clean summary block at end of log file -----------------------------
 $summaryLines = @(
     '',
     ('----------------------------------------------------------------------'),

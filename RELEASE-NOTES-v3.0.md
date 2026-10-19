@@ -42,7 +42,7 @@ archived v12 copy of the same page where one exists.
 
 ```bash
 node tools/release-refresh.mjs index.html   # refresh advisories + link map, then drift checks
-node confirm-bp-findings.js [logs-folder]   # regression suite (86 synthetic assertions)
+node confirm-bp-findings.js [logs-folder]   # regression suite (synthetic logs; runs the real page code)
 ```
 
 - `tools/build-links.mjs` checks every Help Center and KB link against the knowledge-service
@@ -58,7 +58,7 @@ node confirm-bp-findings.js [logs-folder]   # regression suite (86 synthetic ass
 - `VeeamAdvisor-MapCapture.ps1` — new read-only Section 7 (host versions, build, patch level)
 - `VeeamAdvisor-PowerShell-QA.ps1` — Module A defers Help Center / KB links to `build-links.mjs`
 - `confirm-bp-findings.js` — layer 1g (v3.0)
-- `README.md`, `CHANGELOG.md`, `user-guide.html`, `audit.sh`, `.github/workflows/tests.yml`
+- `README.md`, `CHANGELOG.md`, `user-guide.html`, `.github/workflows/tests.yml`
 
 ### Added
 - `Veeam_Advisor_v3.0.html` — locked snapshot, byte-identical to `index.html`
@@ -72,4 +72,3 @@ node confirm-bp-findings.js [logs-folder]   # regression suite (86 synthetic ass
 2. Run the updated `VeeamAdvisor-MapCapture.ps1` once on a v12 and a v13 server and load
    the output: confirm Section 7 lists the hosts with versions (property names can differ
    between builds; anything unreadable shows as `n/a` and is reported as *Check*).
-3. `bash audit.sh` — confirms that none of the shipped files contain customer-identifying data.

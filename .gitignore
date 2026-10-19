@@ -27,3 +27,10 @@ otter-escape.html
 veeam-recovery-lab.html
 Test-VeeamAdvisor-Full.ps1
 VeeamAdvisor-PowerShell-AgentCheck.ps1
+
+# Customer data — never commit (v3.0 audit): VMC.logs, MapCapture output, leak-check names
+*.log
+*.rtf
+VMC*.txt
+VeeamAdvisor-MapCapture-*.txt
+.leak-names.txt
