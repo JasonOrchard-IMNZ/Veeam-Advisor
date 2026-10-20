@@ -45,6 +45,12 @@ const MANUAL = {
 const NOTES = {
   kb4724: 'A hotfix for 12.3.0.310 resolves this without changing the build number — verify the hotfix file hashes listed in KB4724 before treating 12.3.0.310 as affected.',
 };
+// Advisories that need an action beyond updating, which also applies to servers that were
+// once on an affected build. Shown with the advisory and, after the fix, as a reminder.
+const AFTER_FIX = {
+  // KB4902 "CVE-2026-58070 Impact Mitigation": the fix stops new log entries but does not remove old ones.
+  kb4902: 'CVE-2026-58070: updating stops new passwords being logged but does not remove log files already written on the guest machines. Change the passwords of the credentials used for Application-Aware Processing, and delete or secure the guest logs that contain them.',
+};
 
 async function get(path, asText) {
   const r = await fetch(BASE + path, { headers: { 'User-Agent': 'veeam-advisor-build-advisories' } });
@@ -113,6 +119,7 @@ function parseArticle(kb, md) {
     const fx = fixed.filter(f => Number(f.split('.')[0]) === s.major || cmp(f, s.affectedMax) > 0);
     segs.push({ major: s.major, affectedMax: s.affectedMax, fixed: fx.length ? fx : fixed,
       note: NOTES[kb] || null,
+      ...(AFTER_FIX[kb] ? { afterFix: AFTER_FIX[kb] } : {}),
       cves: s.cves.map(({ affectedLine, ...c }) => c) });
   }
   return segs;
@@ -183,6 +190,12 @@ if (!changed && STAMP_AFTER && old && old.asOf) {
     process.exit(warnings.length ? 2 : 0);
   }
   console.log(`CHANGE: no new advisories or builds; data re-verified (previous check ${old.asOf}, ${age} days ago)`);
+}
+// Sanity floor: a partial fetch must not replace good data with less. Refuse to write when
+// KB2680 gave no latest build or the advisory list shrank by more than 20%.
+if (!data.latest[12] || !data.latest[13]) { console.error('Refusing to write: KB2680 latest builds missing'); process.exit(1); }
+if (old && old.advisories && advisories.length < old.advisories.length * 0.8) {
+  console.error(`Refusing to write: ${advisories.length} advisory segments vs ${old.advisories.length} in the page (partial fetch?)`); process.exit(1);
 }
 fs.writeFileSync(TARGET, html.replace(re, () => block));
 console.log(`Updated ${TARGET}`);
