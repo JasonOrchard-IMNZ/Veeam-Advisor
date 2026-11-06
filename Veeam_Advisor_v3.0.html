@@ -3797,7 +3797,7 @@ function fN(n){return n.toLocaleString();}
   // compared against this embedded copy. Do not hand-edit the block; re-run the script.
 /*VA-ADVISORIES:START*/
 var VA_ADVISORIES = {
- "asOf": "2026-11-01",
+ "asOf": "2026-11-06",
  "source": "knowledge.veeamiq.com (Veeam security advisories, KB2680)",
  "latest": {
   "12": {
@@ -3951,6 +3951,62 @@ var VA_ADVISORIES = {
    ]
   },
   {
+   "kb": "kb4830",
+   "title": "Vulnerabilities Resolved in Veeam Backup & Replication 12.3.2.4465",
+   "url": "https://www.veeam.com/kb4830",
+   "published": "2026-03-12",
+   "major": 12,
+   "affectedMax": "12.3.2.4165",
+   "fixed": [
+    "12.3.2.4465"
+   ],
+   "note": null,
+   "cves": [
+    {
+     "id": "CVE-2026-21666",
+     "cvss": 9.9,
+     "severity": "critical",
+     "deploy": null,
+     "desc": "A vulnerability allowing an authenticated domain user to perform remote code execution (RCE) on the Backup Server."
+    },
+    {
+     "id": "CVE-2026-21667",
+     "cvss": 9.9,
+     "severity": "critical",
+     "deploy": null,
+     "desc": "A vulnerability allowing an authenticated domain user to perform remote code execution (RCE) on the Backup Server."
+    },
+    {
+     "id": "CVE-2026-21668",
+     "cvss": 8.8,
+     "severity": "high",
+     "deploy": null,
+     "desc": "A vulnerability allowing an authenticated domain user to bypass restrictions and manipulate arbitrary files on a Backup Repository."
+    },
+    {
+     "id": "CVE-2026-21672",
+     "cvss": 8.8,
+     "severity": "high",
+     "deploy": null,
+     "desc": "A vulnerability allowing local privilege escalation on Windows-based Veeam Backup & Replication servers."
+    },
+    {
+     "id": "CVE-2026-21708",
+     "cvss": 9.9,
+     "severity": "critical",
+     "deploy": null,
+     "desc": "A vulnerability allowing a Backup Viewer to perform remote code execution (RCE) as the postgres user."
+    },
+    {
+     "id": "CVE-2026-21709",
+     "cvss": 6.7,
+     "severity": "medium",
+     "deploy": null,
+     "desc": "A vulnerability allowing a local attacker with administrator privileges to bypass Windows Driver Signature Enforcement."
+    }
+   ]
+  },
+  {
    "kb": "kb4831",
    "title": "Vulnerabilities Resolved in Veeam Backup & Replication 13.0.1.2067",
    "url": "https://www.veeam.com/kb4831",
@@ -4007,62 +4063,6 @@ var VA_ADVISORIES = {
       "windows",
       "vsa"
      ],
-     "desc": "A vulnerability allowing a Backup Viewer to perform remote code execution (RCE) as the postgres user."
-    },
-    {
-     "id": "CVE-2026-21709",
-     "cvss": 6.7,
-     "severity": "medium",
-     "deploy": null,
-     "desc": "A vulnerability allowing a local attacker with administrator privileges to bypass Windows Driver Signature Enforcement."
-    }
-   ]
-  },
-  {
-   "kb": "kb4830",
-   "title": "Vulnerabilities Resolved in Veeam Backup & Replication 12.3.2.4465",
-   "url": "https://www.veeam.com/kb4830",
-   "published": "2026-03-12",
-   "major": 12,
-   "affectedMax": "12.3.2.4165",
-   "fixed": [
-    "12.3.2.4465"
-   ],
-   "note": null,
-   "cves": [
-    {
-     "id": "CVE-2026-21666",
-     "cvss": 9.9,
-     "severity": "critical",
-     "deploy": null,
-     "desc": "A vulnerability allowing an authenticated domain user to perform remote code execution (RCE) on the Backup Server."
-    },
-    {
-     "id": "CVE-2026-21667",
-     "cvss": 9.9,
-     "severity": "critical",
-     "deploy": null,
-     "desc": "A vulnerability allowing an authenticated domain user to perform remote code execution (RCE) on the Backup Server."
-    },
-    {
-     "id": "CVE-2026-21668",
-     "cvss": 8.8,
-     "severity": "high",
-     "deploy": null,
-     "desc": "A vulnerability allowing an authenticated domain user to bypass restrictions and manipulate arbitrary files on a Backup Repository."
-    },
-    {
-     "id": "CVE-2026-21672",
-     "cvss": 8.8,
-     "severity": "high",
-     "deploy": null,
-     "desc": "A vulnerability allowing local privilege escalation on Windows-based Veeam Backup & Replication servers."
-    },
-    {
-     "id": "CVE-2026-21708",
-     "cvss": 9.9,
-     "severity": "critical",
-     "deploy": null,
      "desc": "A vulnerability allowing a Backup Viewer to perform remote code execution (RCE) as the postgres user."
     },
     {
