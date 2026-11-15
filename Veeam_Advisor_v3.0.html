@@ -1492,6 +1492,41 @@ function applyCaptureToMap(){
   bm.enriched = true;
 }
 
+// Scale-out repository tiers, from the ExtendableRepository line of CURRENT REPOSITORIES:
+//   CapacityTierSettings: { Enabled, ObjectStorageID: [..], Encryption: {..}, CopyBackupsEnabled,
+//     MoveBackupsEnabled, PolicyDays, Override: { Enabled, Threshold } .. }
+//   ArchiveTierSettings: { Enabled, ObjectStorageID, ArchivePeriod .. }
+// The blocks hold nested { }, so each key is read by name rather than by block.
+function parseSobrTiers(line){
+  var NULLG='00000000-0000-0000-0000-000000000000';
+  var g=function(re){ var m=line.match(re); return m?m[1]:null; };
+  var ci=line.indexOf('CapacityTierSettings:'), ai=line.indexOf('ArchiveTierSettings:');
+  var cap=ci>=0 ? line.substring(ci, ai>ci?ai:line.length) : '';
+  var arc=ai>=0 ? line.substring(ai) : '';
+  var cg=function(re){ var m=cap.match(re); return m?m[1]:null; };
+  var ids=[];
+  var idm=cap.match(/ObjectStorageID:\s*\[([^\]]*)\]/);
+  if(idm) ids=(idm[1].match(/[0-9a-fA-F-]{36}/g)||[]).map(function(x){return x.toLowerCase();}).filter(function(x){return x!==NULLG;});
+  var capOn=cg(/^CapacityTierSettings:\s*\{\s*Enabled:\s*(\w+)/);
+  var ovOn=cg(/Override:\s*\{\s*Enabled:\s*(\w+)/), ovThr=cg(/Override:\s*\{[^}]*?Threshold:\s*(\d+)/);
+  var arcOn=arc?/^ArchiveTierSettings:\s*\{\s*Enabled:\s*True/.test(arc):false;
+  var arcId=arc?(arc.match(/ObjectStorageID:\s*([0-9a-fA-F-]{36})/)||[])[1]:null;
+  if(arcId) arcId=arcId.toLowerCase();
+  if(arcId===NULLG) arcId=null;
+  var arcDays=arc?(arc.match(/ArchivePeriod:\s*(\d+)/)||[])[1]:null;
+  return {
+    placement:g(/\bPolicy:\s*(\w+),\s*StrictPlacementPolicy/),
+    capacity: cap ? {enabled:capOn==='True', ids:ids,
+      move:cg(/MoveBackupsEnabled:\s*(\w+)/)==='True', copy:cg(/CopyBackupsEnabled:\s*(\w+)/)==='True',
+      days:cg(/PolicyDays:\s*(\d+)/)!=null?parseInt(cg(/PolicyDays:\s*(\d+)/),10):null,
+      override:(ovOn==='True' && ovThr!=null)?parseInt(ovThr,10):null,
+      encrypted:cg(/\]\s*,\s*Encryption:\s*\{\s*Enabled:\s*(\w+)/)==='True'} : null,
+    archive: (arcOn && arcId) ? {id:arcId, days:arcDays!=null?parseInt(arcDays,10):null} : null,
+    sealed:g(/ExtentsInSealedMode:\s*(\w+)/)==='True',
+    maintenance:g(/ExtentsInMaintenanceMode:\s*(\w+)/)==='True'
+  };
+}
+
 function parseLog(raw,fname){
   // v3.0 fix: a new log invalidates the cached map picture the PDF embeds; without this the
   // next PDF showed the previous log's diagram above the new log's tables.
@@ -1992,6 +2027,10 @@ function parseLog(raw,fname){
       numBackups:(function(){var nb=line.match(/NumberOfBackups:\s*(\d+)/);return nb?parseInt(nb[1]):null;})(),
       // v3.0 fix: a scale-out repository lists its performance extents
       extents:(function(){var ex=line.match(/ExtentsIDs:\s*\[([^\]]*)\]/);return ex?(ex[1].match(/[0-9a-fA-F-]{36}/g)||[]).map(function(g){return g.toLowerCase();}):[];})()
+,
+      // Scale-out tiering: which object repository is the capacity / archive tier, and
+      // when backups move (or are copied) to it. Read from the scale-out line only.
+      sobr:(rtype==='ExtendableRepository')?parseSobrTiers(line):null
     };
   });
 
@@ -2030,7 +2069,19 @@ function parseLog(raw,fname){
   // not reported as idle when jobs target the scale-out repository.
   (function(){
     var byFull={}; D.repoList.forEach(function(r){ byFull[r.fullId.toLowerCase()]=r; });
-    D.repoList.forEach(function(r){ (r.extents||[]).forEach(function(e){ if(byFull[e]){ byFull[e].sobrParent=r.fullId.toLowerCase(); byFull[e].sobrParentShort=r.id; } }); });
+    D.repoList.forEach(function(r){
+      // ExtentsIDs can list the capacity-tier object repository alongside the performance
+      // extents, so the role comes from the tier settings, not from the list.
+      var t=r.sobr||{}, cap=(t.capacity&&t.capacity.enabled)?t.capacity.ids:[], arc=t.archive?t.archive.id:null;
+      var all=(r.extents||[]).slice();
+      cap.concat(arc?[arc]:[]).forEach(function(e){ if(all.indexOf(e)<0) all.push(e); });
+      r.tiers=all.map(function(e){
+        var role=cap.indexOf(e)>=0?'capacity':(e===arc?'archive':'performance');
+        if(byFull[e]){ byFull[e].sobrParent=r.fullId.toLowerCase(); byFull[e].sobrParentShort=r.id; byFull[e].sobrRole=role; }
+        return {id:e, role:role};
+      });
+      if(!r.tiers.length) delete r.tiers;
+    });
   })();
 
   // ── Cloud Connect / VCSP status ────────────────────────────────────
@@ -3035,6 +3086,11 @@ function parseLog(raw,fname){
         var gfsm=/GfsPolicy:\s*\{[^}]*Enabled:\s*True/i.test(l)||/(?:Weekly|Monthly|Yearly)GFS:\s*\{?\s*Enabled:\s*True/i.test(l);
         var lrm=l.match(/LastResult:\s*(\w+)/); var rpm=l.match(/RestorePoints:\s*(\d+)/);
         var ttm=l.match(/TargetRepositoryType:\s*(\w+)/);
+        // Backup files the job holds: StorageCounts on block / performance storage,
+        // ObjectStorageCounts already on object storage (a scale-out capacity tier).
+        var fcnt=function(m){ return m?{vbk:+m[1], vib:+m[2], vrb:+m[3]}:null; };
+        var stc=fcnt(l.match(/(?:^|[^A-Za-z])StorageCounts:\s*\{\s*VBK:\s*(\d+),\s*VIB:\s*(\d+),\s*VRB:\s*(\d+)/));
+        var osc=fcnt(l.match(/ObjectStorageCounts:\s*\{\s*VBK:\s*(\d+),\s*VIB:\s*(\d+),\s*VRB:\s*(\d+)/));
         var cur={id:jid, type:jt, kind:KIND(jt), tgt:tgt, src:src, size:zm?parseInt(zm[1],10):0,
                  plat:pm?pm[1]:null,
                  cloudTgt: ctm?ctm[1]==='True':false,
@@ -3045,13 +3101,14 @@ function parseLog(raw,fname){
                  gfs: gfsm||null,
                  lastResult: lrm?lrm[1]:null,
                  restorePts: rpm?parseInt(rpm[1],10):null,
-                 tgtType: ttm?ttm[1]:null};
+                 tgtType: ttm?ttm[1]:null, files:stc, objFiles:osc};
         // richest occurrence wins: prefer the pass that names a repository
         if(!jobs[jid] || (cur.tgt && !jobs[jid].tgt) || (cur.src.length && !jobs[jid].src.length)){
           var prev=jobs[jid];
           if(prev){ if(!cur.tgt) cur.tgt=prev.tgt; if(!cur.src.length) cur.src=prev.src;
                     if(!cur.size) cur.size=prev.size; if(!cur.plat) cur.plat=prev.plat;
-                    if(!cur.tgtPlat) cur.tgtPlat=prev.tgtPlat; if(!cur.tgtType) cur.tgtType=prev.tgtType; }
+                    if(!cur.tgtPlat) cur.tgtPlat=prev.tgtPlat; if(!cur.tgtType) cur.tgtType=prev.tgtType;
+                    if(!cur.files) cur.files=prev.files; if(!cur.objFiles) cur.objFiles=prev.objFiles; }
           jobs[jid]=cur;
         }
       });
@@ -3117,7 +3174,8 @@ function parseLog(raw,fname){
         n.jobList.push({id:j.id.substring(0,8), fullId:j.id, type:j.type, kind:j.kind, size:j.size,
                         plat:j.plat, cloudTgt:j.cloudTgt, tgtPlat:j.tgtPlat,
                         ret:j.ret, enc:j.enc, sched:j.sched, gfs:j.gfs,
-                        lastResult:j.lastResult, restorePts:j.restorePts, tgtInferred:!!j.tgtInferred});
+                        lastResult:j.lastResult, restorePts:j.restorePts, tgtInferred:!!j.tgtInferred,
+                        files:j.files, objFiles:j.objFiles});
         // A copy job's IncludedSize is the SAME data its source job already counted,
         // and a replica's IncludedSize lands on the target host, not in this
         // repository (only metadata does). Neither belongs in 'bytes'.
@@ -3160,10 +3218,25 @@ function parseLog(raw,fname){
       var idle=(D.repoList||[]).filter(function(r){
                                  var fid=r.fullId.toLowerCase();
                                  if(nodes[fid] || candidateIds[fid]) return false;
-                                 if(r.sobrParent && (nodes[r.sobrParent] || candidateIds[r.sobrParent])){ extentOfUsed.push({id:r.id, type:r.type, parent:r.sobrParentShort}); return false; }
+                                 if(r.sobrParent && (nodes[r.sobrParent] || candidateIds[r.sobrParent])){ extentOfUsed.push({id:r.id, type:r.type, parent:r.sobrParentShort, role:r.sobrRole||'performance'}); return false; }
                                  return true; })
                                .map(function(r){ return {id:r.id, type:r.type}; });
       var list=Object.keys(nodes).map(function(k){return nodes[k];});
+      // Scale-out repositories: lay out each tier (performance extents, capacity tier,
+      // archive tier) under the scale-out node, with the move / copy policy between them,
+      // and count the jobs that already have backup files on the capacity tier.
+      list.forEach(function(n){
+        var r=n.repo; if(!r || !r.tiers) return;
+        var sum=function(f){ return f?(f.vbk+f.vib+f.vrb):0; };
+        var offJobs=0, offFiles=0, perfFiles=0;
+        n.jobList.forEach(function(j){ var o=sum(j.objFiles); if(o>0){ offJobs++; offFiles+=o; } perfFiles+=sum(j.files); });
+        n.sobr={ placement:r.sobr?r.sobr.placement:null, capacity:r.sobr?r.sobr.capacity:null, archive:r.sobr?r.sobr.archive:null,
+                 sealed:r.sobr&&r.sobr.sealed, maintenance:r.sobr&&r.sobr.maintenance,
+                 offloadedJobs:offJobs, offloadedFiles:offFiles, perfFiles:perfFiles,
+                 tiers:r.tiers.map(function(t){ var x=repoById[t.id]||null;
+                   return {id:t.id, short:t.id.substring(0,8), role:t.role, repo:x}; })
+                   .sort(function(a,b){ var o={performance:0,capacity:1,archive:2}; return o[a.role]-o[b.role]; }) };
+      });
       if(!list.length && !idle.length && !Object.keys(unresolvedCopies).length) return;
       // Lane = longest path from a repository with no inbound copy flow.
       // Backup copy topologies CAN contain cycles (a repository copies out and
@@ -5761,7 +5834,7 @@ function render(d){
 
       h+='<tr class="'+rowCls+'" data-repostatus="'+(sev==='ok'?'ok':'warn')+'" data-repoimmut="'+(effectiveImmut?'1':'0')+'">';
       h+='<td>'+idCell+'</td>';
-      h+='<td style="white-space:nowrap">'+typeBadge+(r.sobrParentShort?'<div style="font-size:10px;color:var(--tx3);margin-top:2px">extent of SOBR '+esc(r.sobrParentShort)+'</div>':'')+'</td>';
+      h+='<td style="white-space:nowrap">'+typeBadge+(r.sobrParentShort?'<div style="font-size:10px;color:var(--tx3);margin-top:2px">'+(r.sobrRole==='capacity'?'capacity tier of SOBR ':r.sobrRole==='archive'?'archive tier of SOBR ':'performance extent of SOBR ')+esc(r.sobrParentShort)+'</div>':'')+'</td>';
       var totalCell = r.noCapacity ? '<span style="color:var(--tx3);font-weight:400" title="Storage snapshots only — no repository capacity">n/a</span>'
                     : r.offline ? '<span style="color:var(--amber)" title="Offline / unavailable at collection">offline</span>'
                     : (r.total_tb>0?r.total_tb+' TB':(r.total_b>0?fmtSub(r.total_b):'—'));
@@ -8050,6 +8123,36 @@ function infraTab(d){
 // Builds the map SVG on demand. Kept out of the initial render: a large estate
 // produces a ~21 KB SVG at roughly 600x1600, and forcing the browser to lay that
 // out on every upload costs more than it is worth for a tab most users never open.
+// "2 full · 52 incr" from a {vbk,vib,vrb} file count; 'none' when all zero, null when not logged.
+function bmFilesText(f){
+  if(!f) return null;
+  var p=[];
+  if(f.vbk) p.push(f.vbk+' full');
+  if(f.vib) p.push(f.vib+' incr');
+  if(f.vrb) p.push(f.vrb+' reverse incr');
+  return p.length?p.join(' \u00b7 '):'none';
+}
+// The rule that takes backups from the performance extents to the capacity tier, or from
+// the capacity tier to the archive tier, in words.
+function bmTierPolicy(sb, role){
+  if(role==='capacity'){
+    var c=sb&&sb.capacity; if(!c) return 'policy not in log';
+    if(!c.enabled) return 'capacity tier disabled';
+    var p=[];
+    if(c.copy) p.push('copy new backups');
+    if(c.move) p.push(c.days===0?'move once a backup chain is inactive':'move after '+(c.days!=null?c.days+' day'+(c.days===1?'':'s'):'the window'));
+    if(c.move && c.override!=null) p.push('or at '+c.override+'% full');
+    if(!p.length) p.push('no copy or move set');
+    if(c.encrypted) p.push('encrypted');
+    return p.join(', ');
+  }
+  if(role==='archive'){
+    var a=sb&&sb.archive;
+    return a?('archive after '+(a.days!=null?a.days+' days':'the archive period')):'archive tier';
+  }
+  return '';
+}
+
 function buildMapSvg(m){
   // Single source of truth for a replica job's destination key, used by BOTH the
   // destination-node builder and the edge drawer so they never disagree. After a
@@ -8071,7 +8174,9 @@ function buildMapSvg(m){
   // job column is dropped and the repository box carries aggregate counts instead
   // -- a large production log can carry well over a hundred jobs, and that many chips is not a diagram.
   var W=1080, PAD=20, VGAP=14, JGAP=8, JH=40, BH=64;
-  var JOB_LIMIT=40;
+  // Up to 40 jobs get two-line chips. Up to 150 get one-line chips, so every job is still
+  // drawn against its repository; past that the boxes carry totals only.
+  var JOB_LIMIT=40, JOB_LIMIT_COMPACT=150;
 
   var lanes={}, maxLane=0;
   m.nodes.slice().sort(function(a,b){return b.jobs-a.jobs;}).forEach(function(n){
@@ -8082,7 +8187,22 @@ function buildMapSvg(m){
   var hasBack=m.flows.some(function(f){ return laneOf[f.from]>=laneOf[f.to]; });
   var backRoom = hasBack?44:0;
 
-  var showJobs = m.totalJobs>0 && m.totalJobs<=JOB_LIMIT;
+  var showJobs = m.totalJobs>0 && m.totalJobs<=JOB_LIMIT_COMPACT;
+  var compactJobs = showJobs && m.totalJobs>JOB_LIMIT;
+  if(compactJobs){ JH=20; JGAP=4; }
+  // Scale-out repositories grow downward to hold one row per tier.
+  var TH=30, TGAP=6, TARROW=20;
+  function sobrRows(n){
+    if(!n.sobr || !n.sobr.tiers.length) return null;
+    var rows=[], y=BH, prev=null;
+    n.sobr.tiers.forEach(function(t){
+      y += (prev && prev!==t.role) ? TARROW : (prev ? TGAP : 0);
+      rows.push({t:t, y:y, first:prev!==t.role});
+      prev=t.role; y+=TH;
+    });
+    return {rows:rows, h:y+10};
+  }
+  var nh={}; m.nodes.forEach(function(n){ var sr=sobrRows(n); n._sr=sr; nh[n.id]=sr?sr.h:BH; });
 
   // Column model: [jobs L0][repos L0][jobs L1][repos L1] ... [replica destinations]
   var rtargets = (m.replicaTargets||[]);
@@ -8108,12 +8228,12 @@ function buildMapSvg(m){
     col.forEach(function(n){
       var jn = showJobs ? n.jobList.length : 0;
       var blockH = jn ? jn*(JH+JGAP)-JGAP : 0;
-      var rowH = Math.max(blockH, BH);
+      var rowH = Math.max(blockH, nh[n.id]);
       if(showJobs && jn){
         var jx=colX(L*colsPerLane);
         n.jobList.forEach(function(j,i){ jpos[j.fullId]={x:jx, y:y+(rowH-blockH)/2+i*(JH+JGAP)}; });
       }
-      pos[n.id]={x:colX(L*colsPerLane+(showJobs?1:0)), y:y+(rowH-BH)/2};
+      pos[n.id]={x:colX(L*colsPerLane+(showJobs?1:0)), y:y+(rowH-nh[n.id])/2};
       y += rowH+VGAP;
     });
     if(y>H) H=y;
@@ -8186,8 +8306,8 @@ function buildMapSvg(m){
     var x1=a.x+BW, y1=a.y+BH/2, x2=b.x, y2=b.y+BH/2;
     var mx=(x1+x2)/2, lx=mx, ly=(y1+y2)/2-4;
     if(back){
-      var dip=Math.max(a.y,b.y)+BH+22;
-      svg+='<path d="M'+(a.x+BW/2)+','+(a.y+BH)+' C'+(a.x+BW/2)+','+dip+' '+(b.x+BW/2)+','+dip+' '+(b.x+BW/2)+','+(b.y+BH+6)+'" fill="none" stroke="var(--ad)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#bmArrowB)" opacity="0.9"/>';
+      var dip=Math.max(a.y+nh[f.from],b.y+nh[f.to])+22;
+      svg+='<path d="M'+(a.x+BW/2)+','+(a.y+nh[f.from])+' C'+(a.x+BW/2)+','+dip+' '+(b.x+BW/2)+','+dip+' '+(b.x+BW/2)+','+(b.y+nh[f.to]+6)+'" fill="none" stroke="var(--ad)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#bmArrowB)" opacity="0.9"/>';
       lx=(a.x+b.x)/2+BW/2; ly=dip-3;
     } else {
       svg+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+(x2-8)+','+y2+'" fill="none" stroke="var(--tx2)" stroke-width="1.5" marker-end="url(#bmArrow)" opacity="0.75"/>';
@@ -8217,18 +8337,68 @@ function buildMapSvg(m){
         if(j.enc!==null) det.push('encryption '+(j.enc?'on':'off'));
         if(j.sched!==null) det.push('schedule '+(j.sched?'enabled':'disabled'));
         if(j.restorePts!==null) det.push(j.restorePts+' restore points');
+        var fs=bmFilesText(j.files); if(fs) det.push((n.sobr?'performance tier: ':'backup files: ')+fs);
+        var ofs=bmFilesText(j.objFiles); if(ofs && ofs!=='none') det.push('capacity tier: '+ofs);
         if(j.lastResult) det.push('last result: '+j.lastResult);
         if(j.destHost) det.push('replica target host: '+j.destHost+(j.destDir?' ('+j.destDir+')':''));
         if(j.destDeleted) det.push('replica target host DELETED');
         if(j.kind==='replica') det.push('writes metadata only to the repository');
         svg+='<g><title>'+esc(det.join(' \u00b7 '))+'</title>';
-        svg+='<rect x="'+p.x+'" y="'+p.y+'" width="'+JW+'" height="'+JH+'" rx="6" fill="var(--bg2)" stroke="'+col+'" stroke-width="1.2"'+(j.kind==='replica'?' stroke-dasharray="4 3"':'')+'/>';
-        svg+='<text x="'+(p.x+9)+'" y="'+(p.y+16)+'" font-size="10" font-weight="700" fill="'+col+'">'+esc(clip(label,Math.max(6,maxChars-8)))+'</text>';
-        svg+='<text x="'+(p.x+9)+'" y="'+(p.y+30)+'" font-size="9" font-family="monospace" fill="var(--tx3)">'+esc(clip(sub,Math.max(8,maxChars)))+'</text>';
-        if(sz && !compressed) svg+='<text x="'+(p.x+JW-9)+'" y="'+(p.y+30)+'" font-size="9" text-anchor="end" fill="var(--tx2)">'+sz+'</text>';
+        var onCap = !!(n.sobr && j.objFiles && (j.objFiles.vbk+j.objFiles.vib+j.objFiles.vrb)>0);
+        svg+='<rect x="'+p.x+'" y="'+p.y+'" width="'+JW+'" height="'+JH+'" rx="'+(compactJobs?4:6)+'" fill="var(--bg2)" stroke="'+col+'" stroke-width="1.2"'+(j.kind==='replica'?' stroke-dasharray="4 3"':'')+'/>';
+        if(compactJobs){
+          // one line: name (or type) and ID prefix, size on the right
+          var one = j.jobName ? j.jobName : (j.type+' '+j.id);
+          svg+='<text x="'+(p.x+8)+'" y="'+(p.y+13.5)+'" font-size="9" fill="'+col+'"><tspan font-weight="700">'+esc(clip(one,Math.max(8,maxChars-10)))+'</tspan></text>';
+          if(sz && !compressed) svg+='<text x="'+(p.x+JW-8)+'" y="'+(p.y+13.5)+'" font-size="9" text-anchor="end" fill="var(--tx2)">'+sz+'</text>';
+        } else {
+          svg+='<text x="'+(p.x+9)+'" y="'+(p.y+16)+'" font-size="10" font-weight="700" fill="'+col+'">'+esc(clip(label,Math.max(6,maxChars-8)))+'</text>';
+          svg+='<text x="'+(p.x+9)+'" y="'+(p.y+30)+'" font-size="9" font-family="monospace" fill="var(--tx3)">'+esc(clip(sub,Math.max(8,maxChars)))+'</text>';
+          if(sz && !compressed) svg+='<text x="'+(p.x+JW-9)+'" y="'+(p.y+30)+'" font-size="9" text-anchor="end" fill="var(--tx2)">'+sz+'</text>';
+        }
+        // marker: this job already has backup files on the scale-out capacity tier
+        if(onCap) svg+='<circle cx="'+(p.x+JW-(compactJobs?(sz&&!compressed?62:10):9))+'" cy="'+(p.y+(compactJobs?JH/2:13))+'" r="3.5" fill="var(--bdk)"/>';
         svg+='</g>';
       });
     });
+  }
+
+  // Scale-out tiers, drawn inside the scale-out box: performance extents, then the
+  // capacity tier and archive tier, with the move / copy policy on the arrow between.
+  function bmTierRows(n, p){
+    var out='', sb=n.sobr, IX=p.x+8, IW=BW-16;
+    var ROLE={performance:'Performance extent', capacity:'Capacity tier', archive:'Archive tier'};
+    var RCOL={performance:'var(--gd)', capacity:'var(--bdk)', archive:'var(--pdk)'};
+    var RFIL={performance:'var(--gl)', capacity:'var(--bl)', archive:'var(--bg2)'};
+    n._sr.rows.forEach(function(row, i){
+      var t=row.t, r=t.repo, y=p.y+row.y, col=RCOL[t.role];
+      if(row.first && i>0){
+        // arrow from the previous tier into this one
+        var ay1=y-TARROW+2, ay2=y-2, ax=IX+14;
+        out+='<path d="M'+ax+','+ay1+' L'+ax+','+(ay2-1)+'" stroke="'+col+'" stroke-width="1.3" marker-end="url(#bmArrow)"/>';
+        out+='<text x="'+(ax+9)+'" y="'+(ay1+11)+'" font-size="8.5" fill="'+col+'">'+esc(clip(bmTierPolicy(sb, t.role), Math.floor((IW-30)/4.6)))+'</text>';
+      }
+      // block extents log FreeSpace, not UsedSpace: used = total - free
+      var used = r ? (r.total_tb>0 ? (r.free_tb!=null?Math.max(0,r.total_tb-r.free_tb):r.used_tb).toFixed(1)+' / '+r.total_tb.toFixed(1)+' TB' : (r.used_b>0 ? r.used_tb.toFixed(1)+' TB used' : 'empty')) : 'not enumerated';
+      var tip=[ROLE[t.role]+' of scale-out '+n.short, 'id '+t.id, r?r.type:'repository not in log', used];
+      if(r && r.used_pct!=null && r.total_tb>0) tip.push(r.used_pct+'% used');
+      if(r && repoEffImmut(r)) tip.push('immutable '+(r.immutDays?r.immutDays+' days':'yes'));
+      else if(r && r.immut===false) tip.push('not immutable');
+      if(t.role!=='performance') tip.push(bmTierPolicy(sb, t.role));
+      if(t.role==='capacity' && sb.offloadedJobs) tip.push(sb.offloadedJobs+' job'+(sb.offloadedJobs===1?'':'s')+' with '+sb.offloadedFiles+' backup file'+(sb.offloadedFiles===1?'':'s')+' here');
+      out+='<g><title>'+esc(tip.join(' \u00b7 '))+'</title>';
+      out+='<rect x="'+IX+'" y="'+y+'" width="'+IW+'" height="'+TH+'" rx="5" fill="'+RFIL[t.role]+'" stroke="'+col+'" stroke-width="1"/>';
+      out+='<text x="'+(IX+8)+'" y="'+(y+12)+'" font-size="9" font-weight="700" fill="'+col+'">'+esc(clip(ROLE[t.role]+(r?' \u00b7 '+r.type:''), Math.floor((IW-16)/5.4)))+'</text>';
+      var right = (t.role==='capacity' && sb.offloadedJobs) ? sb.offloadedJobs+' job'+(sb.offloadedJobs===1?'':'s')+' offloaded' : '';
+      if(r && repoEffImmut(r)) used += ' \u00b7 immutable'+(r.immutDays?' '+r.immutDays+'d':'');
+      out+='<text x="'+(IX+8)+'" y="'+(y+24)+'" font-size="8.5" font-family="monospace" fill="var(--tx2)">'+esc(t.short)+'</text>';
+      if(!compressed){
+        out+='<text x="'+(IX+IW-8)+'" y="'+(y+24)+'" font-size="8.5" text-anchor="end" fill="var(--tx2)">'+esc(used)+'</text>';
+        if(right) out+='<text x="'+(IX+IW-8)+'" y="'+(y+12)+'" font-size="8.5" text-anchor="end" fill="'+col+'">'+esc(right)+'</text>';
+      }
+      out+='</g>';
+    });
+    return out;
   }
 
   // repository boxes
@@ -8250,13 +8420,19 @@ function buildMapSvg(m){
     }
     if(n.inFlow) rdet.push(n.inFlow+' inbound copy flow'+(n.inFlow>1?'s':''));
     if(n.cyc) rdet.push('participates in a return copy cycle');
+    if(n.sobr){
+      rdet.push(n.sobr.tiers.length+' tier extent'+(n.sobr.tiers.length===1?'':'s'));
+      if(n.sobr.placement) rdet.push('placement '+n.sobr.placement);
+      if(n.sobr.offloadedJobs) rdet.push(n.sobr.offloadedJobs+' job'+(n.sobr.offloadedJobs===1?' has':'s have')+' files on the capacity tier');
+    }
     svg+='<g><title>'+esc(rdet.join(' \u00b7 '))+'</title>';
-    svg+='<rect x="'+p.x+'" y="'+p.y+'" width="'+BW+'" height="'+BH+'" rx="7" fill="'+c.f+'" stroke="'+c.s+'" stroke-width="1.5"/>';
+    svg+='<rect x="'+p.x+'" y="'+p.y+'" width="'+BW+'" height="'+nh[n.id]+'" rx="7" fill="'+c.f+'" stroke="'+c.s+'" stroke-width="1.5"/>';
     svg+='<text x="'+(p.x+10)+'" y="'+(p.y+18)+'" font-size="11" font-weight="700" fill="'+c.s+'">'+esc(clip(n.repoName||(n.repo?n.repo.type:'(not enumerated)')))+'</text>';
     svg+='<text x="'+(p.x+10)+'" y="'+(p.y+32)+'" font-size="10" font-family="monospace" fill="var(--tx2)">'+esc(n.short)+(n.repoName&&n.repo&&n.repo.type?'  \u00b7  '+n.repo.type:'')+'</text>';
     svg+='<text x="'+(p.x+10)+'" y="'+(p.y+BH-12)+'" font-size="10" fill="var(--tx2)">'+esc(clip(parts.join(' \u00b7 ')||'\u2014', partChars))+'</text>';
     if(!compressed) svg+='<text x="'+(p.x+BW-10)+'" y="'+(p.y+BH-12)+'" font-size="10" font-weight="700" text-anchor="end" fill="'+c.s+'">'+sz+'</text>';
     svg+='</g>';
+    if(n._sr) svg+=bmTierRows(n, p);
   });
   if(showTargets){
     rtargets.forEach(function(t){
@@ -8325,11 +8501,14 @@ function buildMapSvg(m){
   lg+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--pl);border:1px solid var(--pdk)"></span> Scale-out</span>';
   if(showJobs) lg+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;border:1px dashed var(--pdk)"></span> Replica &middot; dashed edge = metadata only</span>';
   if(showTargets) lg+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg2);border:1px dashed var(--pdk)"></span> Replica destination (host not logged)</span>';
+  if(m.nodes.some(function(n){return n.sobr;})) lg+='<span>Scale-out boxes list their tiers; the arrow between tiers shows when backups move or copy</span>';
+  if(showJobs && m.nodes.some(function(n){return n.sobr && n.sobr.offloadedJobs;})) lg+='<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bdk)"></span> job has files on the capacity tier</span>';
   lg+='<span>&rarr; backup copy flow</span>';
   if(m.cycles) lg+='<span style="color:var(--ad)">&#8674; return copy (cycle)</span>';
   lg+='</div>';
 
-  return {svg:svg, legend:lg, compressed:compressed, showJobs:showJobs, showTargets:showTargets, width:W, height:H};
+  m.nodes.forEach(function(n){ delete n._sr; });
+  return {svg:svg, legend:lg, compressed:compressed, showJobs:showJobs, compactJobs:compactJobs, showTargets:showTargets, width:W, height:H};
 }
 
 // Invoked by the Draw button on the Backup map tab.
@@ -8505,7 +8684,7 @@ function mapTab(d){
 
   h+='<div style="display:flex;align-items:center;gap:10px;margin:10px 0 6px">';
   h+='<button id="bmBtn" onclick="drawBackupMap()" style="background:var(--gd);color:#fff;border:none;border-radius:7px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">Draw map</button>';
-  h+='<span style="font-size:11px;color:var(--tx3)">'+m.totalJobs+' job'+(m.totalJobs===1?'':'s')+' &rarr; '+m.nodes.length+' repositor'+(m.nodes.length===1?'y':'ies')+', '+m.flows.length+' copy flow'+(m.flows.length===1?'':'s')+(m.totalJobs>40?' &middot; over 40 jobs: repository totals only':'')+' &middot; drawn on demand</span>';
+  h+='<span style="font-size:11px;color:var(--tx3)">'+m.totalJobs+' job'+(m.totalJobs===1?'':'s')+' &rarr; '+m.nodes.length+' repositor'+(m.nodes.length===1?'y':'ies')+', '+m.flows.length+' copy flow'+(m.flows.length===1?'':'s')+(m.totalJobs>150?' &middot; over 150 jobs: repository totals only':(m.totalJobs>40?' &middot; over 40 jobs: one-line job chips':''))+' &middot; drawn on demand</span>';
   h+='</div>';
   h+='<div id="bmCanvas"></div>';
   // ── Capture enrichment panel ─────────────────────────────────────────────
@@ -8577,7 +8756,7 @@ function mapTab(d){
       else if(gwText) h+='<p style="font-size:11px;color:var(--tx3);margin:6px 0 0">Cloud gateway(s): '+esc(gwText)+'</p>';
       h+='</div>';
     }
-  h+='<p style="font-size:11px;color:var(--tx3);margin:2px 0 4px">Click a repository row to expand the individual jobs writing to it, with full per-job detail. This works regardless of the diagram\'s 40-job threshold.</p>';
+  h+='<p style="font-size:11px;color:var(--tx3);margin:2px 0 4px">Click a repository row to expand the individual jobs writing to it, with full per-job detail. This works regardless of the diagram\'s 150-job threshold. A scale-out repository also lists its tiers (performance extents, capacity tier, archive tier) and when backups move between them.</p>';
   h+='<div class="tw"><table><tr><th></th><th>Repository</th><th>Type</th><th>Jobs</th><th>Job breakdown</th><th>Primary data</th><th>Copied in</th><th>Inbound flows</th></tr>';
   var _ri=0;
   m.nodes.slice().sort(function(a,b){return (b.bytes+b.copyBytes)-(a.bytes+a.copyBytes);}).forEach(function(n){
@@ -8589,7 +8768,8 @@ function mapTab(d){
     h+='<tr'+(canExpand?' style="cursor:pointer" onclick="bmToggleRepoJobs(\''+rid+'\',this)"':'')+'>';
     h+='<td style="width:18px;color:var(--tx3);text-align:center">'+(canExpand?'<span class="bmcaret">&#9656;</span>':'')+'</td>';
     h+='<td style="font-family:monospace;font-size:12px">'+esc(n.short)+'</td>';
-    h+='<td style="font-size:12px">'+esc(n.repoName||(n.repo?n.repo.type:'not enumerated'))+(n.repoName&&n.repo&&n.repo.type?' <span style="color:var(--tx3);font-size:11px">('+esc(n.repo.type)+')</span>':'')+'</td>';
+    h+='<td style="font-size:12px">'+esc(n.repoName||(n.repo?n.repo.type:'not enumerated'))+(n.repoName&&n.repo&&n.repo.type?' <span style="color:var(--tx3);font-size:11px">('+esc(n.repo.type)+')</span>':'')
+      +(n.sobr?n.sobr.tiers.map(function(t){ return '<div style="font-size:10px;color:var(--tx3);margin-top:2px">'+({performance:'performance extent',capacity:'capacity tier',archive:'archive tier'})[t.role]+' <code>'+esc(t.short)+'</code>'+(t.repo?' '+esc(t.repo.type):'')+(t.role!=='performance'?' &middot; '+esc(bmTierPolicy(n.sobr,t.role)):'')+'</div>'; }).join(''):'')+'</td>';
     h+='<td style="font-weight:700">'+n.jobs+'</td>';
     h+='<td style="font-size:11px;color:var(--tx2)">'+esc(parts.join(' · '))+'</td>';
     h+='<td style="white-space:nowrap">'+(tb>=0.1?tb.toFixed(1)+' TiB':(n.bytes>0?fmtSub(n.bytes):'<span style="color:var(--tx3)">&mdash;</span>'))+'</td>';
@@ -8598,7 +8778,7 @@ function mapTab(d){
     if(canExpand){
       h+='<tr id="'+rid+'" style="display:none"><td></td><td colspan="7" style="padding:0 0 8px">';
       h+='<table style="width:100%;font-size:11px;border-collapse:collapse">';
-      h+='<tr style="color:var(--tx3)"><th style="text-align:left;padding:3px 6px">Job ID</th><th style="text-align:left">Name</th><th style="text-align:left">Type</th><th style="text-align:left">Platform</th><th style="text-align:right">Source data</th><th style="text-align:left">Retention</th><th style="text-align:left">Encryption</th><th style="text-align:left">Schedule</th><th style="text-align:left">Last result</th></tr>';
+      h+='<tr style="color:var(--tx3)"><th style="text-align:left;padding:3px 6px">Job ID</th><th style="text-align:left">Name</th><th style="text-align:left">Type</th><th style="text-align:left">Platform</th><th style="text-align:right">Source data</th><th style="text-align:left">Retention</th><th style="text-align:left">Encryption</th><th style="text-align:left">Schedule</th><th style="text-align:left">Last result</th><th style="text-align:left">'+(n.sobr?'Backup files (performance / capacity tier)':'Backup files')+'</th></tr>';
       n.jobList.slice().sort(function(a,b){return b.size-a.size;}).forEach(function(j){
         var _js = (typeof j.captureSize==='number') ? j.captureSize : j.size;
         var sz = _js>0 ? (_js>=1099511627776?(_js/1099511627776).toFixed(1)+' TiB':fmtSub(_js)) : '&mdash;';
@@ -8613,6 +8793,8 @@ function mapTab(d){
         h+='<td>'+(j.enc===true?'on':j.enc===false?'off':dash)+'</td>';
         h+='<td>'+(j.sched===true?'enabled':j.sched===false?'disabled':dash)+'</td>';
         h+='<td>'+(j.lastResult?esc(j.lastResult):dash)+'</td>';
+        var _pf=bmFilesText(j.files), _of=bmFilesText(j.objFiles);
+        h+='<td style="white-space:nowrap">'+(_pf?esc(_pf):dash)+(n.sobr&&_of&&_of!=='none'?' <span style="color:var(--bdk)">/ '+esc(_of)+'</span>':'')+'</td>';
         h+='</tr>';
       });
       h+='</table></td></tr>';
@@ -8622,7 +8804,8 @@ function mapTab(d){
   h+='<p style="font-size:11px;color:var(--tx3);margin:4px 0 6px">Primary data counts backup, agent, log and config jobs. Copy jobs re-protect data already counted at their source and are reported separately. Replica jobs write only metadata and digests to their repository — the VM data lands on the target host — so their size is excluded from both figures.</p>';
 
   h+=nt('i','&#128279; <b>'+m.totalJobs+' job'+(m.totalJobs===1?'':'s')+'</b> writing to <b>'+m.nodes.length+' repositor'+(m.nodes.length===1?'y':'ies')+'</b>'+(m.flows.length?', with <b>'+m.flows.length+'</b> backup copy flow'+(m.flows.length===1?'':'s')+' between them.':'.'));
-  if(m.totalJobs>40) h+=nt('i','&#128279; This estate has '+m.totalJobs+' jobs. Individual job nodes are drawn only up to 40 — beyond that the diagram shows repositories with aggregate job counts, and the table below carries the per-repository breakdown.');
+  if(m.totalJobs>150) h+=nt('i','&#128279; This estate has '+m.totalJobs+' jobs. Individual job nodes are drawn only up to 150 — beyond that the diagram shows repositories with aggregate job counts, and the table below carries the per-repository breakdown.');
+  else if(m.totalJobs>40) h+=nt('i','&#128279; This estate has '+m.totalJobs+' jobs, so each job is drawn as a one-line chip against the repository it writes to. Hover a chip for its full detail.');
   var replicaN=m.nodes.reduce(function(a,n){return a+n.counts.replica;},0);
   // Enrichment banner + deleted-host finding (from optional PowerShell capture)
   if(m.captureMismatch){
@@ -8643,7 +8826,14 @@ function mapTab(d){
     var dflt=m.nodes.filter(function(n){ return n.counts.replica>0 && n.id.indexOf('88788f9e-d8f5-4eb4-bc4f-9b3f5403bcec')===0; });
     if(dflt.length) h+=nt('i','&#128279; Replica metadata is held on <code>88788f9e</code>, the built-in <b>Default Backup Repository</b> — the same GUID on every VBR install. Its presence here reflects Veeam\'s defaults, not a deliberate placement choice.');
   }
-  if((m.extents||[]).length) h+=nt('i','&#128279; <b>'+m.extents.length+' repositor'+(m.extents.length===1?'y is a performance extent':'ies are performance extents')+' of a scale-out repository</b> that jobs target, so '+(m.extents.length===1?'it holds':'they hold')+' that data and '+(m.extents.length===1?'is':'are')+' not idle: '+m.extents.slice(0,12).map(function(e){return esc(e.id)+' \u2192 SOBR '+esc(e.parent);}).join(', ')+(m.extents.length>12?' and '+(m.extents.length-12)+' more':'')+'. Backup counts are recorded against the scale-out repository.');
+  if((m.extents||[]).length){
+    var _perf=m.extents.filter(function(e){return e.role==='performance';}), _cap=m.extents.filter(function(e){return e.role!=='performance';});
+    var _el=function(a){ return a.slice(0,12).map(function(e){return esc(e.id)+' ('+esc(e.type)+') \u2192 SOBR '+esc(e.parent);}).join(', ')+(a.length>12?' and '+(a.length-12)+' more':''); };
+    h+=nt('i','&#128279; <b>'+m.extents.length+' repositor'+(m.extents.length===1?'y belongs':'ies belong')+' to a scale-out repository</b> that jobs target, so '+(m.extents.length===1?'it is':'they are')+' not idle. '
+      +(_perf.length?'Performance extent'+(_perf.length===1?'':'s')+' (new backups land here): '+_el(_perf)+'. ':'')
+      +(_cap.length?'Capacity / archive tier'+(_cap.length===1?'':'s')+' (backups move or copy here by policy): '+_el(_cap)+'. ':'')
+      +'Jobs and backup counts are recorded against the scale-out repository; the map draws each tier inside it.');
+  }
   if(m.idle.length) h+=nt('w','&#9888; <b>'+m.idle.length+' repositor'+(m.idle.length===1?'y is':'ies are')+' idle</b> — configured but no job targets '+(m.idle.length===1?'it':'them')+': '+m.idle.slice(0,8).map(function(r){return esc(r.id)+' ('+esc(r.type)+')';}).join(', ')+(m.idle.length>8?' and '+(m.idle.length-8)+' more':'')+'. Idle repositories still consume capacity and licence scope.');
   // v3.0 fix: copy jobs whose target the log names only by type (BackupSync)
   (m.unresolvedCopies||[]).forEach(function(g){
@@ -9514,13 +9704,34 @@ function _exportPDFNow(){
       var tb=n.bytes/1099511627776, cb=n.copyBytes/1099511627776;
       var parts=[];
       ['backup','copy','replica','agent','log','config'].forEach(function(k){ if(n.counts[k]) parts.push(n.counts[k]+' '+k); });
-      h += '<tr><td>'+esc(n.short)+'</td><td>'+esc(n.repo?n.repo.type:'not enumerated')+'</td><td>'+n.jobs+'</td>';
+      h += '<tr><td>'+esc(n.short)+'</td><td>'+esc(n.repo?n.repo.type:'not enumerated')
+        +(n.sobr?n.sobr.tiers.map(function(t){ return '<div style="font-size:9px;color:#5F5E5A">'+({performance:'performance extent',capacity:'capacity tier',archive:'archive tier'})[t.role]+' '+esc(t.short)+(t.repo?' ('+esc(t.repo.type)+')':'')+'</div>'; }).join(''):'')
+        +'</td><td>'+n.jobs+'</td>';
       h += '<td>'+esc(parts.join(', '))+'</td>';
       h += '<td>'+(tb>=0.1?tb.toFixed(1)+' TiB':(n.bytes>0?fmtSub(n.bytes):'—'))+'</td>';
       h += '<td>'+(cb>=0.1?cb.toFixed(1)+' TiB':(n.copyBytes>0?fmtSub(n.copyBytes):'—'))+'</td>';
       h += '<td>'+(n.inFlow||'—')+'</td></tr>';
     });
     h += '</table>';
+    // Scale-out tiers: where each extent sits and when backups move between tiers.
+    var sobrNodes = bm.nodes.filter(function(n){ return n.sobr && n.sobr.tiers.length; });
+    if(sobrNodes.length){
+      h += '<div class="pdf-h3">Scale-out repository tiers</div>';
+      h += '<table class="pdf-tbl"><tr><th>Scale-out</th><th>Tier</th><th>Extent</th><th>Type</th><th>Used / capacity</th><th>Immutable</th><th>Policy into this tier</th><th>Jobs with files here</th></tr>';
+      sobrNodes.forEach(function(n){
+        n.sobr.tiers.forEach(function(t,i){
+          var r=t.repo;
+          var used = r ? (r.total_tb>0 ? (r.free_tb!=null?Math.max(0,r.total_tb-r.free_tb):r.used_tb).toFixed(1)+' / '+r.total_tb.toFixed(1)+' TB' : (r.used_b>0 ? r.used_tb.toFixed(1)+' TB used' : 'empty')) : 'not in log';
+          h += '<tr><td>'+(i===0?esc(n.short)+(n.sobr.placement?' <span style="color:#5F5E5A">('+esc(n.sobr.placement)+')</span>':''):'')+'</td>';
+          h += '<td>'+({performance:'Performance extent',capacity:'Capacity tier',archive:'Archive tier'})[t.role]+'</td>';
+          h += '<td>'+esc(t.short)+'</td><td>'+esc(r?r.type:'—')+'</td><td>'+used+'</td>';
+          h += '<td>'+(r&&repoEffImmut(r)?(r.immutDays?r.immutDays+' days':'yes'):(r&&r.immut===false?'no':'—'))+'</td>';
+          h += '<td>'+(t.role==='performance'?'new backups land here':esc(bmTierPolicy(n.sobr,t.role)))+'</td>';
+          h += '<td>'+(t.role==='capacity'?(n.sobr.offloadedJobs?n.sobr.offloadedJobs+' ('+n.sobr.offloadedFiles+' files)':'none yet'):(t.role==='performance'?'—':'—'))+'</td></tr>';
+        });
+      });
+      h += '</table>';
+    }
     // Per-repository job detail. Grouping by repository keeps this readable even on
     // large estates (well over a hundred jobs) where a single flat table would be unusable,
     // and it mirrors the expandable rows on-screen. Every job is listed.
@@ -9529,7 +9740,8 @@ function _exportPDFNow(){
       h += '<div class="pdf-h3">Jobs by repository'+(bm.enriched?' (names from PowerShell capture)':'')+'</div>';
       reposWithJobs.slice().sort(function(a,b){return (b.bytes+b.copyBytes)-(a.bytes+a.copyBytes);}).forEach(function(n){
         h += '<div style="font-weight:700;font-size:11px;margin:8px 0 2px">'+esc(n.repoName?n.repoName+' ':'')+esc(n.short)+' — '+esc(n.repo?n.repo.type:'not enumerated')+' ('+n.jobList.length+' job'+(n.jobList.length>1?'s':'')+')</div>';
-        h += '<table class="pdf-tbl"><tr><th>Job'+(bm.enriched?' / name':' ID')+'</th><th>Type</th><th>Platform</th><th>Source data</th><th>Retention</th><th>Enc</th><th>Sched</th><th>Last result</th></tr>';
+        if(n.sobr) h += '<div style="font-size:10px;color:#5F5E5A;margin:0 0 3px">'+n.sobr.tiers.map(function(t){ return ({performance:'Performance extent',capacity:'Capacity tier',archive:'Archive tier'})[t.role]+' '+esc(t.short)+(t.repo?' ('+esc(t.repo.type)+')':'')+(t.role!=='performance'?': '+esc(bmTierPolicy(n.sobr,t.role)):''); }).join(' &middot; ')+(n.sobr.offloadedJobs?' &middot; '+n.sobr.offloadedJobs+' job(s) have files on the capacity tier':'')+'</div>';
+        h += '<table class="pdf-tbl"><tr><th>Job'+(bm.enriched?' / name':' ID')+'</th><th>Type</th><th>Platform</th><th>Source data</th><th>Retention</th><th>Enc</th><th>Sched</th><th>Last result</th><th>'+(n.sobr?'Files (perf / capacity)':'Backup files')+'</th></tr>';
         n.jobList.slice().sort(function(a,b){return b.size-a.size;}).forEach(function(j){
           var jn = j.jobName ? esc(j.jobName) : esc(j.id);
           if(j.destDeleted) jn += ' ⚠ deleted host';
@@ -9539,7 +9751,9 @@ function _exportPDFNow(){
           h += '<td>'+(j.ret?esc(j.ret)+(j.gfs?' +GFS':''):'—')+'</td>';
           h += '<td>'+(j.enc===true?'on':j.enc===false?'off':'—')+'</td>';
           h += '<td>'+(j.sched===true?'on':j.sched===false?'off':'—')+'</td>';
-          h += '<td>'+(j.lastResult?esc(j.lastResult):'—')+'</td></tr>';
+          h += '<td>'+(j.lastResult?esc(j.lastResult):'—')+'</td>';
+          var _pf=bmFilesText(j.files), _of=bmFilesText(j.objFiles);
+          h += '<td>'+(_pf?esc(_pf):'—')+(n.sobr&&_of&&_of!=='none'?' / '+esc(_of):'')+'</td></tr>';
         });
         h += '</table>';
       });
