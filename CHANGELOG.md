@@ -3,6 +3,26 @@
 Notable changes to the tool are recorded here. Newest first.
 
 
+## v3.0 update — 2026-11-16, scale-out tiers on the Resiliency map (version stays v3.0)
+
+### Added
+- **Resiliency map**: a scale-out repository box now lists its tiers: each performance
+  extent, the capacity tier and (when enabled) the archive tier, with the rule between them
+  ("move after 5 days, or at 80% full, encrypted"). Tier roles come from
+  `CapacityTierSettings` / `ArchiveTierSettings`, since `ExtentsIDs` can list the capacity
+  tier alongside the performance extents.
+- **Jobs on the map**: estates with 41 to 150 jobs now draw every job as a one-line chip
+  against the repository it writes to (it was repository totals only above 40). A dot marks a
+  job that already has backup files on the capacity tier.
+- **Backup files per job** (`StorageCounts` / `ObjectStorageCounts`) in the chip tooltip and
+  the expanded repository table, split into performance and capacity tier for scale-out.
+- The Repository details table says "performance extent", "capacity tier" or "archive tier"
+  of the SOBR instead of "extent"; the map notes list the tiers too.
+- **Save to PDF**: the map page has a new "Scale-out repository tiers" table (each extent, its
+  role, used space, immutability, the policy into it, and jobs with files on the capacity
+  tier), tiers under each SOBR in the repository table, and a per-job backup files column
+  (performance / capacity tier). The embedded map image is the same drawing as the tab.
+
 ## v3.0 fixes — 2026-10-08, remaining audit items (version stays v3.0)
 
 The audit items the first round left open. Each has a test in `tests/v3-fixes.test.js`.
